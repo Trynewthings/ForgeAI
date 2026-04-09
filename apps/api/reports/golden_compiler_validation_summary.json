@@ -1,0 +1,2085 @@
+{
+  "report_version": "1.0",
+  "total_runs": 16,
+  "mocked_llm_runs": 8,
+  "metrics": {
+    "analyzer_validation": {
+      "executions": 16,
+      "success_count": 16,
+      "success_rate": 1.0
+    },
+    "family_recommendation": {
+      "executions": 16,
+      "success_count": 15,
+      "success_rate": 0.9375
+    },
+    "filler_validation": {
+      "executions": 16,
+      "success_count": 16,
+      "success_rate": 1.0
+    },
+    "repair_attempts_count": 2,
+    "repair_success_count": 1,
+    "repair_success_rate": 0.5,
+    "deterministic_fallback_events_count": 1,
+    "deterministic_fallback_events_rate": 0.0625,
+    "fallback_runs_count": 1,
+    "fallback_runs_rate": 0.0625
+  },
+  "per_case": {
+    "markdown_blog_post_polisher": {
+      "title": "Markdown Blog Post Polisher",
+      "expected_family": "single_service",
+      "expected_completion_state": null,
+      "runs": [
+        {
+          "run_key": "markdown_blog_post_polisher:deterministic:compile",
+          "case_key": "markdown_blog_post_polisher",
+          "title": "Markdown Blog Post Polisher",
+          "mode": "deterministic",
+          "operation": "compile",
+          "used_mock_llm": false,
+          "completion_state": "ready_to_compile",
+          "selected_family": "single_service",
+          "draft_readiness_status": "ready_for_build",
+          "validation_valid": true,
+          "clarification_triggered": false,
+          "clarifications_used": false,
+          "llm_assistance_used": false,
+          "fallback_events": [],
+          "validation_outcomes": [],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "markdown_blog_post_polisher:llm_assisted:compile",
+          "case_key": "markdown_blog_post_polisher",
+          "title": "Markdown Blog Post Polisher",
+          "mode": "llm_assisted",
+          "operation": "compile",
+          "used_mock_llm": true,
+          "completion_state": "ready_to_compile",
+          "selected_family": "single_service",
+          "draft_readiness_status": "ready_for_build",
+          "validation_valid": true,
+          "clarification_triggered": false,
+          "clarifications_used": false,
+          "llm_assistance_used": true,
+          "fallback_events": [],
+          "validation_outcomes": [
+            {
+              "stage": "requirement_analysis",
+              "status": "rejected",
+              "message": "Initial LLM output did not contain a valid JSON object.",
+              "errors": []
+            },
+            {
+              "stage": "requirement_analysis",
+              "status": "repaired",
+              "message": "Accepted repaired LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            }
+          ],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [
+                "rejected",
+                "repaired"
+              ],
+              "failure_messages": [
+                "Initial LLM output did not contain a valid JSON object."
+              ],
+              "fallback_reasons": [],
+              "repair_attempted": true,
+              "repair_succeeded": true
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        }
+      ]
+    },
+    "csv_sales_report_generator": {
+      "title": "CSV Sales Report Generator",
+      "expected_family": "workflow",
+      "expected_completion_state": null,
+      "runs": [
+        {
+          "run_key": "csv_sales_report_generator:deterministic:compile",
+          "case_key": "csv_sales_report_generator",
+          "title": "CSV Sales Report Generator",
+          "mode": "deterministic",
+          "operation": "compile",
+          "used_mock_llm": false,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "workflow",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": false,
+          "fallback_events": [],
+          "validation_outcomes": [],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "csv_sales_report_generator:llm_assisted:compile",
+          "case_key": "csv_sales_report_generator",
+          "title": "CSV Sales Report Generator",
+          "mode": "llm_assisted",
+          "operation": "compile",
+          "used_mock_llm": true,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "workflow",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": true,
+          "fallback_events": [],
+          "validation_outcomes": [
+            {
+              "stage": "requirement_analysis",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            }
+          ],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        }
+      ]
+    },
+    "weekly_ai_research_digest": {
+      "title": "Weekly AI Research Digest",
+      "expected_family": "workflow",
+      "expected_completion_state": "compilable_with_warnings",
+      "runs": [
+        {
+          "run_key": "weekly_ai_research_digest:deterministic:compile",
+          "case_key": "weekly_ai_research_digest",
+          "title": "Weekly AI Research Digest",
+          "mode": "deterministic",
+          "operation": "compile",
+          "used_mock_llm": false,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "workflow",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": false,
+          "fallback_events": [],
+          "validation_outcomes": [],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "weekly_ai_research_digest:llm_assisted:compile",
+          "case_key": "weekly_ai_research_digest",
+          "title": "Weekly AI Research Digest",
+          "mode": "llm_assisted",
+          "operation": "compile",
+          "used_mock_llm": true,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "workflow",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": true,
+          "fallback_events": [],
+          "validation_outcomes": [
+            {
+              "stage": "requirement_analysis",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            }
+          ],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "weekly_ai_research_digest:deterministic:recompile",
+          "case_key": "weekly_ai_research_digest",
+          "title": "Weekly AI Research Digest",
+          "mode": "deterministic",
+          "operation": "recompile",
+          "used_mock_llm": false,
+          "completion_state": "ready_to_compile",
+          "selected_family": "workflow",
+          "draft_readiness_status": "ready_for_build",
+          "validation_valid": true,
+          "clarification_triggered": false,
+          "clarifications_used": true,
+          "llm_assistance_used": false,
+          "fallback_events": [],
+          "validation_outcomes": [],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "weekly_ai_research_digest:llm_assisted:recompile",
+          "case_key": "weekly_ai_research_digest",
+          "title": "Weekly AI Research Digest",
+          "mode": "llm_assisted",
+          "operation": "recompile",
+          "used_mock_llm": true,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "workflow",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": false,
+          "clarifications_used": true,
+          "llm_assistance_used": true,
+          "fallback_events": [],
+          "validation_outcomes": [
+            {
+              "stage": "requirement_analysis",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            }
+          ],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        }
+      ]
+    },
+    "company_news_monitor": {
+      "title": "Company News Monitor",
+      "expected_family": null,
+      "expected_completion_state": "clarification_required",
+      "runs": [
+        {
+          "run_key": "company_news_monitor:deterministic:compile",
+          "case_key": "company_news_monitor",
+          "title": "Company News Monitor",
+          "mode": "deterministic",
+          "operation": "compile",
+          "used_mock_llm": false,
+          "completion_state": "clarification_required",
+          "selected_family": "single_service",
+          "draft_readiness_status": "blocked_by_clarification",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": false,
+          "fallback_events": [],
+          "validation_outcomes": [],
+          "repair_applied": false,
+          "compiler_status": "needs_input",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "company_news_monitor:llm_assisted:compile",
+          "case_key": "company_news_monitor",
+          "title": "Company News Monitor",
+          "mode": "llm_assisted",
+          "operation": "compile",
+          "used_mock_llm": true,
+          "completion_state": "clarification_required",
+          "selected_family": "single_service",
+          "draft_readiness_status": "blocked_by_clarification",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": true,
+          "fallback_events": [
+            {
+              "stage": "family_recommendation",
+              "reason": "repair_invalid",
+              "detail": "Repair output still failed schema validation.",
+              "fallback_mode": "deterministic"
+            }
+          ],
+          "validation_outcomes": [
+            {
+              "stage": "requirement_analysis",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "rejected",
+              "message": "Initial LLM output failed schema validation.",
+              "errors": [
+                "recommended_family: Input should be 'single_service', 'workflow' or 'multi_agent'"
+              ]
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "rejected",
+              "message": "Repair output still failed schema validation.",
+              "errors": [
+                "recommended_family: Input should be 'single_service', 'workflow' or 'multi_agent'"
+              ]
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            }
+          ],
+          "repair_applied": false,
+          "compiler_status": "needs_input",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": false,
+              "validation_statuses": [
+                "rejected",
+                "rejected"
+              ],
+              "failure_messages": [
+                "Initial LLM output failed schema validation.",
+                "Repair output still failed schema validation."
+              ],
+              "fallback_reasons": [
+                "repair_invalid"
+              ],
+              "repair_attempted": true,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "company_news_monitor:deterministic:recompile",
+          "case_key": "company_news_monitor",
+          "title": "Company News Monitor",
+          "mode": "deterministic",
+          "operation": "recompile",
+          "used_mock_llm": false,
+          "completion_state": "ready_to_compile",
+          "selected_family": "workflow",
+          "draft_readiness_status": "ready_for_build",
+          "validation_valid": true,
+          "clarification_triggered": false,
+          "clarifications_used": true,
+          "llm_assistance_used": false,
+          "fallback_events": [],
+          "validation_outcomes": [],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "company_news_monitor:llm_assisted:recompile",
+          "case_key": "company_news_monitor",
+          "title": "Company News Monitor",
+          "mode": "llm_assisted",
+          "operation": "recompile",
+          "used_mock_llm": true,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "workflow",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": false,
+          "clarifications_used": true,
+          "llm_assistance_used": true,
+          "fallback_events": [],
+          "validation_outcomes": [
+            {
+              "stage": "requirement_analysis",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            }
+          ],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        }
+      ]
+    },
+    "customer_support_response_draft_generator": {
+      "title": "Customer Support Response Draft Generator",
+      "expected_family": "workflow",
+      "expected_completion_state": null,
+      "runs": [
+        {
+          "run_key": "customer_support_response_draft_generator:deterministic:compile",
+          "case_key": "customer_support_response_draft_generator",
+          "title": "Customer Support Response Draft Generator",
+          "mode": "deterministic",
+          "operation": "compile",
+          "used_mock_llm": false,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "workflow",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": false,
+          "fallback_events": [],
+          "validation_outcomes": [],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "customer_support_response_draft_generator:llm_assisted:compile",
+          "case_key": "customer_support_response_draft_generator",
+          "title": "Customer Support Response Draft Generator",
+          "mode": "llm_assisted",
+          "operation": "compile",
+          "used_mock_llm": true,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "workflow",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": true,
+          "fallback_events": [],
+          "validation_outcomes": [
+            {
+              "stage": "requirement_analysis",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            }
+          ],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        }
+      ]
+    },
+    "startup_pitch_deck_reviewer": {
+      "title": "Startup Pitch Deck Reviewer",
+      "expected_family": "multi_agent",
+      "expected_completion_state": null,
+      "runs": [
+        {
+          "run_key": "startup_pitch_deck_reviewer:deterministic:compile",
+          "case_key": "startup_pitch_deck_reviewer",
+          "title": "Startup Pitch Deck Reviewer",
+          "mode": "deterministic",
+          "operation": "compile",
+          "used_mock_llm": false,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "multi_agent",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": false,
+          "fallback_events": [],
+          "validation_outcomes": [],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        },
+        {
+          "run_key": "startup_pitch_deck_reviewer:llm_assisted:compile",
+          "case_key": "startup_pitch_deck_reviewer",
+          "title": "Startup Pitch Deck Reviewer",
+          "mode": "llm_assisted",
+          "operation": "compile",
+          "used_mock_llm": true,
+          "completion_state": "compilable_with_warnings",
+          "selected_family": "multi_agent",
+          "draft_readiness_status": "compilable_with_warnings",
+          "validation_valid": true,
+          "clarification_triggered": true,
+          "clarifications_used": false,
+          "llm_assistance_used": true,
+          "fallback_events": [],
+          "validation_outcomes": [
+            {
+              "stage": "requirement_analysis",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "family_recommendation",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "status": "accepted",
+              "message": "Accepted validated LLM JSON output.",
+              "errors": []
+            }
+          ],
+          "repair_applied": false,
+          "compiler_status": "compiled",
+          "stage_diagnostics": [
+            {
+              "stage": "requirement_analysis",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "family_recommendation",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            },
+            {
+              "stage": "skeleton_slot_filling",
+              "success": true,
+              "validation_statuses": [
+                "accepted"
+              ],
+              "failure_messages": [],
+              "fallback_reasons": [],
+              "repair_attempted": false,
+              "repair_succeeded": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "failure_reasons": [
+    {
+      "stage": "family_recommendation",
+      "reason": "repair_invalid",
+      "count": 1,
+      "run_keys": [
+        "company_news_monitor:llm_assisted:compile"
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "run_key": "markdown_blog_post_polisher:deterministic:compile",
+      "case_key": "markdown_blog_post_polisher",
+      "title": "Markdown Blog Post Polisher",
+      "mode": "deterministic",
+      "operation": "compile",
+      "used_mock_llm": false,
+      "completion_state": "ready_to_compile",
+      "selected_family": "single_service",
+      "draft_readiness_status": "ready_for_build",
+      "validation_valid": true,
+      "clarification_triggered": false,
+      "clarifications_used": false,
+      "llm_assistance_used": false,
+      "fallback_events": [],
+      "validation_outcomes": [],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "markdown_blog_post_polisher:llm_assisted:compile",
+      "case_key": "markdown_blog_post_polisher",
+      "title": "Markdown Blog Post Polisher",
+      "mode": "llm_assisted",
+      "operation": "compile",
+      "used_mock_llm": true,
+      "completion_state": "ready_to_compile",
+      "selected_family": "single_service",
+      "draft_readiness_status": "ready_for_build",
+      "validation_valid": true,
+      "clarification_triggered": false,
+      "clarifications_used": false,
+      "llm_assistance_used": true,
+      "fallback_events": [],
+      "validation_outcomes": [
+        {
+          "stage": "requirement_analysis",
+          "status": "rejected",
+          "message": "Initial LLM output did not contain a valid JSON object.",
+          "errors": []
+        },
+        {
+          "stage": "requirement_analysis",
+          "status": "repaired",
+          "message": "Accepted repaired LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        }
+      ],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [
+            "rejected",
+            "repaired"
+          ],
+          "failure_messages": [
+            "Initial LLM output did not contain a valid JSON object."
+          ],
+          "fallback_reasons": [],
+          "repair_attempted": true,
+          "repair_succeeded": true
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "csv_sales_report_generator:deterministic:compile",
+      "case_key": "csv_sales_report_generator",
+      "title": "CSV Sales Report Generator",
+      "mode": "deterministic",
+      "operation": "compile",
+      "used_mock_llm": false,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "workflow",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": false,
+      "fallback_events": [],
+      "validation_outcomes": [],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "csv_sales_report_generator:llm_assisted:compile",
+      "case_key": "csv_sales_report_generator",
+      "title": "CSV Sales Report Generator",
+      "mode": "llm_assisted",
+      "operation": "compile",
+      "used_mock_llm": true,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "workflow",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": true,
+      "fallback_events": [],
+      "validation_outcomes": [
+        {
+          "stage": "requirement_analysis",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        }
+      ],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "weekly_ai_research_digest:deterministic:compile",
+      "case_key": "weekly_ai_research_digest",
+      "title": "Weekly AI Research Digest",
+      "mode": "deterministic",
+      "operation": "compile",
+      "used_mock_llm": false,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "workflow",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": false,
+      "fallback_events": [],
+      "validation_outcomes": [],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "weekly_ai_research_digest:llm_assisted:compile",
+      "case_key": "weekly_ai_research_digest",
+      "title": "Weekly AI Research Digest",
+      "mode": "llm_assisted",
+      "operation": "compile",
+      "used_mock_llm": true,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "workflow",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": true,
+      "fallback_events": [],
+      "validation_outcomes": [
+        {
+          "stage": "requirement_analysis",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        }
+      ],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "weekly_ai_research_digest:deterministic:recompile",
+      "case_key": "weekly_ai_research_digest",
+      "title": "Weekly AI Research Digest",
+      "mode": "deterministic",
+      "operation": "recompile",
+      "used_mock_llm": false,
+      "completion_state": "ready_to_compile",
+      "selected_family": "workflow",
+      "draft_readiness_status": "ready_for_build",
+      "validation_valid": true,
+      "clarification_triggered": false,
+      "clarifications_used": true,
+      "llm_assistance_used": false,
+      "fallback_events": [],
+      "validation_outcomes": [],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "weekly_ai_research_digest:llm_assisted:recompile",
+      "case_key": "weekly_ai_research_digest",
+      "title": "Weekly AI Research Digest",
+      "mode": "llm_assisted",
+      "operation": "recompile",
+      "used_mock_llm": true,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "workflow",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": false,
+      "clarifications_used": true,
+      "llm_assistance_used": true,
+      "fallback_events": [],
+      "validation_outcomes": [
+        {
+          "stage": "requirement_analysis",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        }
+      ],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "company_news_monitor:deterministic:compile",
+      "case_key": "company_news_monitor",
+      "title": "Company News Monitor",
+      "mode": "deterministic",
+      "operation": "compile",
+      "used_mock_llm": false,
+      "completion_state": "clarification_required",
+      "selected_family": "single_service",
+      "draft_readiness_status": "blocked_by_clarification",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": false,
+      "fallback_events": [],
+      "validation_outcomes": [],
+      "repair_applied": false,
+      "compiler_status": "needs_input",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "company_news_monitor:llm_assisted:compile",
+      "case_key": "company_news_monitor",
+      "title": "Company News Monitor",
+      "mode": "llm_assisted",
+      "operation": "compile",
+      "used_mock_llm": true,
+      "completion_state": "clarification_required",
+      "selected_family": "single_service",
+      "draft_readiness_status": "blocked_by_clarification",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": true,
+      "fallback_events": [
+        {
+          "stage": "family_recommendation",
+          "reason": "repair_invalid",
+          "detail": "Repair output still failed schema validation.",
+          "fallback_mode": "deterministic"
+        }
+      ],
+      "validation_outcomes": [
+        {
+          "stage": "requirement_analysis",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "rejected",
+          "message": "Initial LLM output failed schema validation.",
+          "errors": [
+            "recommended_family: Input should be 'single_service', 'workflow' or 'multi_agent'"
+          ]
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "rejected",
+          "message": "Repair output still failed schema validation.",
+          "errors": [
+            "recommended_family: Input should be 'single_service', 'workflow' or 'multi_agent'"
+          ]
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        }
+      ],
+      "repair_applied": false,
+      "compiler_status": "needs_input",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": false,
+          "validation_statuses": [
+            "rejected",
+            "rejected"
+          ],
+          "failure_messages": [
+            "Initial LLM output failed schema validation.",
+            "Repair output still failed schema validation."
+          ],
+          "fallback_reasons": [
+            "repair_invalid"
+          ],
+          "repair_attempted": true,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "company_news_monitor:deterministic:recompile",
+      "case_key": "company_news_monitor",
+      "title": "Company News Monitor",
+      "mode": "deterministic",
+      "operation": "recompile",
+      "used_mock_llm": false,
+      "completion_state": "ready_to_compile",
+      "selected_family": "workflow",
+      "draft_readiness_status": "ready_for_build",
+      "validation_valid": true,
+      "clarification_triggered": false,
+      "clarifications_used": true,
+      "llm_assistance_used": false,
+      "fallback_events": [],
+      "validation_outcomes": [],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "company_news_monitor:llm_assisted:recompile",
+      "case_key": "company_news_monitor",
+      "title": "Company News Monitor",
+      "mode": "llm_assisted",
+      "operation": "recompile",
+      "used_mock_llm": true,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "workflow",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": false,
+      "clarifications_used": true,
+      "llm_assistance_used": true,
+      "fallback_events": [],
+      "validation_outcomes": [
+        {
+          "stage": "requirement_analysis",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        }
+      ],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "customer_support_response_draft_generator:deterministic:compile",
+      "case_key": "customer_support_response_draft_generator",
+      "title": "Customer Support Response Draft Generator",
+      "mode": "deterministic",
+      "operation": "compile",
+      "used_mock_llm": false,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "workflow",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": false,
+      "fallback_events": [],
+      "validation_outcomes": [],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "customer_support_response_draft_generator:llm_assisted:compile",
+      "case_key": "customer_support_response_draft_generator",
+      "title": "Customer Support Response Draft Generator",
+      "mode": "llm_assisted",
+      "operation": "compile",
+      "used_mock_llm": true,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "workflow",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": true,
+      "fallback_events": [],
+      "validation_outcomes": [
+        {
+          "stage": "requirement_analysis",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        }
+      ],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "startup_pitch_deck_reviewer:deterministic:compile",
+      "case_key": "startup_pitch_deck_reviewer",
+      "title": "Startup Pitch Deck Reviewer",
+      "mode": "deterministic",
+      "operation": "compile",
+      "used_mock_llm": false,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "multi_agent",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": false,
+      "fallback_events": [],
+      "validation_outcomes": [],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    },
+    {
+      "run_key": "startup_pitch_deck_reviewer:llm_assisted:compile",
+      "case_key": "startup_pitch_deck_reviewer",
+      "title": "Startup Pitch Deck Reviewer",
+      "mode": "llm_assisted",
+      "operation": "compile",
+      "used_mock_llm": true,
+      "completion_state": "compilable_with_warnings",
+      "selected_family": "multi_agent",
+      "draft_readiness_status": "compilable_with_warnings",
+      "validation_valid": true,
+      "clarification_triggered": true,
+      "clarifications_used": false,
+      "llm_assistance_used": true,
+      "fallback_events": [],
+      "validation_outcomes": [
+        {
+          "stage": "requirement_analysis",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "family_recommendation",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "status": "accepted",
+          "message": "Accepted validated LLM JSON output.",
+          "errors": []
+        }
+      ],
+      "repair_applied": false,
+      "compiler_status": "compiled",
+      "stage_diagnostics": [
+        {
+          "stage": "requirement_analysis",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "family_recommendation",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        },
+        {
+          "stage": "skeleton_slot_filling",
+          "success": true,
+          "validation_statuses": [
+            "accepted"
+          ],
+          "failure_messages": [],
+          "fallback_reasons": [],
+          "repair_attempted": false,
+          "repair_succeeded": false
+        }
+      ]
+    }
+  ]
+}

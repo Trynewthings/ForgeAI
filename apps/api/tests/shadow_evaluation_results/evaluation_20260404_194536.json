@@ -1,0 +1,1261 @@
+{
+  "metadata": {
+    "llm_mode": "real",
+    "provider": "openai-compatible",
+    "model": "deepseek-chat",
+    "timestamp": "2026-04-04T11:45:36.217714+00:00",
+    "runs_per_scenario": 2,
+    "scenario_count": 6
+  },
+  "aggregate": {
+    "total_runs": 12,
+    "total_success": 10,
+    "overall": {
+      "topology_match_rate": 0.167,
+      "entry_exit_match_rate": 0.5,
+      "node_count_match_rate": 0.833,
+      "edge_count_match_rate": 0.167,
+      "validator_repair_rate": 0.333,
+      "fallback_rate": 0.167,
+      "shape_correct_rate": 0.5,
+      "over_parallelization_rate": 0.0,
+      "under_parallelization_rate": 0.333
+    },
+    "by_domain": {
+      "repository": {
+        "runs": 6,
+        "success": 6,
+        "topology_match_rate": 0.333,
+        "entry_exit_match_rate": 0.333,
+        "shape_correct_rate": 0.333,
+        "over_parallelization_rate": 0.0,
+        "under_parallelization_rate": 0.667,
+        "validator_repair_rate": 0.667,
+        "fallback_rate": 0.0,
+        "avg_llm_latency_ms": 11363
+      },
+      "web_resource": {
+        "runs": 6,
+        "success": 4,
+        "topology_match_rate": 0.0,
+        "entry_exit_match_rate": 0.667,
+        "shape_correct_rate": 0.667,
+        "over_parallelization_rate": 0.0,
+        "under_parallelization_rate": 0.0,
+        "validator_repair_rate": 0.0,
+        "fallback_rate": 0.333,
+        "avg_llm_latency_ms": 13730
+      }
+    },
+    "by_shape": {
+      "linear": {
+        "runs": 2,
+        "shape_correct_rate": 1.0,
+        "over_parallelization_rate": 0.0,
+        "under_parallelization_rate": 0.0,
+        "edge_count_correct_rate": 1.0
+      },
+      "unknown": {
+        "runs": 2,
+        "shape_correct_rate": 0.0,
+        "over_parallelization_rate": 0.0,
+        "under_parallelization_rate": 0.0,
+        "edge_count_correct_rate": 0.0
+      },
+      "diamond": {
+        "runs": 4,
+        "shape_correct_rate": 0.5,
+        "over_parallelization_rate": 0.0,
+        "under_parallelization_rate": 0.5,
+        "edge_count_correct_rate": 0.5
+      },
+      "fanout3": {
+        "runs": 4,
+        "shape_correct_rate": 0.5,
+        "over_parallelization_rate": 0.0,
+        "under_parallelization_rate": 0.5,
+        "edge_count_correct_rate": 0.5
+      }
+    }
+  },
+  "results": [
+    {
+      "scenario": "repo_linear_no_deps",
+      "domain": "repository",
+      "run_index": 1,
+      "step_count": 3,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 3,
+        "edge_count": 2,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_3"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 2,
+        "latency_ms": 2
+      },
+      "llm": {
+        "success": true,
+        "repaired": false,
+        "fallback_reason": null,
+        "validation_issues": [],
+        "latency_ms": 11086,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:43:05.605547+00:00",
+          "raw_response_length": 1779,
+          "validation_issues": [],
+          "repaired": false,
+          "completed_at": "2026-04-04T11:43:16.691399+00:00"
+        },
+        "node_count": 3,
+        "edge_count": 2,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_3"
+        ],
+        "draft_status": "complete",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 3,
+          "llm": 3,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 2,
+          "llm": 2,
+          "match": true
+        },
+        "entry_exit": {
+          "entry_match": true,
+          "exit_match": true
+        },
+        "edge_topology_match": true,
+        "unresolved_items": {
+          "deterministic_count": 2,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 2
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 2
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "complete",
+          "match": false
+        }
+      },
+      "metrics": {
+        "topology_match": true,
+        "entry_exit_match": true,
+        "node_count_match": true,
+        "edge_count_match": true,
+        "draft_status_match": false,
+        "validator_repaired": false,
+        "fallback": false,
+        "expected_edge_count": 2,
+        "llm_edge_count": 2,
+        "over_parallelized": false,
+        "under_parallelized": false,
+        "edge_count_correct": true,
+        "expected_shape": "linear",
+        "shape_correct": true
+      }
+    },
+    {
+      "scenario": "repo_linear_no_deps",
+      "domain": "repository",
+      "run_index": 2,
+      "step_count": 3,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 3,
+        "edge_count": 2,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_3"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 2,
+        "latency_ms": 5
+      },
+      "llm": {
+        "success": true,
+        "repaired": false,
+        "fallback_reason": null,
+        "validation_issues": [],
+        "latency_ms": 10334,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:43:16.697161+00:00",
+          "raw_response_length": 1738,
+          "validation_issues": [],
+          "repaired": false,
+          "completed_at": "2026-04-04T11:43:27.031058+00:00"
+        },
+        "node_count": 3,
+        "edge_count": 2,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_3"
+        ],
+        "draft_status": "complete",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 3,
+          "llm": 3,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 2,
+          "llm": 2,
+          "match": true
+        },
+        "entry_exit": {
+          "entry_match": true,
+          "exit_match": true
+        },
+        "edge_topology_match": true,
+        "unresolved_items": {
+          "deterministic_count": 2,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 2
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 2
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "complete",
+          "match": false
+        }
+      },
+      "metrics": {
+        "topology_match": true,
+        "entry_exit_match": true,
+        "node_count_match": true,
+        "edge_count_match": true,
+        "draft_status_match": false,
+        "validator_repaired": false,
+        "fallback": false,
+        "expected_edge_count": 2,
+        "llm_edge_count": 2,
+        "over_parallelized": false,
+        "under_parallelized": false,
+        "edge_count_correct": true,
+        "expected_shape": "linear",
+        "shape_correct": true
+      }
+    },
+    {
+      "scenario": "web_linear_no_deps",
+      "domain": "web_resource",
+      "run_index": 1,
+      "step_count": 3,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 3,
+        "edge_count": 2,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_3"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 2,
+        "latency_ms": 5
+      },
+      "llm": {
+        "success": false,
+        "repaired": false,
+        "fallback_reason": "llm_parse_failure",
+        "validation_issues": [],
+        "latency_ms": 10747,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:43:27.036092+00:00",
+          "raw_response_length": 2018,
+          "parse_failed": true,
+          "raw_content_preview": "```json\n{\n    \"planner_version\": \"workflow_planner_llm_v1\",\n    \"draft_status\": \"complete\",\n    \"node_drafts\": [\n        {\n            \"node_id\": \"planner_node_1\",\n            \"node_name\": \"searcher\",\n            \"step_name\": \"search_sources\",\n            \"logical_step_kind\": \"acquire\",\n            \"purpose\": \"Search for relevant web articles on the topic\",\n            \"semantic_type\": \"acquire\",\n            \"capability\": null,\n            \"parameters\": null,\n            \"side_effect_class\": null\n        },\n        {\n            \"node_id\": \"planner_node_2\",\n            \"node_name\": \"extractor\",\n            \"step_name\": \"extract_evidence\",\n            \"logical_step_kind\": \"analyze\",\n            \"purpose\": \"Extract key claims and evidence from found articles\",\n            \"semantic_type\": \"transform\",\n            \"capability\": null,\n            \"parameters\": null,\n            \"side_effect_class\": null\n        },\n        {\n            \"node_id\": \"planner_node_3\",\n            \"node_name\": \"writer\",\n            \"step_name\": \"write_summary\",\n            \"logical_step_kind\": \"summarize\",\n            \"purpose\": \"Write an evidence-backed summary from extracted findings\",\n            \"semantic_type\": \"act\",\n            \"capability\": \"summarize_text_llm\",\n            \"parameters\": null,\n            \"side_effect_class\": null\n        }\n    ],\n    \"edge_drafts\": [\n        {\n            \"edge_id\": \"planner_edge_1\",\n            \"source_node_id\": \"planner_node_1\",\n            \"target_node_id\": \"planner_node_2\",\n            \"depends_on_step_name\": \"search_sources\",\n            \"data_semantic_type\": \"web_resource\"\n        },\n        {\n            \"edge_id\": \"planner_edge_2\",\n            \"source_node_id\": \"planner_node_2\",\n            \"target_node_id\": \"planner_node_3\",\n            \"depends_on_step_name\": \"extract_evidence\",\n            \"data_semantic_type\": \"web_resource\"\n        }\n    ],\n    \"entry_node_ids\": [\"planner_node_1\"],\n    \"exit_node_ids\": [\"planner_node_3\"],\n    \"unresolve"
+        }
+      },
+      "comparison": {
+        "comparison_status": "llm_unavailable",
+        "fallback_reason": "llm_parse_failure"
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": false,
+        "node_count_match": false,
+        "edge_count_match": false,
+        "draft_status_match": false,
+        "validator_repaired": false,
+        "fallback": true
+      }
+    },
+    {
+      "scenario": "web_linear_no_deps",
+      "domain": "web_resource",
+      "run_index": 2,
+      "step_count": 3,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 3,
+        "edge_count": 2,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_3"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 2,
+        "latency_ms": 6
+      },
+      "llm": {
+        "success": false,
+        "repaired": false,
+        "fallback_reason": "llm_parse_failure",
+        "validation_issues": [],
+        "latency_ms": 10337,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:43:37.789039+00:00",
+          "raw_response_length": 1705,
+          "parse_failed": true,
+          "raw_content_preview": "{\n  \"planner_version\": \"workflow_planner_llm_v1\",\n  \"draft_status\": \"complete\",\n  \"node_drafts\": [\n    {\n      \"node_id\": \"planner_node_1\",\n      \"node_name\": \"searcher\",\n      \"logical_step_kind\": \"acquire\",\n      \"semantic_type\": \"acquire\",\n      \"purpose\": \"Search for relevant web articles on the topic\",\n      \"capability\": null,\n      \"parameters\": null,\n      \"side_effect_class\": null,\n      \"human_gate_required\": false\n    },\n    {\n      \"node_id\": \"planner_node_2\",\n      \"node_name\": \"extractor\",\n      \"logical_step_kind\": \"analyze\",\n      \"semantic_type\": \"transform\",\n      \"purpose\": \"Extract key claims and evidence from found articles\",\n      \"capability\": null,\n      \"parameters\": null,\n      \"side_effect_class\": null,\n      \"human_gate_required\": false\n    },\n    {\n      \"node_id\": \"planner_node_3\",\n      \"node_name\": \"writer\",\n      \"logical_step_kind\": \"summarize\",\n      \"semantic_type\": \"transform\",\n      \"purpose\": \"Write an evidence-backed summary from extracted findings\",\n      \"capability\": \"summarize_text_llm\",\n      \"parameters\": null,\n      \"side_effect_class\": null,\n      \"human_gate_required\": false\n    }\n  ],\n  \"edge_drafts\": [\n    {\n      \"edge_id\": \"planner_edge_1\",\n      \"source_node_id\": \"planner_node_1\",\n      \"target_node_id\": \"planner_node_2\",\n      \"data_type\": \"web_resource\",\n      \"description\": \"Found articles\"\n    },\n    {\n      \"edge_id\": \"planner_edge_2\",\n      \"source_node_id\": \"planner_node_2\",\n      \"target_node_id\": \"planner_node_3\",\n      \"data_type\": \"extracted_evidence\",\n      \"description\": \"Key claims and evidence\"\n    }\n  ],\n  \"entry_node_ids\": [\"planner_node_1\"],\n  \"exit_node_ids\": [\"planner_node_3\"],\n  \"unresolved_items\": []\n}"
+        }
+      },
+      "comparison": {
+        "comparison_status": "llm_unavailable",
+        "fallback_reason": "llm_parse_failure"
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": false,
+        "node_count_match": false,
+        "edge_count_match": false,
+        "draft_status_match": false,
+        "validator_repaired": false,
+        "fallback": true
+      }
+    },
+    {
+      "scenario": "repo_diamond_no_deps",
+      "domain": "repository",
+      "run_index": 1,
+      "step_count": 4,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 4,
+        "edge_count": 3,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_4"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 3,
+        "latency_ms": 5
+      },
+      "llm": {
+        "success": true,
+        "repaired": true,
+        "fallback_reason": null,
+        "validation_issues": [
+          "exit_node_ids mismatch: declared=['planner_node_4'], expected=['planner_node_1', 'planner_node_4']"
+        ],
+        "latency_ms": 10031,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:43:48.130277+00:00",
+          "raw_response_length": 1844,
+          "validation_issues": [
+            "exit_node_ids mismatch: declared=['planner_node_4'], expected=['planner_node_1', 'planner_node_4']"
+          ],
+          "repaired": true,
+          "completed_at": "2026-04-04T11:43:58.160860+00:00"
+        },
+        "node_count": 4,
+        "edge_count": 2,
+        "entry_nodes": [
+          "planner_node_1",
+          "planner_node_2",
+          "planner_node_3"
+        ],
+        "exit_nodes": [
+          "planner_node_1",
+          "planner_node_4"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 4,
+          "llm": 4,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 3,
+          "llm": 2,
+          "match": false
+        },
+        "entry_exit": {
+          "entry_match": false,
+          "exit_match": false
+        },
+        "edge_topology_match": false,
+        "unresolved_items": {
+          "deterministic_count": 3,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 3
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 3
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "review_required",
+          "match": true
+        }
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": false,
+        "node_count_match": true,
+        "edge_count_match": false,
+        "draft_status_match": true,
+        "validator_repaired": true,
+        "fallback": false,
+        "expected_edge_count": 4,
+        "llm_edge_count": 2,
+        "over_parallelized": false,
+        "under_parallelized": true,
+        "edge_count_correct": false,
+        "expected_shape": "diamond",
+        "shape_correct": false
+      }
+    },
+    {
+      "scenario": "repo_diamond_no_deps",
+      "domain": "repository",
+      "run_index": 2,
+      "step_count": 4,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 4,
+        "edge_count": 3,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_4"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 3,
+        "latency_ms": 5
+      },
+      "llm": {
+        "success": true,
+        "repaired": true,
+        "fallback_reason": null,
+        "validation_issues": [
+          "exit_node_ids mismatch: declared=['planner_node_4'], expected=['planner_node_1', 'planner_node_4']"
+        ],
+        "latency_ms": 11259,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:43:58.165837+00:00",
+          "raw_response_length": 1684,
+          "validation_issues": [
+            "exit_node_ids mismatch: declared=['planner_node_4'], expected=['planner_node_1', 'planner_node_4']"
+          ],
+          "repaired": true,
+          "completed_at": "2026-04-04T11:44:09.424937+00:00"
+        },
+        "node_count": 4,
+        "edge_count": 2,
+        "entry_nodes": [
+          "planner_node_1",
+          "planner_node_2",
+          "planner_node_3"
+        ],
+        "exit_nodes": [
+          "planner_node_1",
+          "planner_node_4"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 4,
+          "llm": 4,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 3,
+          "llm": 2,
+          "match": false
+        },
+        "entry_exit": {
+          "entry_match": false,
+          "exit_match": false
+        },
+        "edge_topology_match": false,
+        "unresolved_items": {
+          "deterministic_count": 3,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 3
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 3
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "review_required",
+          "match": true
+        }
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": false,
+        "node_count_match": true,
+        "edge_count_match": false,
+        "draft_status_match": true,
+        "validator_repaired": true,
+        "fallback": false,
+        "expected_edge_count": 4,
+        "llm_edge_count": 2,
+        "over_parallelized": false,
+        "under_parallelized": true,
+        "edge_count_correct": false,
+        "expected_shape": "diamond",
+        "shape_correct": false
+      }
+    },
+    {
+      "scenario": "web_diamond_no_deps",
+      "domain": "web_resource",
+      "run_index": 1,
+      "step_count": 4,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 4,
+        "edge_count": 3,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_4"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 3,
+        "latency_ms": 4
+      },
+      "llm": {
+        "success": true,
+        "repaired": false,
+        "fallback_reason": null,
+        "validation_issues": [],
+        "latency_ms": 16073,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:44:09.429488+00:00",
+          "raw_response_length": 3234,
+          "validation_issues": [],
+          "repaired": false,
+          "completed_at": "2026-04-04T11:44:25.502282+00:00"
+        },
+        "node_count": 4,
+        "edge_count": 4,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_4"
+        ],
+        "draft_status": "complete",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 4,
+          "llm": 4,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 3,
+          "llm": 4,
+          "match": false
+        },
+        "entry_exit": {
+          "entry_match": true,
+          "exit_match": true
+        },
+        "edge_topology_match": false,
+        "unresolved_items": {
+          "deterministic_count": 3,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 3
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 3
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "complete",
+          "match": false
+        }
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": true,
+        "node_count_match": true,
+        "edge_count_match": false,
+        "draft_status_match": false,
+        "validator_repaired": false,
+        "fallback": false,
+        "expected_edge_count": 4,
+        "llm_edge_count": 4,
+        "over_parallelized": false,
+        "under_parallelized": false,
+        "edge_count_correct": true,
+        "expected_shape": "diamond",
+        "shape_correct": true
+      }
+    },
+    {
+      "scenario": "web_diamond_no_deps",
+      "domain": "web_resource",
+      "run_index": 2,
+      "step_count": 4,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 4,
+        "edge_count": 3,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_4"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 3,
+        "latency_ms": 4
+      },
+      "llm": {
+        "success": true,
+        "repaired": false,
+        "fallback_reason": null,
+        "validation_issues": [],
+        "latency_ms": 13017,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:44:25.506539+00:00",
+          "raw_response_length": 2530,
+          "validation_issues": [],
+          "repaired": false,
+          "completed_at": "2026-04-04T11:44:38.523398+00:00"
+        },
+        "node_count": 4,
+        "edge_count": 4,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_4"
+        ],
+        "draft_status": "complete",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 4,
+          "llm": 4,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 3,
+          "llm": 4,
+          "match": false
+        },
+        "entry_exit": {
+          "entry_match": true,
+          "exit_match": true
+        },
+        "edge_topology_match": false,
+        "unresolved_items": {
+          "deterministic_count": 3,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 3
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 3
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "complete",
+          "match": false
+        }
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": true,
+        "node_count_match": true,
+        "edge_count_match": false,
+        "draft_status_match": false,
+        "validator_repaired": false,
+        "fallback": false,
+        "expected_edge_count": 4,
+        "llm_edge_count": 4,
+        "over_parallelized": false,
+        "under_parallelized": false,
+        "edge_count_correct": true,
+        "expected_shape": "diamond",
+        "shape_correct": true
+      }
+    },
+    {
+      "scenario": "repo_fanout3_no_deps",
+      "domain": "repository",
+      "run_index": 1,
+      "step_count": 5,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 5,
+        "edge_count": 4,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_5"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 4,
+        "latency_ms": 4
+      },
+      "llm": {
+        "success": true,
+        "repaired": true,
+        "fallback_reason": null,
+        "validation_issues": [
+          "exit_node_ids mismatch: declared=['planner_node_5'], expected=['planner_node_1', 'planner_node_5']"
+        ],
+        "latency_ms": 10850,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:44:38.527858+00:00",
+          "raw_response_length": 1867,
+          "validation_issues": [
+            "exit_node_ids mismatch: declared=['planner_node_5'], expected=['planner_node_1', 'planner_node_5']"
+          ],
+          "repaired": true,
+          "completed_at": "2026-04-04T11:44:49.378058+00:00"
+        },
+        "node_count": 5,
+        "edge_count": 3,
+        "entry_nodes": [
+          "planner_node_1",
+          "planner_node_2",
+          "planner_node_3",
+          "planner_node_4"
+        ],
+        "exit_nodes": [
+          "planner_node_1",
+          "planner_node_5"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 5,
+          "llm": 5,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 4,
+          "llm": 3,
+          "match": false
+        },
+        "entry_exit": {
+          "entry_match": false,
+          "exit_match": false
+        },
+        "edge_topology_match": false,
+        "unresolved_items": {
+          "deterministic_count": 4,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 4
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 4
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "review_required",
+          "match": true
+        }
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": false,
+        "node_count_match": true,
+        "edge_count_match": false,
+        "draft_status_match": true,
+        "validator_repaired": true,
+        "fallback": false,
+        "expected_edge_count": 6,
+        "llm_edge_count": 3,
+        "over_parallelized": false,
+        "under_parallelized": true,
+        "edge_count_correct": false,
+        "expected_shape": "fanout3",
+        "shape_correct": false
+      }
+    },
+    {
+      "scenario": "repo_fanout3_no_deps",
+      "domain": "repository",
+      "run_index": 2,
+      "step_count": 5,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 5,
+        "edge_count": 4,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_5"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 4,
+        "latency_ms": 5
+      },
+      "llm": {
+        "success": true,
+        "repaired": true,
+        "fallback_reason": null,
+        "validation_issues": [
+          "exit_node_ids mismatch: declared=['planner_node_5'], expected=['planner_node_1', 'planner_node_5']"
+        ],
+        "latency_ms": 14620,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:44:49.383181+00:00",
+          "raw_response_length": 2674,
+          "validation_issues": [
+            "exit_node_ids mismatch: declared=['planner_node_5'], expected=['planner_node_1', 'planner_node_5']"
+          ],
+          "repaired": true,
+          "completed_at": "2026-04-04T11:45:04.003513+00:00"
+        },
+        "node_count": 5,
+        "edge_count": 3,
+        "entry_nodes": [
+          "planner_node_1",
+          "planner_node_2",
+          "planner_node_3",
+          "planner_node_4"
+        ],
+        "exit_nodes": [
+          "planner_node_1",
+          "planner_node_5"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 5,
+          "llm": 5,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 4,
+          "llm": 3,
+          "match": false
+        },
+        "entry_exit": {
+          "entry_match": false,
+          "exit_match": false
+        },
+        "edge_topology_match": false,
+        "unresolved_items": {
+          "deterministic_count": 4,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 4
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 4
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "review_required",
+          "match": true
+        }
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": false,
+        "node_count_match": true,
+        "edge_count_match": false,
+        "draft_status_match": true,
+        "validator_repaired": true,
+        "fallback": false,
+        "expected_edge_count": 6,
+        "llm_edge_count": 3,
+        "over_parallelized": false,
+        "under_parallelized": true,
+        "edge_count_correct": false,
+        "expected_shape": "fanout3",
+        "shape_correct": false
+      }
+    },
+    {
+      "scenario": "web_fanout3_no_deps",
+      "domain": "web_resource",
+      "run_index": 1,
+      "step_count": 5,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 5,
+        "edge_count": 4,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_5"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 4,
+        "latency_ms": 5
+      },
+      "llm": {
+        "success": true,
+        "repaired": false,
+        "fallback_reason": null,
+        "validation_issues": [],
+        "latency_ms": 15915,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:45:04.008250+00:00",
+          "raw_response_length": 3268,
+          "validation_issues": [],
+          "repaired": false,
+          "completed_at": "2026-04-04T11:45:19.923002+00:00"
+        },
+        "node_count": 5,
+        "edge_count": 6,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_5"
+        ],
+        "draft_status": "complete",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 5,
+          "llm": 5,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 4,
+          "llm": 6,
+          "match": false
+        },
+        "entry_exit": {
+          "entry_match": true,
+          "exit_match": true
+        },
+        "edge_topology_match": false,
+        "unresolved_items": {
+          "deterministic_count": 4,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 4
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 4
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "complete",
+          "match": false
+        }
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": true,
+        "node_count_match": true,
+        "edge_count_match": false,
+        "draft_status_match": false,
+        "validator_repaired": false,
+        "fallback": false,
+        "expected_edge_count": 6,
+        "llm_edge_count": 6,
+        "over_parallelized": false,
+        "under_parallelized": false,
+        "edge_count_correct": true,
+        "expected_shape": "fanout3",
+        "shape_correct": true
+      }
+    },
+    {
+      "scenario": "web_fanout3_no_deps",
+      "domain": "web_resource",
+      "run_index": 2,
+      "step_count": 5,
+      "has_depends_on": false,
+      "deterministic": {
+        "success": true,
+        "node_count": 5,
+        "edge_count": 4,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_5"
+        ],
+        "draft_status": "review_required",
+        "unresolved_count": 4,
+        "latency_ms": 4
+      },
+      "llm": {
+        "success": true,
+        "repaired": false,
+        "fallback_reason": null,
+        "validation_issues": [],
+        "latency_ms": 16289,
+        "stage_trace": {
+          "planner_version": "workflow_planner_llm_v1",
+          "llm_mode": "real",
+          "started_at": "2026-04-04T11:45:19.927244+00:00",
+          "raw_response_length": 3268,
+          "validation_issues": [],
+          "repaired": false,
+          "completed_at": "2026-04-04T11:45:36.216464+00:00"
+        },
+        "node_count": 5,
+        "edge_count": 6,
+        "entry_nodes": [
+          "planner_node_1"
+        ],
+        "exit_nodes": [
+          "planner_node_5"
+        ],
+        "draft_status": "complete",
+        "unresolved_count": 0,
+        "planner_version": "workflow_planner_llm_v1"
+      },
+      "comparison": {
+        "comparison_status": "completed",
+        "node_count": {
+          "deterministic": 5,
+          "llm": 5,
+          "match": true
+        },
+        "edge_count": {
+          "deterministic": 4,
+          "llm": 6,
+          "match": false
+        },
+        "entry_exit": {
+          "entry_match": true,
+          "exit_match": true
+        },
+        "edge_topology_match": false,
+        "unresolved_items": {
+          "deterministic_count": 4,
+          "llm_count": 0,
+          "deterministic_kinds": [
+            "capability_gap"
+          ],
+          "llm_kinds": []
+        },
+        "semantic_type_distribution": {
+          "deterministic": {
+            "acquire": 1,
+            "transform": 4
+          },
+          "llm": {
+            "acquire": 1,
+            "transform": 4
+          }
+        },
+        "draft_status": {
+          "deterministic": "review_required",
+          "llm": "complete",
+          "match": false
+        }
+      },
+      "metrics": {
+        "topology_match": false,
+        "entry_exit_match": true,
+        "node_count_match": true,
+        "edge_count_match": false,
+        "draft_status_match": false,
+        "validator_repaired": false,
+        "fallback": false,
+        "expected_edge_count": 6,
+        "llm_edge_count": 6,
+        "over_parallelized": false,
+        "under_parallelized": false,
+        "edge_count_correct": true,
+        "expected_shape": "fanout3",
+        "shape_correct": true
+      }
+    }
+  ]
+}

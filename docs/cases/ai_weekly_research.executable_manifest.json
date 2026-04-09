@@ -1,0 +1,38 @@
+{
+  "manifest_version": "0.1",
+  "executable_type": "workflow",
+  "compatibility": {
+    "mode": "native",
+    "legacy_blueprint_direct_run_supported": true
+  },
+  "entrypoint": {
+    "kind": "steps_file",
+    "path": "workflow.bundle.json",
+    "handler": null
+  },
+  "schemas": {
+    "input": "input.schema.json",
+    "output": "output.schema.json",
+    "config": "runtime.defaults.json"
+  },
+  "execution": {
+    "strategy": "sequential",
+    "steps_source": "steps.json",
+    "nodes_source": "nodes.json"
+  },
+  "runtime": {
+    "default_env": {},
+    "env_required": [],
+    "debug_defaults": {}
+  },
+  "artifacts": {
+    "spec_file": "artifact_spec.json",
+    "default_outputs": ["run_summary", "weekly_report.md", "weekly_report.json"]
+  },
+  "observability": {
+    "trace_enabled": true,
+    "step_logs": true,
+    "token_usage": true,
+    "metrics": ["latency", "tokens"]
+  }
+}

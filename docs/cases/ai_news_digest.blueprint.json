@@ -1,0 +1,60 @@
+{
+  "blueprint_type": "single_service",
+  "name": "AI News Digest Service",
+  "description": "Generate a concise AI news digest from curated article inputs.",
+  "input_schema_json": {
+    "type": "object",
+    "properties": {
+      "topic": { "type": "string" }
+    }
+  },
+  "output_schema_json": {
+    "type": "object",
+    "properties": {
+      "digest_markdown": { "type": "string" },
+      "digest_json": { "type": "object" }
+    }
+  },
+  "artifacts_spec_json": {
+    "default_outputs": ["run_summary", "digest.md", "digest.json"]
+  },
+  "execution_steps_json": {
+    "steps": [
+      {
+        "step_name": "fetch_articles",
+        "step_type": "python_function",
+        "function_name": "fetch_articles",
+        "args": { "limit": 5 }
+      },
+      {
+        "step_name": "select_top_articles",
+        "step_type": "llm_task",
+        "task_kind": "select_top_articles",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "task_prompt": "Return JSON with selected_articles and selection_reason."
+      },
+      {
+        "step_name": "summarize_articles",
+        "step_type": "llm_task",
+        "task_kind": "summarize_articles",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "task_prompt": "Return JSON with summaries for the selected articles."
+      },
+      {
+        "step_name": "generate_digest",
+        "step_type": "llm_task",
+        "task_kind": "generate_digest",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "task_prompt": "Write a markdown AI news digest."
+      },
+      {
+        "step_name": "write_artifact",
+        "step_type": "artifact_writer",
+        "writer_kind": "news_digest"
+      }
+    ]
+  }
+}

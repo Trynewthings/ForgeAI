@@ -1,0 +1,119 @@
+{
+  "metadata": {
+    "llm_mode": "real",
+    "provider": "openai-compatible",
+    "model": "deepseek-chat",
+    "timestamp": "2026-04-04T11:32:05.977774+00:00",
+    "runs_per_scenario": 2,
+    "scenario_count": 3
+  },
+  "aggregate": {
+    "total_runs": 6,
+    "total_success": 0,
+    "overall": {
+      "topology_match_rate": 0.0,
+      "entry_exit_match_rate": 0.0,
+      "node_count_match_rate": 0.0,
+      "edge_count_match_rate": 0.0,
+      "validator_repair_rate": 0.0,
+      "fallback_rate": 0.0
+    },
+    "by_domain": {
+      "repository": {
+        "runs": 2,
+        "success": 0,
+        "topology_match_rate": 0.0,
+        "entry_exit_match_rate": 0.0,
+        "validator_repair_rate": 0.0,
+        "fallback_rate": 0.0,
+        "avg_llm_latency_ms": 0
+      },
+      "web_resource": {
+        "runs": 2,
+        "success": 0,
+        "topology_match_rate": 0.0,
+        "entry_exit_match_rate": 0.0,
+        "validator_repair_rate": 0.0,
+        "fallback_rate": 0.0,
+        "avg_llm_latency_ms": 0
+      },
+      "dataset": {
+        "runs": 2,
+        "success": 0,
+        "topology_match_rate": 0.0,
+        "entry_exit_match_rate": 0.0,
+        "validator_repair_rate": 0.0,
+        "fallback_rate": 0.0,
+        "avg_llm_latency_ms": 0
+      }
+    }
+  },
+  "results": [
+    {
+      "scenario": "repository_multimodule",
+      "domain": "repository",
+      "run_index": 1,
+      "step_count": 5,
+      "has_depends_on": true,
+      "deterministic": {
+        "success": false,
+        "error": "'FakeBlueprint' object has no attribute 'project_id'"
+      }
+    },
+    {
+      "scenario": "repository_multimodule",
+      "domain": "repository",
+      "run_index": 2,
+      "step_count": 5,
+      "has_depends_on": true,
+      "deterministic": {
+        "success": false,
+        "error": "'FakeBlueprint' object has no attribute 'project_id'"
+      }
+    },
+    {
+      "scenario": "research_briefing",
+      "domain": "web_resource",
+      "run_index": 1,
+      "step_count": 4,
+      "has_depends_on": true,
+      "deterministic": {
+        "success": false,
+        "error": "'FakeBlueprint' object has no attribute 'project_id'"
+      }
+    },
+    {
+      "scenario": "research_briefing",
+      "domain": "web_resource",
+      "run_index": 2,
+      "step_count": 4,
+      "has_depends_on": true,
+      "deterministic": {
+        "success": false,
+        "error": "'FakeBlueprint' object has no attribute 'project_id'"
+      }
+    },
+    {
+      "scenario": "dataset_summary",
+      "domain": "dataset",
+      "run_index": 1,
+      "step_count": 4,
+      "has_depends_on": true,
+      "deterministic": {
+        "success": false,
+        "error": "'FakeBlueprint' object has no attribute 'project_id'"
+      }
+    },
+    {
+      "scenario": "dataset_summary",
+      "domain": "dataset",
+      "run_index": 2,
+      "step_count": 4,
+      "has_depends_on": true,
+      "deterministic": {
+        "success": false,
+        "error": "'FakeBlueprint' object has no attribute 'project_id'"
+      }
+    }
+  ]
+}

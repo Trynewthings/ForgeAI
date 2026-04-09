@@ -1,0 +1,65 @@
+{
+  "blueprint_type": "workflow",
+  "name": "AI Weekly Research Workflow",
+  "description": "Generate a weekly AI research report from curated source items.",
+  "input_schema_json": {
+    "type": "object",
+    "properties": {
+      "theme": { "type": "string" }
+    }
+  },
+  "output_schema_json": {
+    "type": "object",
+    "properties": {
+      "weekly_report_markdown": { "type": "string" },
+      "weekly_report_json": { "type": "object" }
+    }
+  },
+  "artifacts_spec_json": {
+    "default_outputs": ["run_summary", "weekly_report.md", "weekly_report.json"]
+  },
+  "execution_steps_json": {
+    "steps": [
+      {
+        "step_name": "collect_sources",
+        "step_type": "python_function",
+        "function_name": "collect_sources",
+        "args": { "limit": 4 }
+      },
+      {
+        "step_name": "normalize_items",
+        "step_type": "python_function",
+        "function_name": "normalize_items"
+      },
+      {
+        "step_name": "filter_relevant",
+        "step_type": "llm_task",
+        "task_kind": "filter_relevant",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "task_prompt": "Return JSON with relevant_items and filter_reason."
+      },
+      {
+        "step_name": "summarize_items",
+        "step_type": "llm_task",
+        "task_kind": "summarize_items",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "task_prompt": "Return JSON with item summaries."
+      },
+      {
+        "step_name": "generate_report",
+        "step_type": "llm_task",
+        "task_kind": "generate_report",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "task_prompt": "Write a markdown weekly research report."
+      },
+      {
+        "step_name": "publish_artifact",
+        "step_type": "artifact_writer",
+        "writer_kind": "weekly_research_report"
+      }
+    ]
+  }
+}

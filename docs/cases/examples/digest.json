@@ -1,0 +1,14 @@
+{
+  "kind": "news_digest",
+  "topic": "AI delivery systems",
+  "selected_articles": [
+    {
+      "id": "news-001",
+      "title": "Open-weight coding model reaches stronger repo planning accuracy"
+    },
+    {
+      "id": "news-002",
+      "title": "Enterprise teams standardize AI workload observability dashboards"
+    }
+  ]
+}

@@ -1,0 +1,303 @@
+# Docs
+
+Current notes:
+
+- Workflow-Native Object Model design note now defines the next target architecture around:
+  - `ExecutionAdmissibilityContract`
+  - `NodeSpec / NodeInstance`
+  - `WorkflowGraph`
+  - `WorkflowExecutionContract`
+  - `ExecutionStateModel`
+  - `VerificationPlan`
+  - `PlannerCapabilityProjection`
+  - `BuildMaterializationRecord`
+  - design note: [Workflow-Native Object Model](design/workflow_native_object_model.md)
+- Workflow-Native Stage 4 Authority Map records the current migration state after the first partial runtime authority moves:
+  - `workflow_artifact` is now the preferred explainability and structure entry
+  - `human_gate_policy`, `failure_escalation_policy`, `rerun_legality_policy`, and `intervention_legality` are now partially migrated
+  - aligned linear runtime cases now also partially migrate execution-order authority to `workflow_artifact.workflow_graph.linear_order`
+  - compatibility package/step sources remain active, but are now explicitly documented as compatibility views
+  - next migration candidates are listed for stage 5
+  - design note: [Workflow-Native Stage 4 Authority Map](design/workflow_native_stage4_authority_map.md)
+- Workflow Planner And Graph Scheduler v1 defines the two workflow-native roles that still need to replace the old step world:
+  - `WorkflowPlanner` generates graph drafts but not runtime truth
+  - `Build` materializes graph drafts into `WorkflowArtifact`
+  - `WorkflowGraphScheduler` consumes materialized graph objects at runtime
+  - current implementation now includes a planner-sidecar draft, scheduler abstraction, graph-backed linear read-model, and first aligned linear execute-path trial
+  - the note also defines the gradual legacy-removal rules for `execution_steps_json`, `resolved_steps`, and other compatibility views
+  - design note: [Workflow Planner And Graph Scheduler v1](design/workflow_planner_and_scheduler_v1.md)
+- WorkflowPlanner Contract v1 defines the formal input/output contract for the standalone planner role:
+  - `WorkflowPlannerInput`: semantic understanding + admissibility + capability subset + constraints
+  - `WorkflowPlannerOutput`: linear DAG of node/edge drafts + verification draft + unresolved items
+  - typed evidence DAG (compile-side) is an upstream constraint, not a replacement for WorkflowGraphDraft
+  - v1 scope is linear DAG only; fan-out/fan-in/branches/loops are explicitly deferred
+  - schema defined in `app/schemas/workflow_planner.py`, not yet connected to execution path
+  - design note: [WorkflowPlanner Contract v1](design/workflow_planner_contract_v1.md)
+
+- Semantic Graph Closure / Clarification Integration `v5.9.7` makes graph proposal explicitly dependent on semantic closure instead of loosely inferred readiness:
+  - compile now evaluates whether the current semantic state is:
+    - `graph_proposable`
+    - `graph_proposable_with_review`
+    - `clarification_required`
+  - clarification questions are generated from graph-critical semantic gaps such as source modality, evidence basis, or delivery path
+  - review-needed is now reserved for semantically plausible graphs that can be proposed honestly but still need operator confidence/review
+  - templates remain downstream packaging only and do not decide closure or graph shape
+- Shared Semantic Core / Semantic Axis Authority `v5.9.4` to `v5.9.6.3` reshapes authoring + compile around stable semantic truth:
+  - authoring now maintains persistent semantic state across turns
+  - compile consumes the same `SemanticCore` instead of re-interpreting draft text
+  - semantic axes such as `workflow_shape`, `deliverable_form`, `analysis_frame`, and `evidence_basis` now carry more authority than overloaded contract labels
+  - `deliverable_contract` is now treated as a derived compatibility label rather than the primary source of planning meaning
+- A current milestone summary is available in [releases/v5.9.7-semantic-graph-closure.md](./releases/v5.9.7-semantic-graph-closure.md)
+
+- Bounded Interactive Browser / Network Expansion `v5.2` extends the bounded browser/network runtime without widening into unrestricted computer use:
+  - `browser_interaction` now supports a richer bounded action set including `click`, `fill`, `select`, `submit`, `screenshot`, and `wait_for_target`
+  - `fetch_url` is now materially runnable through an explicit `network_fetch` execution kind and `bounded_network_fetch` adapter
+  - browser/network bindings now carry explicit action kind, network-required, allowed-domain, and source-mode metadata
+  - remote access remains explicitly gated by `allow_network`, with optional allowed-domain enforcement
+  - runtime outputs preserve auditable action/target/source/result metadata for browser and network steps
+  - unsupported interaction requests still remain blocked or review-needed rather than broadening into unrestricted automation
+- Runtime UX / Safety Surface `v5.1.1` makes bounded local/runtime execution understandable in the desktop UI:
+  - executable and runtime screens now show first-glance runtime safety summaries instead of leaving policy interpretation to raw JSON
+  - local filesystem, terminal, browser, and search bindings now expose scope, confirmation, timeout, and bounded-adapter hints directly
+  - runtime step results now render structured action/result summaries with distinct blocked, review-needed, and confirmation-required treatment
+  - raw runtime/build/package debug payloads remain available, but they are secondary to the new structured safety surfaces
+- Runtime Capability Coverage `v5.1` expands the bounded execution-package runtime so more practical local workflows are materially runnable:
+  - the registry now includes explicit runtime families for `web_search`, `filesystem_list`, `filesystem_read`, `filesystem_write`, `terminal_command`, and `browser_interaction`
+  - build materialization now emits explicit bindings for these families with runtime adapter, execution kind, timeout, scope, and confirmation/review metadata where relevant
+  - runtime now supports:
+    - bounded corpus web search
+    - workspace-scoped filesystem operations
+    - allowlisted terminal commands without shell expansion
+    - minimal browser open/extract/link inspection
+  - unsupported browser actions and unsafe local operations remain explicitly blocked or review-needed rather than being treated as silently runnable
+- Executable Materialization `v5.0` turns executable output into a bounded execution-package foundation instead of only a descriptive manifest bundle:
+  - build now emits explicit package files such as `bindings.json`, `runtime_entry.json`, `package_metadata.json`, and `assets/asset_index.json`
+  - package bindings connect build-selected capabilities to runtime-facing execution kinds and handler references
+  - runtime resolver now consumes the package contract directly when available and exposes package bindings in resolved plans
+  - blocked or review-needed steps remain explicit in package metadata and preflight, rather than being treated as silently runnable
+  - a small safe runnable subset is now materially supported through the package contract, while unsupported/template-backed paths remain bounded and non-active
+- Capability Resolution UI / Presentation `v4.9.1` makes the v4.x governance chain visible in the desktop product flow:
+  - project-level capability resolution and request summaries are now first-class UI surfaces
+  - build pages now show build-planning and capability-resolution summaries without requiring raw manifest inspection
+  - executable pages now show per-step capability bindings
+  - session, requirement, and compile views now expose explicit capability-resolution cards
+- Capability Resolution `v4.9` folds the long governance chain into role-aware product states without removing the underlying durable objects:
+  - deterministic summaries now derive concise resolution states from gaps, requests, lifecycle entries, proposals, and activation eligibility
+  - `end_user` sees short availability/blocking language and simple next actions instead of raw governance internals
+  - `operator` sees enough routing/escalation detail to decide whether to wait, redirect, or involve a capability owner
+  - `capability_owner` still sees the full governance chain, including request, proposal, lifecycle, and activation references
+  - approved or converted internal requests can auto-generate proposals when summaries are built, but this does not activate capabilities or bypass review
+  - session authoring feedback, compile explainability, build metadata, and project-level request summaries now expose the same folded resolution language
+- Capability Activation `v4.8` adds an explicit proposal-to-active-capability path without weakening governance boundaries:
+  - approved proposals can be checked for deterministic activation eligibility and then activated explicitly
+  - proposal approval alone does not change registry usability
+  - activation requires a linked lifecycle entry, complete metadata draft fields, valid enabled contexts, and proposal-kind-specific policy checks
+  - generated-internal and template-backed proposals follow different activation rules
+  - successful activation updates the lifecycle entry to `active`, records activation notes/timestamp, and only then makes the capability visible in registry snapshots
+- Capability Proposal Pipeline `v4.7` adds a review-first implementation proposal layer for approved internal capability work:
+  - only `generated_internal` and `template_backed_internal` requests can generate proposals
+  - proposals are durable artifacts with their own review lifecycle and do not imply activation
+  - proposal content includes metadata drafts, IO/config summaries, test suggestions, and bounded non-active stubs
+  - generated-internal proposals can carry deterministic Python stub proposals for review only
+  - template-backed proposals stay bounded to known template execution kinds instead of arbitrary code
+  - request and lifecycle responses now expose linked proposal identifiers and statuses for visibility
+- Capability Lifecycle `v4.6` adds a governed bridge from approved requests to registry evolution:
+  - approved capability requests can be converted into durable capability lifecycle entries
+  - request lifecycle and capability lifecycle are separate; approved or converted does not imply active
+  - `generated_internal` conversions start as `proposed`, while `external_integration` and `template_backed_internal` start as `disabled`
+  - only lifecycle entries marked `active` with enabled contexts are exposed as usable capabilities in registry snapshots
+  - static built-in registry entries remain authoritative; lifecycle entries only extend visibility in a controlled way
+- Capability Request Stabilization `v4.5.1` improves reproducibility and visibility without changing v4.5 governance semantics:
+  - build planning now deterministically inspects declared blueprint step capabilities and can raise stable request-producing gaps from those structured signals
+  - this provides reproducible trigger paths for `generated_internal` and `external_integration` cases without depending mainly on conversational extraction quality
+  - capability request responses now expose direct convenience fields such as `request_kind`, `source_stage`, `implementation_route_hint`, and `display_summary`
+  - project-level request summary surfaces now expose grouped counts and latest actionable requests for manual/API validation
+  - session and compile presentation blocks now include a `capability_requests` section when requests were actually created
+- Capability Request Pipeline `v4.5` turns capability-gap recommendations into formal review artifacts:
+  - unified capability gaps can be classified deterministically into:
+    - `external_integration`
+    - `template_backed_internal`
+    - `generated_internal`
+    - `manual_review_only`
+  - requests carry source stage/gap context, capability purpose, alternatives, implementation-route hints, and review status
+  - review lifecycle is lightweight but explicit: `proposed`, `under_review`, `approved`, `rejected`, `converted`
+  - requests are governance artifacts only; they do not auto-generate code, auto-register capabilities, or auto-activate executable support
+- Capability Gap Detection `v4.4` unifies missing/unsupported capability signals across authoring, compile, and build:
+  - session authoring, step planning, and build planning now emit the same stage-aware capability-gap contract
+  - alternatives are suggested deterministically from the registry only
+  - when no safe alternative exists, the system emits structured recommendation artifacts such as capability request suggestions or manual review signals
+  - the system now prefers explicit missing/review-needed states over pretending support exists
+- Build Planning `v4.3` adds a constrained blueprint->executable planning layer without changing deterministic build authority:
+  - the model proposes only a schema-validated build plan, not a manifest or executable payload
+  - step-to-capability bindings must resolve through the capability registry
+  - provider/runtime requirements stay bounded by existing build/runtime policy constraints
+  - unsupported or missing bindings are surfaced explicitly in build metadata instead of being guessed away
+  - deterministic executable materialization still produces the final manifest/files
+  - current desktop UI primarily exposes this through raw manifest/build-step JSON; a dedicated build-planning panel has not been added yet
+- Requirement Studio `v4.2` adds a constrained requirement->blueprint step-planning stage:
+  - family and template remain fixed before step planning runs
+  - the model proposes only a structured step plan, not a full blueprint
+  - logical step kinds must come from the registered taxonomy
+  - referenced capabilities must come from the capability registry
+  - invalid or unsupported planning output falls back safely to the deterministic skeleton path
+  - compile explainability and trace now carry step-planning rationale, ambiguities, and capability gaps
+- Requirement Studio `v4.1` adds a constrained LLM draft-patch flow on top of the canonical session draft:
+  - LLM is allowed to propose only schema-validated partial patches to `requirement_draft_json`
+  - invalid or ambiguous patch output falls back safely to the deterministic draft updater
+  - unchanged draft fields are preserved unless the patch is confident enough to update them
+  - unsupported capability mentions are surfaced as ambiguity/warning notes rather than silently treated as registered capabilities
+  - authoring feedback remains the readiness/finalize authority
+- Requirement Studio `v3.7.2` refactors sessions around a single canonical requirement draft:
+  - `requirement_draft_json` is now the only authoring source of truth inside a session
+  - `send_message` updates that draft directly from conversation input
+  - authoring preview, finalize gating, and export now all consume the same draft state
+  - markdown output is now a projection derived from the requirement draft
+- Requirement Studio `v3.7.1` repairs the session finalization flow without changing compiler authority:
+  - session responses now include a compiler-facing `requirement_draft_json`
+  - session responses now include a machine-readable `finalize_status` block with blocking/warning reasons
+  - `send_message`, preview rendering, and finalize gating now use the same compiler-aligned authoring-feedback state
+  - blocked finalize attempts now return structured reasons
+  - the desktop session panel now foregrounds the requirement draft preview and finalize blockers instead of relying on legacy document JSON alone
+- Requirement Studio `v3.7` makes explanation contracts easier for API/UI consumption:
+  - shared explanation surfaces now include a `presentation` block with summary-card and ordered-section metadata
+  - presentation sections carry lightweight `severity`, `priority`, and `count` hints derived from real readiness/clarification/warning state
+  - authoring feedback, session preview, compile explainability, and compile history now share the same presentation language where applicable
+  - compile-only blueprint summary remains compile-specific
+  - the desktop UI now consumes these presentation blocks directly for requirement preview, compile explainability, compile history, and session export guidance
+- Requirement Studio `v3.6` unifies authoring-feedback and compile-explainability contracts without collapsing preview vs result semantics:
+  - authoring feedback and compile explainability now reuse shared nested explanation blocks for readiness, clarification, family, template, warnings, and next actions
+  - authoring feedback remains a preview-only surface and still does not expose blueprint explanation
+  - compile explainability remains result-oriented and keeps blueprint explanation compile-specific
+  - compile history keeps the unified compile explainability block through the existing result payload
+- Compiler `v3.5` adds a structured compile explainability surface without changing compiler authority:
+  - compile responses now include an `explainability` block with family, template, readiness, clarification, warning, blueprint, and next-action summaries
+  - explanations are deterministic derivations from actual compiler signals rather than free-form generated narratives
+  - blueprint explainability distinguishes deterministic skeleton structure from template overlay and slot-fill descriptive influence at a section level
+  - compile history result payloads retain explainability through the existing result persistence model
+- Requirement Studio `v3.4.1` cleans up post-removal legacy remnants:
+  - the unused direct session->build create route/schema were deleted rather than kept as a blocked compatibility shim
+  - the old legacy build execution service was removed because no supported path still referenced it
+  - session response state now uses removed-path wording instead of deprecated-path wording
+  - only historical build-task read surfaces remain
+- Requirement Studio `v3.4` removes the legacy direct session->build execution path:
+  - the only supported operational path is now `session -> export -> Requirement -> compile -> build -> run`
+  - direct session->build creation is no longer supported
+  - requirement sessions still support finalize plus explicit export into a structured `Requirement`
+  - structured compiler/build/run flows are unchanged
+- Requirement Studio `v3.3` prepares legacy-path retirement without removing compatibility yet:
+  - requirement sessions now persist export linkage to the structured `Requirement`
+  - explicit session export is idempotent in the common case and does not create duplicate Requirements by default
+  - session responses now include explicit structured-path guidance toward export -> compile -> build -> run
+  - the deprecated direct session->build path now emits structured usage/deprecation observability signals
+  - finalize still does not auto-export and the legacy path remains available for one more version window
+- Requirement Studio `v3.2` aligns requirement sessions with the structured compiler-facing contract without changing compiler authority:
+  - session responses now include compiler-aligned deterministic authoring feedback previews
+  - session previews reuse v3.1 completion state, clarification, family, and template feedback concepts
+  - a new explicit session export endpoint creates a real structured `Requirement`
+  - export is deterministic and preserves unmappable session fields in metadata buckets rather than forcing new compiler-core fields
+  - finalize does not auto-export and existing direct session->build behavior remains intact but deprecated
+- Requirement Studio `v3.1` hardens authoring feedback without changing compile authority:
+  - a new `GET /requirements/{id}/authoring-feedback` endpoint returns deterministic preview feedback before compile
+  - the preview reuses completion state, clarification items, family recommendation, and template selection concepts
+  - it does not build drafts, create compile history, or invoke LLM assistance
+  - authoring inputs now get low-risk normalization for blank optional text fields, `external_tools_needed_json`, `interactivity_level`, and `recurrence_mode`
+- Requirement Studio `v3.0` adds a minimal static template system without changing compiler authority boundaries:
+  - templates are defined in a small family-scoped static registry
+  - template selection runs after legal family recommendation and remains family-scoped only
+  - deterministic skeleton generation remains authoritative for structure
+  - template overlay applies only to existing descriptive slots and template tags
+  - `llm_assisted` filler receives template metadata only as an extra hint; its output contract is unchanged
+  - compiler trace now includes `decision_trace.template_selection`
+  - blueprint drafts now expose template metadata through `template_tags_json`
+  - compile history carries template trace through the existing result payload
+  - release note: [v3.0 Template System](releases/v3.0-template-system.md)
+  - design note: [Template Registry Design](design/template_registry_design.md)
+- Capability Registry `v4.0` adds a static planning foundation:
+  - logical step kinds are now defined separately from concrete capabilities
+  - a small static capability registry enumerates allowed capabilities, contexts, policy flags, and contract summaries
+  - deterministic helpers can list capabilities by step kind, validate usage context, and report missing-capability gaps
+  - this milestone does not bind blueprints to concrete capabilities yet; it only prepares safe future constrained planning
+- Runtime `v2.7` adds an explicit, minimal runtime input reuse path:
+  - run creation can opt into `reuse_latest_successful_input`
+  - reuse source is limited to the most recent successful raw run input
+  - lookup scope stays conservative: same project, same blueprint, prefer same runtime profile and executable
+  - merged precedence is reused input -> runtime profile overrides -> explicit run input
+  - v2.6 validation and preflight remain authoritative after merge
+  - reused input applies top-level filtering for obvious secret/ephemeral keys only
+  - resolved snapshots now record `input_reuse` metadata and `resolved_input_sources`
+- Runtime `v2.6` hardens execution without changing the existing runtime architecture:
+  - merged runtime input now goes through an explicit runtime input contract before execution
+  - `executable-manifest` mode validates against the executable input schema using a narrow supported subset
+  - runtime execution is executable-only and requires a built executable before run start
+  - preflight now records machine-readable manifest/input/env validation results and persists a `runtime_preflight` artifact
+  - failure reporting now standardizes `failure_class`, `failure_stage`, and `failure_detail`
+  - provider calls now use minimal retry and preserve existing fallback-completion semantics with explicit `fallback_used` and `retry_attempts`
+  - run snapshots now include `resolved_input_sources`, `input_validation`, and `preflight`
+  - `runtime_failure_report` artifacts are written for failed runs and failed-fast preflight
+- Requirement Studio `v2.5.5` improves `llm_assisted` compiler reliability without changing deterministic compiler ownership:
+  - explicit prompt contracts for analyzer, family recommender, and skeleton filler
+  - structured uncertainty via machine-readable status fields instead of free-form guessing
+  - shared JSON extraction, schema validation, repair, and deterministic fallback flow
+  - per-stage LLM trace details for raw output summary, extraction result, repair result, and fallback reason
+  - compact compile-surface reliability counters for analyzer/recommender/filler success, extraction failures, repairs, and fallback
+  - fixed family constraints remain `single_service`, `workflow`, and `multi_agent`
+- Requirement Studio `v2.5.4` adds compile-surface stabilization features:
+  - lightweight compile history records per requirement
+  - deterministic clarification freshness marking using requirement version/content hash
+  - explicit draft readiness semantics separate from draft existence
+  - reduced duplication between compiler notes, warnings, and fallback detail
+- Recent compile history now captures:
+  - compile id
+  - compiler mode
+  - clarification usage
+  - completion state
+  - draft readiness
+  - draft strategy
+  - warnings/gaps counts
+  - concise compile delta vs previous attempt
+- Clarification freshness rules are intentionally practical, not semantic:
+  - answers are marked against the requirement content hash/version when submitted
+  - later material requirement edits can make those answers `stale` or `partially_stale`
+  - stale answers are surfaced explicitly and are not silently merged during compile
+- Draft readiness semantics now distinguish:
+  - `draft_only`
+  - `blocked_by_clarification`
+  - `compilable_with_warnings`
+  - `ready_for_build`
+- Requirement payload canonicalization now applies to:
+  - `constraints_json`
+  - `acceptance_criteria_json`
+- Canonical requirement payload rules:
+  - both fields must be top-level JSON objects, not raw arrays
+  - canonical objects include `version`, `summary`, and `items`
+  - item rows are strict and reject unknown fields on write
+  - legacy stored arrays/loose objects are normalized on read and compile, but are not silently rewritten in-place
+- Requirement Studio `v2.5.3` adds a bounded clarification loop on top of the existing compiler flow.
+- Compile results now include a requirement completion state:
+  - `ready_to_compile`
+  - `compilable_with_warnings`
+  - `clarification_required`
+- Clarification items are generated as structured compiler questions only:
+  - tied to known requirement fields or compiler metadata slots
+  - persisted as lightweight requirement JSON state
+  - merged into recompile context without mutating the original requirement record fields
+- Recompile metadata now records:
+  - which clarification answers were used
+  - which fields were merged into the compile context
+  - whether family selection changed
+  - whether warnings or gaps were reduced
+- Requirement Studio `v2.5.2` `llm_assisted` compilation still operates only at controlled seams:
+  - structured requirement analysis
+  - assistive family recommendation
+  - bounded clarification question rewriting when the requirement is still blocked
+  - deterministic-skeleton slot filling
+- The compiler still emits only fixed JSON blueprint families and does not allow free-form graph generation.
+- Every LLM payload is schema-validated, may receive one repair pass, and otherwise falls back to deterministic behavior with traceable warnings.
+- Out of scope for this version:
+  - open-ended clarification chat agents
+  - heavy compile event-sourcing or full requirement versioning
+  - semantic staleness detection
+  - free-form blueprint graph generation
+  - direct blueprint mutation from clarification answers
+
+See [README](../README.md) for the full configuration and behavior summary.

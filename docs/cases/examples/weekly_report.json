@@ -1,0 +1,14 @@
+{
+  "kind": "weekly_research_report",
+  "theme": "AI runtime reliability",
+  "relevant_items": [
+    {
+      "id": "research-001",
+      "title": "Agent planning systems need stronger state visibility"
+    },
+    {
+      "id": "research-004",
+      "title": "Blueprint manifests improve reproducibility in runtime execution"
+    }
+  ]
+}

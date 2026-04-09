@@ -1,0 +1,12 @@
+{
+  "name": "OpenAI Runtime",
+  "model_bindings_json": {
+    "default_model_config_id": "<MODEL_CONFIG_ID>"
+  },
+  "env_vars_json": {},
+  "input_overrides_json": {},
+  "debug_options_json": {
+    "trace": true
+  },
+  "is_default": true
+}
