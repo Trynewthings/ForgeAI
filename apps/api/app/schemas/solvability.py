@@ -24,17 +24,18 @@ class SolvabilitySubgoal(BaseModel):
     subgoal_id: str
     label: str
     description: str
-    logical_step_kind: str
-    capability_id: str
-    consumes_evidence_types: list[str] = Field(default_factory=list)
-    produces_evidence_types: list[str] = Field(default_factory=list)
+    subgoal_kind: Literal["acquire", "analyze", "synthesize", "deliver", "review", "generic"] = "generic"
+    required_capability_classes: list[str] = Field(default_factory=list)
+    input_evidence_kinds: list[str] = Field(default_factory=list)
+    output_evidence_kinds: list[str] = Field(default_factory=list)
     human_review_required: bool = False
     graph_role: Literal["entry", "transform", "fanout_branch", "join", "delivery"] = "transform"
 
 
 class CapabilityMatch(BaseModel):
     subgoal_id: str
-    capability_id: str
+    required_capability_classes: list[str] = Field(default_factory=list)
+    matched_capability_ids: list[str] = Field(default_factory=list)
     match_status: Literal["matched", "partial", "unmatched"] = "unmatched"
     reasoning: Optional[str] = None
 

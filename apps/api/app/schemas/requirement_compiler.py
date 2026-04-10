@@ -596,14 +596,12 @@ class CompilerDecisionTraceResponse(BaseModel):
 
 class CompileContextWorkUnitResponse(BaseModel):
     work_unit_id: str
-    step_name: str
     label: Optional[str] = None
     objective: Optional[str] = None
-    logical_step_kind: Optional[str] = None
-    required_capability_classes: list[str] = Field(default_factory=list)
-    required_inputs: list[str] = Field(default_factory=list)
-    expected_outputs: list[str] = Field(default_factory=list)
-    dependency_hints: list[str] = Field(default_factory=list)
+    concern_kind: Optional[str] = None
+    concern_tags: list[str] = Field(default_factory=list)
+    required_capability_themes: list[str] = Field(default_factory=list)
+    supporting_subgoal_ids: list[str] = Field(default_factory=list)
     parallelism_hint: Optional[str] = None
     human_gate_hint: Optional[str] = None
 
