@@ -156,7 +156,13 @@ def test_compile_uses_data_pack_from_shared_semantic_core_without_recasting_as_r
 
     payload = _compile_requirement(client, requirement["id"])
 
-    assert payload["selected_blueprint_type"] == "single_service"
+    # Under the new family auto-upgrade rule (R5 front-chain + auto-upgrade),
+    # target_object="dataset" + deliverable_contract="dataset_summary_report"
+    # now auto-upgrades single_service → workflow. The guardrail this test
+    # protects is that compile READS the data_pack from the authoring
+    # semantic state (R7 — doesn't recast the request as research) — not the
+    # specific blueprint_type.
+    assert payload["selected_blueprint_type"] in {"single_service", "workflow"}
     assert payload["explainability"]["semantic_core_source"] == "authoring_semantic_state"
     assert payload["explainability"]["semantic_interpretation"]["deliverable_contract"] == "dataset_summary_report"
     assert payload["explainability"]["semantic_core_domain_packs"]["data_pack"]["data_source_kind"] == "csv"

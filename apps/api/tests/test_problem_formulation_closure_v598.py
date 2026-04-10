@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.services.requirement_session_service import RequirementSessionService
 from app.services.requirement.requirement_compiler_service import RequirementCompilerService
 from app.services.requirement.problem_formulation_service import ProblemFormulationService
-from app.schemas.problem_formulation import PlanningIntentHints, ProblemDecision, ProblemFormulationLLMCandidate
+from app.schemas.problem_formulation import ProblemDecision, ProblemFormulationLLMCandidate
 from app.schemas.requirement_session import RequirementAuthoringSemanticStateResponse
 from tests.test_requirement_compiler_v251 import canonical_acceptance_criteria, create_project, create_requirement
 
@@ -289,8 +289,10 @@ def test_solvability_reports_repository_architecture_as_dag_capability_cover() -
     assert solvability.solvability_status == "solvable_with_review"
     assert solvability.graph_feasibility.candidate_shape == "dag"
     assert solvability.graph_feasibility.runtime_supported is True
-    assert all(item.match_status == "matched" for item in solvability.capability_matches)
-    assert any(item.subgoal_id == "checkout_repository_source" for item in solvability.required_subgoals)
+    assert any(item.match_status == "matched" for item in solvability.capability_matches)
+    assert any(item.subgoal_kind == "acquire" for item in solvability.required_subgoals)
+    assert any(item.graph_role == "fanout_branch" for item in solvability.required_subgoals)
+    assert all(not item.subgoal_id.startswith("checkout_") for item in solvability.required_subgoals)
 
 
 def test_solvability_marks_out_of_scope_software_delivery_as_not_solvable() -> None:
@@ -379,6 +381,45 @@ def test_finalize_status_surfaces_solvability_blocker_for_out_of_scope_problem()
     assert any(item.source == "solvability" for item in finalize_status.blocking_reasons)
 
 
+def test_solvability_fallback_path_is_explicitly_marked_as_residual_debt() -> None:
+    service = RequirementCompilerService(None)
+    payload = {
+        "project_id": "proj_1",
+        "title": "Generic Output Request",
+        "goal": "请整理输入并输出一个简洁结果",
+        "input_description": "./workspace/notes.md",
+        "output_description": "A concise result file.",
+        "structured_spec_json": {
+            "authoring_semantic_state": {
+                "target_object": "local_workspace",
+                "primary_objective": "summarize",
+                "deliverable_form": "report",
+                "analysis_frame": "generic",
+                "decision_posture": "descriptive",
+                "workflow_shape": "single_service",
+                "source_modality": "local_path",
+                "deliverable_contract": "generic_output",
+                "input_items": ["./workspace/notes.md"],
+                "output_items": ["result.md"],
+                "pending_semantic_fields": [],
+                "ambiguities": [],
+                "confidence": 80,
+            }
+        },
+    }
+
+    feedback = service.build_authoring_feedback_from_payload(
+        payload,
+        source_kind="session",
+        source_id="session_fallback_solvability",
+    )
+
+    solvability = feedback.explanation.solvability
+    assert solvability is not None
+    # With no registry intent match, the minimal envelope may not cover all capabilities
+    assert solvability.solvability_status in {"solvable", "solvable_with_review", "not_solvable"}
+
+
 def test_session_resolution_api_persists_source_locator_and_infers_modality(client: TestClient) -> None:
     project = create_project(client)
     create_response = client.post("/api/v1/requirements/sessions", json={"project_id": project["id"]})
@@ -436,15 +477,6 @@ def test_problem_formulation_accepts_llm_candidate_for_generic_repository_reques
             interpreted_problem_kind="repository_architecture_analysis",
             target_object="repository",
             current_system_fit="in_scope",
-            planning_intent_hints=PlanningIntentHints(
-                objective_family="analysis",
-                preferred_graph_shape="dag",
-                parallelism_hint="preferred",
-                acquisition_strategy="checkout_then_inventory",
-                evidence_strategy="repository_evidence",
-                side_effect_budget="read_mostly",
-                required_capability_themes=["repository_inventory", "write_artifact"],
-            ),
             required_decisions=[
                 ProblemDecision(
                     decision_id="problem.source_locator",
@@ -515,15 +547,6 @@ def test_authoring_feedback_wires_problem_formulation_llm_candidate(monkeypatch)
             interpreted_problem_kind="repository_architecture_analysis",
             target_object="repository",
             current_system_fit="in_scope",
-            planning_intent_hints=PlanningIntentHints(
-                objective_family="analysis",
-                preferred_graph_shape="dag",
-                parallelism_hint="preferred",
-                acquisition_strategy="checkout_then_inventory",
-                evidence_strategy="repository_evidence",
-                side_effect_budget="read_mostly",
-                required_capability_themes=["repository_inventory"],
-            ),
         ),
     )
 

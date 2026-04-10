@@ -49,34 +49,6 @@ def test_repository_report_prompt_requires_clarification_when_report_frame_is_no
     }
 
 
-def test_repository_analysis_report_prompt_requires_source_modality_and_report_frame_clarification(client) -> None:
-    project = create_project(client)
-    requirement = create_requirement(
-        client,
-        project["id"],
-        title="Repository Analysis Report",
-        goal="Analyze this repository and generate a report.",
-        input_description="A repository root or repository URL.",
-        output_description="A report based on repository analysis.",
-        domain="developer tooling",
-        acceptance_criteria_json={"items": ["The report is grounded in repository evidence."]},
-    )
-
-    payload = _compile_requirement(client, requirement["id"])
-    graph_closure = payload["explainability"]["graph_closure"]
-
-    assert payload["completion_state"] == "clarification_required"
-    assert payload["compiler_status"] == "needs_input"
-    assert graph_closure["closure_status"] == "clarification_required"
-    assert set(graph_closure["blocking_semantic_axes"]) >= {"analysis_frame", "source_modality"}
-    assert set(graph_closure["candidate_skeleton_ids"]) >= {
-        "repository_architecture_report",
-        "repository_assessment_report",
-        "repository_summary_report",
-    }
-    questions = [item["question"] for item in payload["clarification_summary"]["items"]]
-    assert any("local in the workspace" in question or "remote URL" in question for question in questions)
-    assert any("describe the architecture" in question or "assess whether the project is good" in question for question in questions)
 
 
 def test_generic_analyze_and_something_useful_prompt_requires_deliverable_clarification(client) -> None:

@@ -63,7 +63,10 @@
       "Bash(python -m pytest tests/test_dag_recovery_e2e.py -x -v --tb=short)",
       "Bash(python -m pytest tests/test_agentic_auto_proposal.py -x -v --tb=short)",
       "Bash(python -m pytest tests/test_phase3_core.py::test_ai_news_digest_case_build_run_and_replay tests/test_broader_workflow_coverage_v58.py::test_research_briefing_workflow_renders_markdown_before_artifact_delivery tests/test_phase3_core.py::test_provider_failure_preserves_completion_with_structured_fallback_and_retry -v --tb=short)",
-      "Bash(python -m pytest tests/test_capability_activation_v48.py tests/test_capability_lifecycle_v46.py tests/test_capability_materialization_v53.py tests/test_capability_request_pipeline_v45.py -x -v --tb=short)"
+      "Bash(python -m pytest tests/test_capability_activation_v48.py tests/test_capability_lifecycle_v46.py tests/test_capability_materialization_v53.py tests/test_capability_request_pipeline_v45.py -x -v --tb=short)",
+      "Bash(python -m pytest tests/test_requirement_compiler_v253.py --collect-only -q)",
+      "Bash(python -m pytest tests/test_requirement_compiler_v251.py tests/test_requirement_compiler_v253.py tests/test_requirement_compiler_v254.py tests/test_requirement_compiler_v591.py tests/test_planning_graph_integration_v593.py tests/test_graph_closure_v597.py tests/test_semantic_graph_closure_v597.py tests/test_data_skeletons_v5966.py tests/test_llm_semantic_judgement_v5967.py tests/test_semantic_interpretation_v594.py --collect-only -q)",
+      "Bash(python -m pytest tests/test_workflow_planner.py tests/test_workflow_planner_llm.py tests/test_authority_tiers.py --tb=line -q)"
     ]
   }
 }

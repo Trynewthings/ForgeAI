@@ -19,24 +19,13 @@ from fastapi.testclient import TestClient
 from app.core.database import get_db
 from app.db.models import Blueprint
 from app.main import app as _app
-from app.schemas.problem_formulation import (
-    InputClosureContract,
-    OutputClosureContract,
-    PlanningIntentContract,
-    ProblemFormulationContract,
-)
-from app.schemas.requirement_compiler import (
-    CompileContextCapabilityEnvelopeResponse,
-    CompileContextConstraintsResponse,
-    CompileContextResponse,
-    CompileContextWorkUnitResponse,
-)
-from app.schemas.solvability import CapabilitySignature, GraphFeasibility, SolvabilityContract
-from app.schemas.workflow_native import ExecutionAdmissibilityContract
 from app.schemas.workflow_planner import WorkflowPlannerOutput
-from app.services.capabilities.registry import CapabilityRegistryService
 from app.services.workflow_planner_service import WorkflowPlannerService
 import app.services.job.job_execution_service as job_execution_service
+from tests.support.compile_context_builder import (
+    build_compile_context,
+    compile_context_runtime_constraints,
+)
 from tests.test_phase3_core import (
     create_project,
     execute_job,
@@ -49,133 +38,15 @@ def _get_test_db():
     override = _app.dependency_overrides.get(get_db)
     return next(override()) if override else next(get_db())
 
-def _compile_context_for_steps(steps: list[dict], *, target_object: str = "generic_request", human_review_required: bool = False) -> dict[str, Any]:
-    registry = CapabilityRegistryService()
-    all_caps = registry.list_capabilities(context="build_planning", include_disabled=False)
-    step_kinds = {
-        str(step.get("logical_step_kind") or "").strip()
-        for step in steps
-        if isinstance(step, dict) and str(step.get("logical_step_kind") or "").strip()
-    }
-    seen_ids: set[str] = set()
-    signatures = []
-    for kind in sorted(step_kinds):
-        matching = [cap for cap in all_caps if kind in (cap.supported_step_kinds or [])]
-        for cap in matching:
-            if cap.capability_id in seen_ids:
-                continue
-            seen_ids.add(cap.capability_id)
-            projection = registry.build_planner_capability_projection(cap.capability_id)
-            signatures.append(
-                CapabilitySignature(
-                    capability_id=cap.capability_id,
-                    logical_step_kinds=list(cap.supported_step_kinds or []),
-                    accepted_input_kinds=[port.semantic_role for port in projection.input_ports],
-                    produced_output_kinds=[port.semantic_role for port in projection.output_ports],
-                    side_effect_class=projection.side_effect_class or "none",
-                    access_boundary=(
-                        "remote"
-                        if "network_access" in projection.runtime_constraints
-                        else "workspace"
-                        if "workspace_access" in projection.runtime_constraints
-                        else "unknown"
-                    ),
-                    human_gate_requirement=(
-                        "required" if (projection.requires_review or projection.requires_confirmation) else "none"
-                    ),
-                    graph_support=["linear", "dag"],
-                    runtime_adapter_kind=cap.runtime_adapter or "unknown",
-                )
-            )
 
-    execution_admissibility = ExecutionAdmissibilityContract(
-        admissibility_status="review_needed" if human_review_required else "supported",
-        build_admission_decision="admit_with_review" if human_review_required else "admit",
-        primary_execution_regime="workflow_build",
-        max_automation_level="full_workflow",
-        expected_deliverable_class="report",
-        requires_human_review=human_review_required,
+def _compile_context_for_steps(steps: list[dict], *, target_object: str = "generic_request", human_review_required: bool = False) -> dict[str, Any]:
+    """Thin wrapper kept for backward-compat with local test call sites."""
+    return build_compile_context(
+        steps,
+        target_object=target_object,
+        human_review_required=human_review_required,
     )
-    compile_context = CompileContextResponse(
-        selected_blueprint_type="workflow",
-        graph_closure_status="graph_proposable",
-        selected_template_id="workflow.test_template",
-        problem_formulation=ProblemFormulationContract(
-            interpreted_problem_kind="test_problem",
-            target_object=target_object,
-            problem_status="solvable",
-            current_system_fit="in_scope",
-            planning_intent=PlanningIntentContract(
-                intent_id="test_intent",
-                label="Test intent",
-                target_object=target_object,
-                deliverable_contract="test_contract",
-                objective_family="analysis",
-                preferred_graph_shape="dag" if any(step.get("depends_on") for step in steps if isinstance(step, dict)) else "linear",
-                parallelism_hint="available" if any(step.get("depends_on") for step in steps if isinstance(step, dict)) else "none",
-                acquisition_strategy="direct_read",
-                evidence_strategy="generic",
-                side_effect_budget="read_mostly",
-            ),
-        ),
-        input_closure=InputClosureContract(
-            target_object=target_object,
-            planning_intent_id="test_intent",
-            closure_status="input_closed",
-        ),
-        output_closure=OutputClosureContract(
-            deliverable_form="report",
-            closure_status="output_closed",
-        ),
-        solvability=SolvabilityContract(
-            problem_kind="test_problem",
-            planning_intent_id="test_intent",
-            solvability_status="solvable_with_review" if human_review_required else "solvable",
-            graph_feasibility=GraphFeasibility(
-                candidate_shape="dag" if any(step.get("depends_on") for step in steps if isinstance(step, dict)) else "linear",
-                representable=True,
-                runtime_supported=True,
-                policy_supported=True,
-            ),
-        ),
-        semantic_core={"target_object": target_object, "deliverable_form": "report"},
-        execution_admissibility=execution_admissibility,
-        capability_envelope=CompileContextCapabilityEnvelopeResponse(
-            capability_signatures=signatures,
-        ),
-        compile_constraints=CompileContextConstraintsResponse(
-            allowed_node_semantic_types=["acquire", "transform", "act", "verify", "human_gate"],
-            require_human_gate_before=["act"] if human_review_required else [],
-        ),
-        candidate_work_units=[
-            CompileContextWorkUnitResponse(
-                work_unit_id=f"work_unit_{index}",
-                step_name=str(step.get("step_name") or ""),
-                label=step.get("node_name"),
-                objective=step.get("purpose") or step.get("output_intent"),
-                logical_step_kind=step.get("logical_step_kind"),
-                required_capability_classes=[
-                    str(step.get("logical_step_kind"))
-                ] if str(step.get("logical_step_kind") or "").strip() else [],
-                required_inputs=[
-                    str(step.get("input_intent"))
-                ] if str(step.get("input_intent") or "").strip() else [],
-                expected_outputs=[
-                    str(step.get("output_intent"))
-                ] if str(step.get("output_intent") or "").strip() else [],
-                dependency_hints=[
-                    f"work_unit_{steps.index(next_step) + 1}"
-                    for next_step in steps
-                    if isinstance(next_step, dict)
-                    and str(next_step.get("step_name") or "") in {str(item) for item in (step.get("depends_on") or []) if str(item)}
-                ],
-                parallelism_hint="available" if step.get("depends_on") else "none",
-            )
-            for index, step in enumerate(steps, start=1)
-            if isinstance(step, dict)
-        ],
-    )
-    return compile_context.model_dump(mode="python")
+
 
 
 def _create_blueprint_in_db(client: TestClient, project_id: str, steps: list[dict]) -> Blueprint:
@@ -344,10 +215,10 @@ class TestPlannerServiceUnit:
         ])
         output = WorkflowPlannerService().plan(bp)
         assert output.planner_trace.get("planner_version") == "workflow_planner_v1"
-        assert "has_dependency_hints" in output.planner_trace
+        assert output.planner_trace.get("structural_source") == "solvability.required_subgoals"
 
-    def test_planner_uses_work_unit_id_as_identity(self, client: TestClient):
-        """Planner should derive graph identity from work_unit_id, not step_name."""
+    def test_candidate_work_units_do_not_define_final_structure(self, client: TestClient):
+        """Planner should derive structure from solvability proof units, not work-unit hints."""
         project = create_project(client)
         bp = _create_blueprint_in_db(client, project["id"], [
             {"step_name": "legacy_root", "node_name": "root", "logical_step_kind": "acquire"},
@@ -363,28 +234,66 @@ class TestPlannerServiceUnit:
             ])
             compile_context["candidate_work_units"] = [
                 {
-                    "work_unit_id": "collect_sources",
-                    "step_name": "legacy_root",
+                    "work_unit_id": "mixed_hint",
+                    "label": "mixed concern",
+                    "objective": "bundle both proof units into one hint",
+                    "concern_kind": "generic",
+                    "concern_tags": ["entry", "transform"],
+                    "required_capability_themes": ["acquire", "transform"],
+                    "supporting_subgoal_ids": ["proof_unit_1", "proof_unit_2"],
+                    "parallelism_hint": None,
+                    "human_gate_hint": None,
+                }
+            ]
+            compile_context["solvability"]["graph_feasibility"]["candidate_shape"] = "linear"
+            rtc["compile_context"] = compile_context
+            bp_db.runtime_constraints_json = rtc
+            db.commit()
+            db.refresh(bp_db)
+
+            output = WorkflowPlannerService().plan(bp_db)
+            assert len(output.node_drafts) == 2
+            assert len(output.edge_drafts) == 1
+            assert output.node_drafts[0].step_name == "legacy_root"
+            assert output.node_drafts[1].step_name == "legacy_join"
+            assert output.node_drafts[1].upstream_dependencies == [output.node_drafts[0].draft_node_id]
+        finally:
+            db.close()
+
+    def test_planner_prefers_subgoal_compatibility_refs_over_hint_grouping(self, client: TestClient):
+        project = create_project(client)
+        bp = _create_blueprint_in_db(client, project["id"], [
+            {"step_name": "legacy_root", "node_name": "root", "logical_step_kind": "acquire"},
+            {"step_name": "legacy_join", "node_name": "join", "logical_step_kind": "transform"},
+        ])
+        db = _get_test_db()
+        try:
+            bp_db = db.query(Blueprint).filter(Blueprint.id == bp.id).first()
+            rtc = dict(bp_db.runtime_constraints_json or {})
+            compile_context = _compile_context_for_steps([
+                {"step_name": "legacy_root", "node_name": "root", "logical_step_kind": "acquire"},
+                {"step_name": "legacy_join", "node_name": "join", "logical_step_kind": "transform"},
+            ])
+            compile_context["candidate_work_units"] = [
+                {
+                    "work_unit_id": "hint_1",
                     "label": "root",
                     "objective": "collect source material",
-                    "logical_step_kind": "acquire",
-                    "required_capability_classes": ["acquire"],
-                    "required_inputs": [],
-                    "expected_outputs": ["sources"],
-                    "dependency_hints": [],
+                    "concern_kind": "acquire",
+                    "concern_tags": ["entry"],
+                    "required_capability_themes": ["acquire"],
+                    "supporting_subgoal_ids": ["proof_unit_1"],
                     "parallelism_hint": "none",
                     "human_gate_hint": None,
                 },
                 {
-                    "work_unit_id": "merge_findings",
-                    "step_name": "legacy_join",
+                    "work_unit_id": "hint_2",
                     "label": "join",
                     "objective": "merge source findings",
-                    "logical_step_kind": "transform",
-                    "required_capability_classes": ["transform"],
-                    "required_inputs": ["sources"],
-                    "expected_outputs": ["report"],
-                    "dependency_hints": ["collect_sources"],
+                    "concern_kind": "analyze",
+                    "concern_tags": ["transform"],
+                    "required_capability_themes": ["transform"],
+                    "supporting_subgoal_ids": ["proof_unit_2"],
                     "parallelism_hint": "none",
                     "human_gate_hint": None,
                 },

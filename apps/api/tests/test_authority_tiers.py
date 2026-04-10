@@ -21,6 +21,7 @@ from app.db.models import Blueprint, Executable
 from app.schemas.workflow_planner import WorkflowPlannerOutput
 from app.services.workflow_planner_service import WorkflowPlannerService
 import app.services.job.job_execution_service as job_execution_service
+from tests.support.compile_context_builder import compile_context_runtime_constraints
 from tests.test_phase3_core import (
     create_project,
     execute_job,
@@ -30,7 +31,11 @@ from tests.test_phase3_core import (
 
 
 def _build_executable(client: TestClient, steps: list[dict]) -> tuple[dict, dict]:
-    """Build a project through the full pipeline, return (executable_api, workflow_graph)."""
+    """Build a project through the full pipeline, return (executable_api, workflow_graph).
+
+    Provides a compile_context inside runtime_constraints_json so the planner can
+    see the solvability proof units — planner's only authoritative input (R1).
+    """
     project = create_project(client)
     requirement = client.post(
         "/api/v1/requirements",
@@ -44,6 +49,7 @@ def _build_executable(client: TestClient, steps: list[dict]) -> tuple[dict, dict
             "blueprint_type": "workflow",
             "name": "Authority Test Blueprint",
             "execution_steps_json": {"steps": steps},
+            "runtime_constraints_json": compile_context_runtime_constraints(steps),
         },
     ).json()
     build = client.post(

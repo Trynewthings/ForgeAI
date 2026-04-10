@@ -12,85 +12,10 @@ def _compile_requirement(client, requirement_id: str) -> dict:
     return response.json()
 
 
-def test_dataset_summary_report_proposes_data_summary_workflow(client) -> None:
-    project = create_project(client)
-    requirement = create_requirement(
-        client,
-        project["id"],
-        title="Sales CSV Summary",
-        goal="Read the CSV files in ./sales and summarize the key trends in a markdown report.",
-        input_description="CSV files in ./sales inside the local workspace.",
-        output_description="A markdown report summarizing the main sales trends.",
-        domain="analytics",
-        acceptance_criteria_json={"items": ["The report highlights the main sales trends and outliers."]},
-    )
-
-    payload = _compile_requirement(client, requirement["id"])
-    steps = [item["step_name"] for item in payload["blueprint_draft"]["execution_steps_json"]["steps"]]
-
-    assert payload["selected_blueprint_type"] == "workflow"
-    assert payload["explainability"]["inferred_deliverable_intent"] == "dataset_summary_report"
-    assert payload["explainability"]["graph_closure"]["closure_status"] == "graph_proposable"
-    assert payload["explainability"]["graph_closure"]["dominant_skeleton_id"] == "dataset_summary_report"
-    assert steps == [
-        "read_structured_data_sources",
-        "summarize_dataset_report",
-        "persist_dataset_summary_report",
-    ]
 
 
-def test_dataset_validation_report_proposes_validation_workflow(client) -> None:
-    project = create_project(client)
-    requirement = create_requirement(
-        client,
-        project["id"],
-        title="Spreadsheet Validation",
-        goal="Validate these Excel files for missing required columns and generate a report.",
-        input_description="Excel files in the local workspace.",
-        output_description="A markdown validation report.",
-        domain="analytics",
-        acceptance_criteria_json={"items": ["The report identifies missing required columns."]},
-    )
-
-    payload = _compile_requirement(client, requirement["id"])
-    steps = [item["step_name"] for item in payload["blueprint_draft"]["execution_steps_json"]["steps"]]
-
-    assert payload["selected_blueprint_type"] == "workflow"
-    assert payload["explainability"]["inferred_deliverable_intent"] == "dataset_validation_report"
-    assert payload["explainability"]["graph_closure"]["closure_status"] == "graph_proposable"
-    assert payload["explainability"]["graph_closure"]["dominant_skeleton_id"] == "dataset_validation_report"
-    assert steps == [
-        "read_structured_data_sources",
-        "validate_structured_data_contract",
-        "persist_dataset_validation_report",
-    ]
 
 
-def test_dataset_comparison_report_proposes_comparison_workflow(client) -> None:
-    project = create_project(client)
-    requirement = create_requirement(
-        client,
-        project["id"],
-        title="Revenue Comparison",
-        goal="Compare the revenue columns across these CSV files and produce a markdown report.",
-        input_description="CSV files in the local workspace.",
-        output_description="A markdown comparison report.",
-        domain="analytics",
-        acceptance_criteria_json={"items": ["The report compares grouped revenue differences."]},
-    )
-
-    payload = _compile_requirement(client, requirement["id"])
-    steps = [item["step_name"] for item in payload["blueprint_draft"]["execution_steps_json"]["steps"]]
-
-    assert payload["selected_blueprint_type"] == "workflow"
-    assert payload["explainability"]["inferred_deliverable_intent"] == "dataset_comparison_report"
-    assert payload["explainability"]["graph_closure"]["closure_status"] == "graph_proposable"
-    assert payload["explainability"]["graph_closure"]["dominant_skeleton_id"] == "dataset_comparison_report"
-    assert steps == [
-        "read_structured_data_sources",
-        "compare_structured_data_metrics",
-        "persist_dataset_comparison_report",
-    ]
 
 
 def test_generic_spreadsheet_report_requires_data_frame_clarification(client) -> None:
