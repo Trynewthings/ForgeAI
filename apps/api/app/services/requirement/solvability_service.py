@@ -26,6 +26,14 @@ from app.services.requirement.problem_contract_support import (
 
 class SolvabilityService:
     _SUPPORTED_GRAPH_SHAPES = {"linear", "dag"}
+    _SUBGOAL_KIND_TO_CAPABILITY_CLASSES = {
+        "acquire": ["acquire", "ingest", "fetch", "search"],
+        "analyze": ["analyze", "transform", "compute", "process"],
+        "synthesize": ["summarize", "synthesize", "format"],
+        "deliver": ["persist", "write", "submit"],
+        "review": ["review", "validate", "verify"],
+        "generic": ["transform", "summarize"],
+    }
 
     def __init__(self, registry: CapabilityRegistryService | None = None) -> None:
         self.registry = registry or CapabilityRegistryService()
@@ -110,6 +118,8 @@ class SolvabilityService:
         )
         required_subgoals = self._build_required_subgoals(
             planning_intent=planning_intent,
+            input_closure=input_closure,
+            output_closure=output_closure,
             workflow_proof=workflow_proof,
         )
         capability_signatures = self._build_capability_signatures()
@@ -184,6 +194,7 @@ class SolvabilityService:
                 output_closure=output_closure,
                 graph_feasibility=graph_feasibility,
                 required_subgoals=required_subgoals,
+                workflow_proof_used=workflow_proof is not None and bool(getattr(workflow_proof, "steps", None)),
             ),
         )
 
@@ -208,94 +219,52 @@ class SolvabilityService:
         self,
         *,
         planning_intent: PlanningIntentContract,
+        input_closure: InputClosureContract,
+        output_closure: OutputClosureContract,
         workflow_proof,
     ) -> list[SolvabilitySubgoal]:
         if workflow_proof is not None and workflow_proof.steps:
             incoming: dict[str, int] = {}
             outgoing: dict[str, int] = {}
+            predecessors: dict[str, set[str]] = {}
             for edge in workflow_proof.edges:
                 outgoing[edge.from_step_id] = outgoing.get(edge.from_step_id, 0) + 1
                 incoming[edge.to_step_id] = incoming.get(edge.to_step_id, 0) + 1
+                predecessors.setdefault(edge.to_step_id, set()).add(edge.from_step_id)
             subgoals: list[SolvabilitySubgoal] = []
             for step in workflow_proof.steps:
                 graph_role = "transform"
                 if incoming.get(step.step_id, 0) == 0:
                     graph_role = "entry"
-                if incoming.get(step.step_id, 0) > 1:
+                elif incoming.get(step.step_id, 0) > 1:
                     graph_role = "join"
-                if outgoing.get(step.step_id, 0) > 1:
+                elif any(outgoing.get(parent_id, 0) > 1 for parent_id in predecessors.get(step.step_id, set())):
                     graph_role = "fanout_branch"
-                if outgoing.get(step.step_id, 0) == 0 and step.logical_step_kind == "persist":
+                elif outgoing.get(step.step_id, 0) == 0 and step.logical_step_kind == "persist":
                     graph_role = "delivery"
+                subgoal_kind = self._subgoal_kind_for_step_kind(step.logical_step_kind)
                 subgoals.append(
                     SolvabilitySubgoal(
-                        subgoal_id=step.step_id,
+                        subgoal_id=f"proof_unit_{len(subgoals) + 1}",
                         label=step.node_name,
                         description=step.purpose or step.output_intent or step.input_intent or step.node_name,
-                        logical_step_kind=step.logical_step_kind,
-                        capability_id=step.capability_id,
-                        consumes_evidence_types=list(step.consumes_evidence_types or []),
-                        produces_evidence_types=list(step.produces_evidence_types or []),
+                        subgoal_kind=subgoal_kind,
+                        required_capability_classes=self._required_capability_classes(
+                            subgoal_kind=subgoal_kind,
+                            logical_step_kind=step.logical_step_kind,
+                        ),
+                        input_evidence_kinds=list(step.consumes_evidence_types or []),
+                        output_evidence_kinds=list(step.produces_evidence_types or []),
                         human_review_required=step.human_review_required,
                         graph_role=graph_role,
                     )
                 )
             return subgoals
-
-        fallback_specs = {
-            "product_requirement_specification": [
-                {
-                    "subgoal_id": "synthesize_specification",
-                    "label": "specification",
-                    "description": "Synthesize a structured specification from the current problem framing.",
-                    "logical_step_kind": "summarize",
-                    "capability_id": "summarize_text_llm",
-                },
-                {
-                    "subgoal_id": "persist_specification_artifact",
-                    "label": "spec_delivery",
-                    "description": "Persist the synthesized specification as an explicit artifact.",
-                    "logical_step_kind": "persist",
-                    "capability_id": "write_artifact",
-                    "produces_evidence_types": ["artifact.saved"],
-                    "graph_role": "delivery",
-                },
-            ],
-            "generic_problem_envelope": [
-                {
-                    "subgoal_id": "synthesize_generic_output",
-                    "label": "generic_output",
-                    "description": "Synthesize a bounded output from the current problem framing.",
-                    "logical_step_kind": "summarize",
-                    "capability_id": "summarize_text_llm",
-                },
-                {
-                    "subgoal_id": "persist_generic_artifact",
-                    "label": "generic_delivery",
-                    "description": "Persist the resulting output as an explicit artifact.",
-                    "logical_step_kind": "persist",
-                    "capability_id": "write_artifact",
-                    "produces_evidence_types": ["artifact.saved"],
-                    "graph_role": "delivery",
-                },
-            ],
-        }
-        subgoals: list[SolvabilitySubgoal] = []
-        for definition in fallback_specs.get(planning_intent.intent_id, []):
-            subgoals.append(
-                SolvabilitySubgoal(
-                    subgoal_id=str(definition["subgoal_id"]),
-                    label=str(definition["label"]),
-                    description=str(definition["description"]),
-                    logical_step_kind=str(definition["logical_step_kind"]),
-                    capability_id=str(definition["capability_id"]),
-                    consumes_evidence_types=list(definition.get("consumes_evidence_types") or []),
-                    produces_evidence_types=list(definition.get("produces_evidence_types") or []),
-                    human_review_required=False,
-                    graph_role=str(definition.get("graph_role") or "transform"),
-                )
-            )
-        return subgoals
+        return self._fallback_required_subgoals(
+            planning_intent=planning_intent,
+            input_closure=input_closure,
+            output_closure=output_closure,
+        )
 
     def _build_capability_signatures(self) -> dict[str, CapabilitySignature]:
         signatures: dict[str, CapabilitySignature] = {}
@@ -341,54 +310,62 @@ class SolvabilityService:
     ) -> list[CapabilityMatch]:
         matches: list[CapabilityMatch] = []
         for subgoal in required_subgoals:
-            signature = signatures.get(subgoal.capability_id)
-            if signature is None:
+            if subgoal.required_capability_classes:
+                matched_pairs = [
+                    (
+                        capability_class,
+                        self._matching_signatures_for_capability_class(
+                            signatures=signatures,
+                            capability_class=capability_class,
+                        ),
+                    )
+                    for capability_class in subgoal.required_capability_classes
+                ]
+                matched_signatures = [
+                    signature
+                    for _capability_class, matched in matched_pairs
+                    for signature in matched
+                ]
+                if not matched_signatures:
+                    matches.append(
+                        CapabilityMatch(
+                            subgoal_id=subgoal.subgoal_id,
+                            required_capability_classes=list(subgoal.required_capability_classes),
+                            matched_capability_ids=[],
+                            match_status="unmatched",
+                            reasoning=(
+                                "The registry does not currently expose a runnable capability class for "
+                                f"{', '.join(subgoal.required_capability_classes)}."
+                            ),
+                        )
+                    )
+                    continue
+
+                issues = self._capability_class_issues(
+                    subgoal=subgoal,
+                    signatures=list({signature.capability_id: signature for signature in matched_signatures}.values()),
+                    candidate_shape=candidate_shape,
+                    capability_class="/".join(subgoal.required_capability_classes),
+                )
                 matches.append(
                     CapabilityMatch(
                         subgoal_id=subgoal.subgoal_id,
-                        capability_id=subgoal.capability_id,
+                        required_capability_classes=list(subgoal.required_capability_classes),
+                        matched_capability_ids=sorted({signature.capability_id for signature in matched_signatures}),
+                        match_status="matched" if not issues else "partial",
+                        reasoning=None if not issues else " ".join(issues),
+                    )
+                )
+            if not subgoal.required_capability_classes:
+                matches.append(
+                    CapabilityMatch(
+                        subgoal_id=subgoal.subgoal_id,
+                        required_capability_classes=["generic"],
+                        matched_capability_ids=[],
                         match_status="unmatched",
-                        reasoning=f"The registry does not currently expose a runnable capability for '{subgoal.capability_id}'.",
+                        reasoning="No capability class requirements were declared for this solvability subgoal.",
                     )
                 )
-                continue
-
-            issues: list[str] = []
-            if signature.logical_step_kinds and subgoal.logical_step_kind not in signature.logical_step_kinds:
-                issues.append(
-                    f"Step kind '{subgoal.logical_step_kind}' is not supported by capability '{subgoal.capability_id}'."
-                )
-            if subgoal.consumes_evidence_types and signature.accepted_input_kinds:
-                unsupported_inputs = [
-                    item for item in subgoal.consumes_evidence_types
-                    if item not in signature.accepted_input_kinds
-                ]
-                if unsupported_inputs:
-                    issues.append(
-                        f"Capability '{subgoal.capability_id}' does not declare support for input evidence types: {', '.join(unsupported_inputs)}."
-                    )
-            if subgoal.produces_evidence_types and signature.produced_output_kinds:
-                unsupported_outputs = [
-                    item for item in subgoal.produces_evidence_types
-                    if item not in signature.produced_output_kinds
-                ]
-                if unsupported_outputs:
-                    issues.append(
-                        f"Capability '{subgoal.capability_id}' does not declare output evidence types: {', '.join(unsupported_outputs)}."
-                    )
-            if candidate_shape not in {"unknown", *signature.graph_support}:
-                issues.append(
-                    f"Capability '{subgoal.capability_id}' does not advertise support for graph shape '{candidate_shape}'."
-                )
-
-            matches.append(
-                CapabilityMatch(
-                    subgoal_id=subgoal.subgoal_id,
-                    capability_id=subgoal.capability_id,
-                    match_status="matched" if not issues else "partial",
-                    reasoning=None if not issues else " ".join(issues),
-                )
-            )
         return matches
 
     def _build_graph_feasibility(
@@ -438,25 +415,25 @@ class SolvabilityService:
         signatures: dict[str, CapabilitySignature],
     ) -> list[str]:
         reviews: list[str] = []
-        partial_reasons = {
-            match.capability_id: match.reasoning
-            for match in capability_matches
-            if match.match_status == "partial" and match.reasoning
-        }
+        partial_reasons = [match.reasoning for match in capability_matches if match.match_status == "partial" and match.reasoning]
+        reviews.extend(partial_reasons)
         for subgoal in required_subgoals:
             if subgoal.human_review_required:
                 reviews.append(
                     f"Subgoal '{subgoal.subgoal_id}' requires human review before relying on its output."
                 )
-            if subgoal.capability_id in partial_reasons:
-                reviews.append(partial_reasons[subgoal.capability_id] or "")
-            signature = signatures.get(subgoal.capability_id)
-            if signature is None:
-                continue
-            if signature.human_gate_requirement in {"required", "optional"}:
-                reviews.append(
-                    f"Capability '{subgoal.capability_id}' is review- or confirmation-aware and should be inspected before relying on it."
-                )
+            matched_ids = {
+                capability_id
+                for match in capability_matches
+                if match.subgoal_id == subgoal.subgoal_id
+                for capability_id in match.matched_capability_ids
+            }
+            for capability_id in matched_ids:
+                signature = signatures.get(capability_id)
+                if signature is not None and signature.human_gate_requirement in {"required", "optional"}:
+                    reviews.append(
+                        f"Capability '{signature.capability_id}' is review- or confirmation-aware and should be inspected before relying on it."
+                    )
         return _unique(reviews)
 
     def _build_reasoning_summary(
@@ -467,6 +444,7 @@ class SolvabilityService:
         output_closure: OutputClosureContract,
         graph_feasibility: GraphFeasibility,
         required_subgoals: list[SolvabilitySubgoal],
+        workflow_proof_used: bool,
     ) -> str:
         planning_intent = problem_formulation.planning_intent
         summary = problem_formulation.reasoning_summary or "The problem formulation is stable enough for capability-level solvability assessment."
@@ -478,10 +456,141 @@ class SolvabilityService:
             summary = f"{summary} {output_closure.reasoning_summary}"
         if required_subgoals:
             summary = (
-                f"{summary} The current system can cover {len(required_subgoals)} workflow proof steps "
+                f"{summary} The current system can cover {len(required_subgoals)} solvability proof units "
                 f"with a {graph_feasibility.candidate_shape} graph."
             )
+        if not workflow_proof_used and required_subgoals:
+            summary = (
+                f"{summary} Residual fallback shaping was used because no typed workflow proof was available; "
+                "the resulting subgoals are proof-oriented compatibility debt, not planner structure authority."
+            )
         return summary.strip()
+
+    def _fallback_required_subgoals(
+        self,
+        *,
+        planning_intent: PlanningIntentContract,
+        input_closure: InputClosureContract,
+        output_closure: OutputClosureContract,
+    ) -> list[SolvabilitySubgoal]:
+        subgoals: list[SolvabilitySubgoal] = []
+        if input_closure.acquisition_path_kind not in {"unknown", None}:
+            subgoals.append(
+                SolvabilitySubgoal(
+                    subgoal_id="proof_unit_1",
+                    label="input_acquisition",
+                    description="Acquire or access the required input source under the current closure contract.",
+                    subgoal_kind="acquire",
+                    required_capability_classes=["acquire"],
+                    graph_role="entry",
+                )
+            )
+
+        objective_kind = {
+            "analysis": "analyze",
+            "research": "analyze",
+            "data_processing": "analyze",
+            "workspace_synthesis": "synthesize",
+            "product_specification": "synthesize",
+        }.get(planning_intent.objective_family, "synthesize")
+        subgoals.append(
+            SolvabilitySubgoal(
+                subgoal_id=f"proof_unit_{len(subgoals) + 1}",
+                label="core_problem_work",
+                description="Perform the central bounded transformation implied by the current planning intent.",
+                subgoal_kind=objective_kind,
+                required_capability_classes=self._required_capability_classes(subgoal_kind=objective_kind),
+                graph_role="transform",
+            )
+        )
+
+        if output_closure.deliverable_form or planning_intent.must_preserve_artifact_delivery:
+            subgoals.append(
+                SolvabilitySubgoal(
+                    subgoal_id=f"proof_unit_{len(subgoals) + 1}",
+                    label="deliver_output",
+                    description="Produce and persist the bounded deliverable implied by the current output closure.",
+                    subgoal_kind="deliver",
+                    required_capability_classes=self._required_capability_classes(subgoal_kind="deliver"),
+                    output_evidence_kinds=["artifact.saved"] if planning_intent.must_preserve_artifact_delivery else [],
+                    graph_role="delivery",
+                )
+            )
+        return subgoals
+
+    def _subgoal_kind_for_step_kind(self, logical_step_kind: str | None) -> str:
+        kind = str(logical_step_kind or "").strip()
+        if kind in {"acquire", "gather", "research", "collect", "search", "fetch", "ingest"}:
+            return "acquire"
+        if kind in {"analyze", "transform", "process", "compute"}:
+            return "analyze"
+        if kind in {"summarize", "synthesize", "format"}:
+            return "synthesize"
+        if kind in {"persist", "write", "submit", "deploy", "send"}:
+            return "deliver"
+        if kind in {"verify", "validate", "review", "approve", "human_gate"}:
+            return "review"
+        return "generic"
+
+    def _required_capability_classes(
+        self,
+        *,
+        subgoal_kind: str,
+        logical_step_kind: str | None = None,
+    ) -> list[str]:
+        classes: list[str] = []
+        explicit_kind = str(logical_step_kind or "").strip()
+        if explicit_kind:
+            classes.append(explicit_kind)
+        classes.extend(self._SUBGOAL_KIND_TO_CAPABILITY_CLASSES.get(subgoal_kind, []))
+        return _unique(classes)
+
+    def _matching_signatures_for_capability_class(
+        self,
+        *,
+        signatures: dict[str, CapabilitySignature],
+        capability_class: str,
+    ) -> list[CapabilitySignature]:
+        return [
+            signature
+            for signature in signatures.values()
+            if capability_class in signature.logical_step_kinds
+        ]
+
+    def _capability_class_issues(
+        self,
+        *,
+        subgoal: SolvabilitySubgoal,
+        signatures: list[CapabilitySignature],
+        candidate_shape: str,
+        capability_class: str,
+    ) -> list[str]:
+        issues: list[str] = []
+        if subgoal.input_evidence_kinds:
+            supported_inputs = {item for signature in signatures for item in signature.accepted_input_kinds}
+            unsupported_inputs = [item for item in subgoal.input_evidence_kinds if supported_inputs and item not in supported_inputs]
+            if unsupported_inputs:
+                issues.append(
+                    f"Capability class '{capability_class}' does not declare support for input evidence types: {', '.join(unsupported_inputs)}."
+                )
+        if subgoal.output_evidence_kinds:
+            supported_outputs = {item for signature in signatures for item in signature.produced_output_kinds}
+            unsupported_outputs = [item for item in subgoal.output_evidence_kinds if supported_outputs and item not in supported_outputs]
+            if unsupported_outputs:
+                issues.append(
+                    f"Capability class '{capability_class}' does not declare support for output evidence types: {', '.join(unsupported_outputs)}."
+                )
+        if candidate_shape != "unknown":
+            unsupported_shape = [
+                signature.capability_id
+                for signature in signatures
+                if candidate_shape not in {"unknown", *signature.graph_support}
+            ]
+            if unsupported_shape and len(unsupported_shape) == len(signatures):
+                issues.append(
+                    f"Capability class '{capability_class}' does not advertise support for graph shape '{candidate_shape}'."
+                )
+        return issues
 
 
 def _unique(values: list[str]) -> list[str]:

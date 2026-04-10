@@ -7,7 +7,7 @@ Key design boundaries:
 - Planner output is draft truth, not runtime truth.
 - Build materializes planner output into WorkflowArtifact.
 - Planner consumes CompileContext as its only formal authority input.
-- v1 supports linear + explicit DAG (via compile-context step dependencies).
+- Structural planning is derived from solvability proof units, not candidate work-unit hints.
 """
 from __future__ import annotations
 
@@ -126,81 +126,72 @@ class WorkflowPlannerService:
     def plan_from_compile_context(self, compile_context: CompileContextResponse) -> WorkflowPlannerOutput:
         """Produce planner output from compile-context authority."""
         planner_context = self._build_planner_context(compile_context)
-        work_units = [unit.model_dump(mode="python") for unit in compile_context.candidate_work_units]
-        if not work_units:
+        subgoals = list(compile_context.solvability.required_subgoals)
+        work_unit_hints = self._work_unit_hints_by_subgoal_id(compile_context)
+        if not subgoals:
             return WorkflowPlannerOutput(
                 draft_status="blocked",
-                planning_notes=["CompileContext contains no candidate work units."],
+                planning_notes=["CompileContext solvability proof contains no required subgoals."],
                 unresolved_items=[
                     WorkflowPlannerUnresolvedItem(
-                        item_id="no_work_units",
+                        item_id="no_required_subgoals",
                         item_kind="semantic_ambiguity",
                         severity="blocking",
-                        description="CompileContext has no candidate work units to plan.",
+                        description="CompileContext has no solvability proof units to plan from.",
                     )
                 ],
             )
 
         node_drafts: list[WorkflowPlannerNodeDraft] = []
         unresolved_items: list[WorkflowPlannerUnresolvedItem] = []
-        node_id_by_work_unit: dict[str, str] = {}
-
-        for index, work_unit in enumerate(work_units, start=1):
-            if not isinstance(work_unit, dict):
-                continue
-            work_unit_id = str(work_unit.get("work_unit_id") or f"work_unit_{index}")
-            node_id_by_work_unit[work_unit_id] = f"planner_node_{index}"
-
-        has_dependency_hints = any(
-            isinstance(work_unit.get("dependency_hints"), list) and bool(work_unit.get("dependency_hints"))
-            for work_unit in work_units
-            if isinstance(work_unit, dict)
+        node_id_by_subgoal: dict[str, str] = {
+            subgoal.subgoal_id: f"planner_node_{index}"
+            for index, subgoal in enumerate(subgoals, start=1)
+        }
+        dependency_map = self._build_subgoal_dependency_map(
+            subgoals=subgoals,
+            candidate_shape=compile_context.solvability.graph_feasibility.candidate_shape,
         )
 
-        previous_node_id: Optional[str] = None
-        for index, work_unit in enumerate(work_units, start=1):
-            if not isinstance(work_unit, dict):
-                continue
-            work_unit_id = str(work_unit.get("work_unit_id") or f"work_unit_{index}")
-            step_name = str(work_unit.get("step_name") or work_unit_id)
-            node_name = str(work_unit.get("label") or work_unit_id)
-            node_id = node_id_by_work_unit[work_unit_id]
-            logical_kind = str(work_unit.get("logical_step_kind") or "").strip()
-            semantic_type = _STEP_KIND_TO_SEMANTIC_TYPE.get(logical_kind, "transform")
+        for subgoal in subgoals:
+            node_id = node_id_by_subgoal[subgoal.subgoal_id]
+            hint_units = work_unit_hints.get(subgoal.subgoal_id, [])
+            node_name = self._subgoal_node_name(subgoal=subgoal, hint_units=hint_units)
+            semantic_type = self._semantic_type_for_subgoal(subgoal.subgoal_kind)
+            upstream_ids = [
+                node_id_by_subgoal[dep]
+                for dep in dependency_map.get(subgoal.subgoal_id, [])
+                if dep in node_id_by_subgoal and dep != subgoal.subgoal_id
+            ]
 
-            if has_dependency_hints:
-                dependency_hints = work_unit.get("dependency_hints")
-                if isinstance(dependency_hints, list) and dependency_hints:
-                    upstream_ids = [
-                        node_id_by_work_unit[str(dep)]
-                        for dep in dependency_hints
-                        if str(dep) in node_id_by_work_unit and str(dep) != work_unit_id
-                    ]
-                else:
-                    upstream_ids = []
-            else:
-                upstream_ids = [previous_node_id] if previous_node_id else []
-
-            kind_prefs = planner_context.step_kind_preferences
-            candidate_ids = list(kind_prefs.get(logical_kind, []))
+            candidate_ids = self._candidate_capability_ids_for_subgoal(
+                planner_context=planner_context,
+                subgoal=subgoal,
+                hint_units=hint_units,
+            )
             preferred_ids = candidate_ids[:1] if candidate_ids else []
 
             unresolved_reasons: list[str] = []
-            if not candidate_ids and logical_kind:
-                unresolved_reasons.append(f"no_capability_for_{logical_kind}")
+            if not candidate_ids and subgoal.required_capability_classes:
+                primary_class = subgoal.required_capability_classes[0]
+                unresolved_reasons.append(f"no_capability_for_{primary_class}")
                 unresolved_items.append(
                     WorkflowPlannerUnresolvedItem(
-                        item_id=f"cap_gap_{work_unit_id}",
+                        item_id=f"cap_gap_{subgoal.subgoal_id}",
                         item_kind="capability_gap",
                         severity="warning",
                         related_node_ids=[node_id],
-                        description=f"No capability matches step kind '{logical_kind}' for work unit '{work_unit_id}'.",
-                        suggested_resolution=f"Register a capability supporting '{logical_kind}' or adjust step kind.",
+                        description=(
+                            f"No capability matches required classes {subgoal.required_capability_classes} "
+                            f"for solvability subgoal '{subgoal.subgoal_id}'."
+                        ),
+                        suggested_resolution="Register a matching capability class or revise the solvability proof envelope.",
                     )
                 )
 
             requires_human = (
                 semantic_type == "human_gate"
+                or subgoal.human_review_required
                 or semantic_type in planner_context.require_human_gate_before
             )
             requires_verification = (
@@ -211,10 +202,10 @@ class WorkflowPlannerService:
             node_drafts.append(
                 WorkflowPlannerNodeDraft(
                     draft_node_id=node_id,
-                    step_name=step_name,
+                    step_name=self._subgoal_step_name(subgoal=subgoal, hint_units=hint_units),
                     node_name=node_name,
                     node_semantic_type=semantic_type,
-                    semantic_goal=str(work_unit.get("objective") or logical_kind),
+                    semantic_goal=self._subgoal_objective(subgoal=subgoal, hint_units=hint_units),
                     upstream_dependencies=upstream_ids,
                     preferred_capability_ids=preferred_ids,
                     candidate_capability_ids=candidate_ids,
@@ -226,7 +217,6 @@ class WorkflowPlannerService:
                     planner_notes=[],
                 )
             )
-            previous_node_id = node_id
 
         edge_drafts: list[WorkflowPlannerEdgeDraft] = []
         edge_counter = 0
@@ -256,9 +246,8 @@ class WorkflowPlannerService:
             exit_ids = [node_drafts[-1].draft_node_id]
 
         cap_summary: dict[str, list[str]] = {}
-        for node in node_drafts:
-            if node.step_name:
-                cap_summary[node.step_name] = list(node.candidate_capability_ids)
+        for subgoal, node in zip(subgoals, node_drafts):
+            cap_summary[subgoal.subgoal_id] = list(node.candidate_capability_ids)
 
         adm_summary: dict[str, object] = {}
         if compile_context.execution_admissibility is not None:
@@ -277,8 +266,9 @@ class WorkflowPlannerService:
             draft_status = "complete"
 
         notes = [
-            "Planner v1: graph structure from compile_context candidate_work_units hints.",
-            f"Graph shape: {'hinted_dag' if has_dependency_hints else 'linear'}.",
+            "Planner v1: graph structure from compile_context solvability proof units.",
+            "candidate_work_units are advisory enrichments only and do not define final graph structure.",
+            f"Graph shape: {compile_context.solvability.graph_feasibility.candidate_shape or 'unknown'}.",
             f"Nodes: {len(node_drafts)}, Edges: {len(edge_drafts)}.",
         ]
         if planner_context.planning_notes:
@@ -307,10 +297,124 @@ class WorkflowPlannerService:
                 "input_semantic_core_present": bool(compile_context.semantic_core),
                 "input_admissibility_present": compile_context.execution_admissibility is not None,
                 "input_capability_signature_count": planner_context.capability_signature_count,
-                "has_dependency_hints": has_dependency_hints,
+                "structural_source": "solvability.required_subgoals",
+                "candidate_work_unit_hint_count": len(compile_context.candidate_work_units),
                 "graph_closure_status": compile_context.graph_closure_status,
             },
         )
+
+    def _work_unit_hints_by_subgoal_id(self, compile_context: CompileContextResponse) -> dict[str, list[dict[str, Any]]]:
+        hints: dict[str, list[dict[str, Any]]] = {}
+        for unit in compile_context.candidate_work_units:
+            payload = unit.model_dump(mode="python")
+            for subgoal_id in payload.get("supporting_subgoal_ids", []) or []:
+                hints.setdefault(str(subgoal_id), []).append(payload)
+        return hints
+
+    def _subgoal_node_name(self, *, subgoal, hint_units: list[dict[str, Any]]) -> str:
+        for hint in hint_units:
+            label = str(hint.get("label") or "").strip()
+            if label:
+                return label
+        return str(subgoal.label or subgoal.subgoal_id)
+
+    def _subgoal_step_name(self, *, subgoal, hint_units: list[dict[str, Any]]) -> str:
+        """Derive a planner-owned step_name for a subgoal.
+
+        Planner does NOT read step_name from execution_steps_json (R1 — planner's
+        only authoritative input is CompileContextResponse). Instead it derives a
+        stable human-readable step_name from the subgoal itself, falling back to
+        the subgoal id to guarantee a deterministic value.
+        """
+        description = str(getattr(subgoal, "description", "") or "").strip()
+        if description:
+            return description
+        label = str(getattr(subgoal, "label", "") or "").strip()
+        if label:
+            return label
+        return str(subgoal.subgoal_id)
+
+    def _subgoal_objective(self, *, subgoal, hint_units: list[dict[str, Any]]) -> str:
+        for hint in hint_units:
+            objective = str(hint.get("objective") or "").strip()
+            if objective:
+                return objective
+        return str(subgoal.description or subgoal.subgoal_id)
+
+    def _semantic_type_for_subgoal(self, subgoal_kind: str) -> str:
+        if subgoal_kind == "acquire":
+            return "acquire"
+        if subgoal_kind == "review":
+            return "human_gate"
+        if subgoal_kind == "deliver":
+            return "act"
+        return "transform"
+
+    def _candidate_capability_ids_for_subgoal(
+        self,
+        *,
+        planner_context: PlannerContext,
+        subgoal,
+        hint_units: list[dict[str, Any]],
+    ) -> list[str]:
+        themes = list(subgoal.required_capability_classes)
+        for hint in hint_units:
+            themes.extend(list(hint.get("required_capability_themes", []) or []))
+        candidate_ids: list[str] = []
+        for theme in themes:
+            candidate_ids.extend(planner_context.step_kind_preferences.get(str(theme), []))
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for capability_id in candidate_ids:
+            normalized = str(capability_id or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
+
+    def _build_subgoal_dependency_map(
+        self,
+        *,
+        subgoals,
+        candidate_shape: str | None,
+    ) -> dict[str, list[str]]:
+        if not subgoals:
+            return {}
+        if candidate_shape != "dag":
+            return {
+                subgoals[index].subgoal_id: [subgoals[index - 1].subgoal_id]
+                for index in range(1, len(subgoals))
+            }
+
+        dependency_map: dict[str, list[str]] = {}
+        sequential_prefix_end = 0
+        for index, subgoal in enumerate(subgoals):
+            if subgoal.graph_role == "fanout_branch":
+                sequential_prefix_end = max(0, index - 1)
+                break
+            sequential_prefix_end = index
+
+        for index in range(1, sequential_prefix_end + 1):
+            dependency_map[subgoals[index].subgoal_id] = [subgoals[index - 1].subgoal_id]
+
+        branch_indexes = [index for index, subgoal in enumerate(subgoals) if subgoal.graph_role == "fanout_branch"]
+        join_index = next((index for index, subgoal in enumerate(subgoals) if subgoal.graph_role == "join"), None)
+        if branch_indexes and join_index is not None:
+            root_index = max(0, min(branch_indexes) - 1)
+            root_id = subgoals[root_index].subgoal_id
+            branch_ids = [subgoals[index].subgoal_id for index in branch_indexes]
+            for index in branch_indexes:
+                dependency_map[subgoals[index].subgoal_id] = [root_id]
+            dependency_map[subgoals[join_index].subgoal_id] = branch_ids
+            for index in range(join_index + 1, len(subgoals)):
+                dependency_map[subgoals[index].subgoal_id] = [subgoals[index - 1].subgoal_id]
+            return dependency_map
+
+        return {
+            subgoals[index].subgoal_id: [subgoals[index - 1].subgoal_id]
+            for index in range(1, len(subgoals))
+        }
 
     def _build_planner_context(self, compile_context: CompileContextResponse) -> PlannerContext:
         signatures = compile_context.capability_envelope.capability_signatures

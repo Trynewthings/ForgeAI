@@ -440,7 +440,7 @@ class WorkflowPlannerLLMService:
                 )
             planner_context = planner_service._build_planner_context(compile_context)
 
-            expected_step_count = len(compile_context.candidate_work_units)
+            expected_step_count = len(getattr(compile_context.solvability, "required_subgoals", []) or [])
 
             # Mock mode: build structured response from deterministic planner
             if settings.llm_mode != "real":
@@ -493,9 +493,9 @@ class WorkflowPlannerLLMService:
             return True
 
         # Fallback: check compile-context work-unit kinds for research indicators
-        steps = getattr(compile_context, "candidate_work_units", []) or []
-        research_kinds = {"acquire", "research", "gather", "search", "fetch", "analyze"}
-        if any(getattr(s, "logical_step_kind", None) in research_kinds for s in steps):
+        subgoals = getattr(getattr(compile_context, "solvability", None), "required_subgoals", []) or []
+        research_kinds = {"acquire", "analyze", "synthesize"}
+        if any(getattr(s, "subgoal_kind", None) in research_kinds for s in subgoals):
             return True
 
         return False
@@ -527,21 +527,22 @@ class WorkflowPlannerLLMService:
             "matching the WorkflowPlannerOutput schema. The graph must be a linear chain "
             "or DAG. No conditions, loops, or branches — only data-flow edges.\n\n"
             "DEPENDENCY INFERENCE RULES:\n"
-            "- If steps declare depends_on, use those as edges.\n"
-            "- If steps do NOT declare depends_on, infer dependencies from their purpose and logical_step_kind:\n"
-            "  * An 'acquire' step with no predecessor is an ENTRY node (shared prerequisite).\n"
-            "  * Multiple 'analyze' steps that each process output from the SAME acquire step "
-            "are MUTUALLY INDEPENDENT — they should fan out in parallel from the acquire node.\n"
-            "  * A 'summarize' or 'merge' step that combines multiple analyses should depend on ALL analysis steps (fan-in).\n"
-            "  * Prefer parallel fan-out when multiple steps independently consume the same upstream output.\n\n"
+            "- Treat solvability subgoals as proof units, not final steps.\n"
+            "- Use graph_role and candidate_shape as the primary structural hints.\n"
+            "- For candidate_shape='dag':\n"
+            "  * an 'entry' proof unit is a shared prerequisite\n"
+            "  * 'fanout_branch' proof units may run in parallel from the shared prerequisite\n"
+            "  * a 'join' proof unit should depend on all active fanout branches\n"
+            "  * a 'delivery' proof unit should come after synthesis/join work\n"
+            "- candidate_work_units are advisory only and must not be treated as final node or edge authority.\n\n"
             "Return only valid JSON, no markdown fences, no explanation."
         )
 
         step_summaries = self._compile_context_step_summaries(compile_context)
 
         user_prompt = json.dumps({
-            "task": "Produce a WorkflowPlannerOutput JSON for the following workflow.",
-            "execution_steps": step_summaries,
+            "task": "Produce a WorkflowPlannerOutput JSON for the following workflow proof and planner hints.",
+            "solvability_subgoals": step_summaries,
             "semantic_input": {
                 "semantic_core": planner_context.semantic_core,
                 "typed_evidence_dag": planner_context.typed_evidence_dag,
@@ -581,20 +582,36 @@ class WorkflowPlannerLLMService:
         return response.content or ""
 
     def _compile_context_step_summaries(self, compile_context: Any) -> list[dict[str, Any]]:
-        summaries: list[dict[str, Any]] = []
+        hints_by_subgoal: dict[str, list[Any]] = {}
         for unit in getattr(compile_context, "candidate_work_units", []) or []:
+            for subgoal_id in getattr(unit, "supporting_subgoal_ids", []) or []:
+                hints_by_subgoal.setdefault(str(subgoal_id), []).append(unit)
+
+        summaries: list[dict[str, Any]] = []
+        for subgoal in getattr(getattr(compile_context, "solvability", None), "required_subgoals", []) or []:
+            hint_units = hints_by_subgoal.get(str(getattr(subgoal, "subgoal_id", "")), [])
             summaries.append(
                 {
-                    "work_unit_id": getattr(unit, "work_unit_id", None),
-                    "label": getattr(unit, "label", None),
-                    "objective": getattr(unit, "objective", None),
-                    "logical_step_kind": getattr(unit, "logical_step_kind", None),
-                    "required_capability_classes": list(getattr(unit, "required_capability_classes", []) or []),
-                    "required_inputs": list(getattr(unit, "required_inputs", []) or []),
-                    "expected_outputs": list(getattr(unit, "expected_outputs", []) or []),
-                    "dependency_hints": list(getattr(unit, "dependency_hints", []) or []),
-                    "parallelism_hint": getattr(unit, "parallelism_hint", None),
-                    "human_gate_hint": getattr(unit, "human_gate_hint", None),
+                    "subgoal_id": getattr(subgoal, "subgoal_id", None),
+                    "label": getattr(subgoal, "label", None),
+                    "description": getattr(subgoal, "description", None),
+                    "subgoal_kind": getattr(subgoal, "subgoal_kind", None),
+                    "graph_role": getattr(subgoal, "graph_role", None),
+                    "required_capability_classes": list(getattr(subgoal, "required_capability_classes", []) or []),
+                    "input_evidence_kinds": list(getattr(subgoal, "input_evidence_kinds", []) or []),
+                    "output_evidence_kinds": list(getattr(subgoal, "output_evidence_kinds", []) or []),
+                    "hint_work_units": [
+                        {
+                            "work_unit_id": getattr(unit, "work_unit_id", None),
+                            "label": getattr(unit, "label", None),
+                            "objective": getattr(unit, "objective", None),
+                            "concern_kind": getattr(unit, "concern_kind", None),
+                            "concern_tags": list(getattr(unit, "concern_tags", []) or []),
+                            "parallelism_hint": getattr(unit, "parallelism_hint", None),
+                            "human_gate_hint": getattr(unit, "human_gate_hint", None),
+                        }
+                        for unit in hint_units
+                    ],
                 }
             )
         return summaries

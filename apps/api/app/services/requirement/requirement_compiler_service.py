@@ -916,47 +916,21 @@ class RequirementCompilerService:
         solvability: SolvabilityContract,
         execution_admissibility: ExecutionAdmissibilityContract,
     ) -> CompileContextResponse:
-        steps = self.blueprint_service._normalize_execution_steps(draft_payload.get("execution_steps_json"))  # noqa: SLF001
         candidate_work_units: list[CompileContextWorkUnitResponse] = []
-        work_unit_id_by_step_name: dict[str, str] = {}
-        for index, step in enumerate(steps.get("steps", []), start=1):
-            if not isinstance(step, dict):
-                continue
-            step_name = str(step.get("step_name") or "").strip()
-            work_unit_id = f"work_unit_{index}"
-            if step_name:
-                work_unit_id_by_step_name[step_name] = work_unit_id
-        for index, step in enumerate(steps.get("steps", []), start=1):
-            if not isinstance(step, dict):
-                continue
-            step_name = str(step.get("step_name") or "").strip()
-            work_unit_id = f"work_unit_{index}"
+        for index, subgoal in enumerate(solvability.required_subgoals, start=1):
             candidate_work_units.append(
                 CompileContextWorkUnitResponse(
-                    work_unit_id=work_unit_id,
-                    step_name=step_name,
-                    label=step.get("node_name"),
-                    objective=step.get("purpose") or step.get("output_intent"),
-                    logical_step_kind=step.get("logical_step_kind"),
-                    required_capability_classes=[
-                        str(step.get("logical_step_kind"))
-                    ] if str(step.get("logical_step_kind") or "").strip() else [],
-                    required_inputs=[
-                        str(step.get("input_intent"))
-                    ] if str(step.get("input_intent") or "").strip() else [],
-                    expected_outputs=[
-                        str(step.get("output_intent"))
-                    ] if str(step.get("output_intent") or "").strip() else [],
-                    dependency_hints=[
-                        work_unit_id_by_step_name[str(item)]
-                        for item in (step.get("depends_on") or [])
-                        if str(item) in work_unit_id_by_step_name
-                    ],
-                    parallelism_hint="available" if step.get("depends_on") else "none",
-                    human_gate_hint="required"
-                    if bool(getattr(requirement, "human_review_required", False))
-                    and str(step.get("logical_step_kind") or "").strip() in {"act", "write", "deploy", "submit", "send"}
-                    else None,
+                    work_unit_id=f"hint_{index}",
+                    label=subgoal.label,
+                    objective=subgoal.description,
+                    concern_kind=subgoal.subgoal_kind,
+                    concern_tags=_unique_nonempty_strings(
+                        [subgoal.graph_role, *subgoal.input_evidence_kinds, *subgoal.output_evidence_kinds]
+                    ),
+                    required_capability_themes=list(subgoal.required_capability_classes),
+                    supporting_subgoal_ids=[subgoal.subgoal_id],
+                    parallelism_hint="available" if subgoal.graph_role == "fanout_branch" else None,
+                    human_gate_hint="required" if subgoal.human_review_required else None,
                 )
             )
 
@@ -3434,6 +3408,18 @@ class RequirementCompilerService:
         } and not runtime_config.api_key:
             return "LLM-assisted mode requested, but no API key is configured for the selected provider."
         return None
+
+
+def _unique_nonempty_strings(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
 
 
 __all__ = ["CompilerMetadata", "NormalizedRequirement", "RequirementCompilerService"]

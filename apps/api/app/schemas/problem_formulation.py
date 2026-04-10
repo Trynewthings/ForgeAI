@@ -60,46 +60,12 @@ class PlanningIntentContract(BaseModel):
     reasoning_summary: Optional[str] = None
 
 
-class PlanningIntentHints(BaseModel):
-    label: Optional[str] = None
-    objective_family: Literal[
-        "analysis",
-        "research",
-        "data_processing",
-        "workspace_synthesis",
-        "product_specification",
-        "generic",
-    ] = "generic"
-    preferred_graph_shape: Literal["linear", "dag", "unknown"] = "unknown"
-    parallelism_hint: Literal["none", "available", "preferred", "unknown"] = "unknown"
-    acquisition_strategy: Literal[
-        "direct_inventory",
-        "checkout_then_inventory",
-        "search_then_collect",
-        "fetch_then_ingest",
-        "direct_read",
-        "unknown",
-    ] = "unknown"
-    evidence_strategy: Literal[
-        "repository_evidence",
-        "web_evidence",
-        "dataset_evidence",
-        "workspace_evidence",
-        "specification_only",
-        "generic",
-    ] = "generic"
-    side_effect_budget: Literal["read_mostly", "write_guarded", "unknown"] = "unknown"
-    required_capability_themes: list[str] = Field(default_factory=list)
-    reasoning_summary: Optional[str] = None
-
-
 class ProblemFormulationLLMCandidate(BaseModel):
     interpreted_problem_kind: Optional[str] = None
     target_object: Optional[
         Literal["repository", "web_resource", "dataset", "local_workspace", "generic_request", "software_project"]
     ] = None
     current_system_fit: Literal["in_scope", "partially_in_scope", "out_of_scope"] = "partially_in_scope"
-    planning_intent_hints: Optional[PlanningIntentHints] = None
     required_decisions: list[ProblemDecision] = Field(default_factory=list)
     blocking_axes: list[str] = Field(default_factory=list)
     review_axes: list[str] = Field(default_factory=list)

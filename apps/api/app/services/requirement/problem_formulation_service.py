@@ -18,7 +18,6 @@ from app.schemas.problem_formulation import (
     OutputClosureContract,
     OutputClosureRequirement,
     PlanningIntentContract,
-    PlanningIntentHints,
     ProblemDecision,
     ProblemFormulationContract,
     ProblemFormulationLLMCandidate,
@@ -78,7 +77,6 @@ class ProblemFormulationService:
                 blocking_axes.append(axis)
         blocking_reasons.extend(fallback_blocking_reasons)
 
-        is_product_spec = self._is_product_spec(semantic_state)
         output_description = str(payload.get("output_description") or "").strip()
 
         if semantic_state.target_object == "software_project" and semantic_state.deliverable_form == "service":
@@ -98,7 +96,7 @@ class ProblemFormulationService:
             problem_status = "misaligned_with_system"
         elif blocking_axes:
             problem_status = "solvable_with_clarification"
-        elif (semantic_state.ambiguities or semantic_state.human_review_required) and not is_product_spec:
+        elif semantic_state.ambiguities or semantic_state.human_review_required:
             problem_status = "solvable_with_review"
             review_axes = sorted(set(semantic_state.ambiguities))
         elif target_object == "generic_request" and not output_description:
@@ -229,15 +227,6 @@ class ProblemFormulationService:
         target_object: str,
         llm_candidate: ProblemFormulationLLMCandidate | None = None,
     ) -> PlanningIntentContract:
-        if self._is_product_spec(semantic_state):
-            return self._fallback_planning_intent(
-                intent_id="product_requirement_specification",
-                target_object=target_object,
-                deliverable_contract=semantic_state.deliverable_contract,
-                workflow_shape=semantic_state.workflow_shape,
-                llm_hints=getattr(llm_candidate, "planning_intent_hints", None),
-            )
-
         semantic = build_semantic_interpretation_payload(semantic_state)
         normalized_requirement = build_normalized_requirement_payload(payload)
         deliverable_contract = str(semantic_state.deliverable_contract or "").strip()
@@ -256,12 +245,11 @@ class ProblemFormulationService:
                 semantic_interpretation=semantic,
                 intent=deliverable_intent,
             )
-        return self._fallback_planning_intent(
-            intent_id="generic_problem_envelope",
+        # No registry match — build a minimal envelope
+        return self._minimal_planning_intent(
             target_object=target_object,
             deliverable_contract=semantic_state.deliverable_contract,
             workflow_shape=semantic_state.workflow_shape,
-            llm_hints=getattr(llm_candidate, "planning_intent_hints", None),
         )
 
     def _deliverable_intent_has_workflow(
@@ -314,103 +302,61 @@ class ProblemFormulationService:
             ),
         )
 
-    def _fallback_planning_intent(
+    def _minimal_planning_intent(
         self,
         *,
-        intent_id: str,
         target_object: str,
         deliverable_contract: str | None,
         workflow_shape: str | None,
-        llm_hints: PlanningIntentHints | None = None,
     ) -> PlanningIntentContract:
-        objective_family = "generic"
-        if intent_id == "product_requirement_specification":
-            objective_family = "product_specification"
-        elif target_object == "repository" or (deliverable_contract or "").endswith("_report"):
+        """Minimal planning intent when no registry-backed deliverable intent matched."""
+        objective_family = {
+            "repository": "analysis",
+            "web_resource": "research",
+            "dataset": "data_processing",
+            "local_workspace": "workspace_synthesis",
+        }.get(target_object, "generic")
+        if (deliverable_contract or "").endswith("_report") and objective_family == "generic":
             objective_family = "analysis"
-        elif target_object == "web_resource":
-            objective_family = "research"
-        elif target_object == "dataset":
-            objective_family = "data_processing"
-        elif target_object == "local_workspace":
-            objective_family = "workspace_synthesis"
 
-        label = "Generic bounded problem envelope"
-        if intent_id == "product_requirement_specification":
-            label = "Product requirement specification"
-        else:
-            contract_label = str(deliverable_contract or "").replace("_", " ").strip()
-            if contract_label:
-                label = contract_label.title()
-            elif target_object == "repository":
-                label = "Repository workflow envelope"
-            elif target_object == "web_resource":
-                label = "Web research envelope"
-            elif target_object == "dataset":
-                label = "Dataset workflow envelope"
-            elif target_object == "local_workspace":
-                label = "Workspace workflow envelope"
+        contract_label = str(deliverable_contract or "").replace("_", " ").strip()
+        label = contract_label.title() if contract_label else {
+            "repository": "Repository workflow envelope",
+            "web_resource": "Web research envelope",
+            "dataset": "Dataset workflow envelope",
+            "local_workspace": "Workspace workflow envelope",
+        }.get(target_object, "Generic bounded problem envelope")
 
-        if workflow_shape in {"single_service", "one_shot"}:
-            preferred_graph_shape = "linear"
-        elif workflow_shape in {"bounded_workflow", "review_gated_workflow", "multi_agent"}:
-            preferred_graph_shape = "dag"
-        else:
-            preferred_graph_shape = "unknown"
-        parallelism_hint = derive_parallelism_hint_from_graph_shape(preferred_graph_shape)
+        preferred_graph_shape = "dag" if workflow_shape in {"bounded_workflow", "review_gated_workflow"} else (
+            "linear" if workflow_shape in {"single_service", "one_shot"} else "unknown"
+        )
         acquisition_strategy = {
-            "repository": "direct_inventory",
-            "web_resource": "search_then_collect",
-            "dataset": "fetch_then_ingest",
-            "local_workspace": "direct_read",
+            "repository": "direct_inventory", "web_resource": "search_then_collect",
+            "dataset": "fetch_then_ingest", "local_workspace": "direct_read",
         }.get(target_object, "unknown")
-        if intent_id == "product_requirement_specification":
-            evidence_strategy = "specification_only"
-        else:
-            evidence_strategy = {
-                "repository": "repository_evidence",
-                "web_resource": "web_evidence",
-                "dataset": "dataset_evidence",
-                "local_workspace": "workspace_evidence",
-            }.get(target_object, "generic")
-        side_effect_budget = "read_mostly"
-        required_capability_themes = ["summary_synthesis", "artifact_delivery"]
-        if intent_id != "product_requirement_specification":
-            capability = {
-                "repository": "repository_inventory",
-                "web_resource": "web_search",
-                "dataset": "fetch_url",
-                "local_workspace": "filesystem_read",
-            }.get(target_object)
-            if capability is not None:
-                required_capability_themes = [capability, *required_capability_themes]
-        if llm_hints is not None:
-            if llm_hints.label:
-                label = llm_hints.label
-            objective_family = llm_hints.objective_family
-            preferred_graph_shape = llm_hints.preferred_graph_shape
-            parallelism_hint = llm_hints.parallelism_hint
-            acquisition_strategy = llm_hints.acquisition_strategy
-            evidence_strategy = llm_hints.evidence_strategy
-            side_effect_budget = llm_hints.side_effect_budget
-            required_capability_themes = list(llm_hints.required_capability_themes)
+        evidence_strategy = {
+            "repository": "repository_evidence", "web_resource": "web_evidence",
+            "dataset": "dataset_evidence", "local_workspace": "workspace_evidence",
+        }.get(target_object, "generic")
+        capability = {
+            "repository": "repository_inventory", "web_resource": "web_search",
+            "dataset": "fetch_url", "local_workspace": "filesystem_read",
+        }.get(target_object)
+        themes = ([capability] if capability else []) + ["summary_synthesis", "artifact_delivery"]
+
         return PlanningIntentContract(
-            intent_id=intent_id,
+            intent_id="generic_problem_envelope",
             label=label,
             target_object=target_object,
             deliverable_contract=deliverable_contract,
             objective_family=objective_family,
             preferred_graph_shape=preferred_graph_shape,
-            parallelism_hint=parallelism_hint,
+            parallelism_hint=derive_parallelism_hint_from_graph_shape(preferred_graph_shape),
             acquisition_strategy=acquisition_strategy,
             evidence_strategy=evidence_strategy,
-            side_effect_budget=side_effect_budget,
-            required_capability_themes=required_capability_themes,
-            reasoning_summary=(
-                (llm_hints.reasoning_summary if llm_hints is not None and llm_hints.reasoning_summary else None)
-                or f"Fallback planning intent '{intent_id}' was used because no registry-backed deliverable intent "
-                f"matched the current problem framing (workflow_shape='{workflow_shape or 'unknown'}')."
-            ),
+            side_effect_budget="read_mostly",
+            required_capability_themes=themes,
+            reasoning_summary=f"No registry-backed deliverable intent matched; minimal envelope for target_object='{target_object}'.",
         )
 
     def _merge_target_object(
@@ -540,13 +486,6 @@ class ProblemFormulationService:
             return "web_resource"
         return None
 
-    def _is_product_spec(self, semantic_state: RequirementAuthoringSemanticStateResponse) -> bool:
-        delivery_form = (semantic_state.delivery_form or "").lower()
-        return bool(
-            semantic_state.p0_features
-            and any(token in delivery_form for token in ("application", "service", "desktop", "web", "api", "app"))
-        )
-
     def _reasoning_summary(
         self,
         *,
@@ -582,8 +521,6 @@ class InputClosureService:
         target = problem_formulation.target_object or semantic_state.target_object
         candidate_sources = self._candidate_sources(target_object=target, semantic_state=semantic_state, payload=payload)
         resolved = self._resolve_source(candidate_sources)
-        is_product_spec = _is_product_spec(semantic_state)
-
         requirements: list[InputClosureRequirement] = []
         blocking_axes: list[str] = []
         review_axes: list[str] = []
@@ -606,12 +543,9 @@ class InputClosureService:
             require("source_locator", "Dataset workflows need a concrete file or URL before ingest can be instantiated.")
         elif target == "local_workspace":
             source_oriented = (
-                not is_product_spec
-                and (
                 semantic_state.primary_objective in {"analyze", "collect", "transform", "validate"}
                 or bool(semantic_state.evidence_basis)
                 or any(item.locator_kind != "unspecified" for item in candidate_sources)
-                )
             )
             if source_oriented:
                 require("source_locator", "Local workspace workflows need a concrete path or document set before graph start can be chosen honestly.")
@@ -997,14 +931,6 @@ def _resolved_axes(resolutions: dict[str, Any] | list[ClarificationResolutionRec
         if item.accepted and item.axis:
             axes.add(item.axis)
     return axes
-
-
-def _is_product_spec(semantic_state: RequirementAuthoringSemanticStateResponse) -> bool:
-    delivery_form = (semantic_state.delivery_form or "").lower()
-    return bool(
-        semantic_state.p0_features
-        and any(token in delivery_form for token in ("application", "service", "desktop", "web", "api", "app"))
-    )
 
 
 def _contains_any_phrase(text: str, phrases: tuple[str, ...]) -> bool:

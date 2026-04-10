@@ -707,15 +707,15 @@ class DeterministicFamilyRecommender:
                 f"family_hint requested {family_hint.value}, but deterministic heuristics selected {recommended_family.value}."
             )
 
-        # Auto-upgrade: single_service has no working runtime. If the domain has
-        # a workflow skeleton (repository, dataset), upgrade to workflow automatically.
+        # Auto-upgrade: single_service has no working runtime for domains with
+        # concrete workflow skeletons. Only upgrade when target_object has a known skeleton.
         if selected_family == BlueprintType.SINGLE_SERVICE and not (family_hint is not None and not allow_family_override):
             has_workflow_skeleton = (
                 semantic.target_object in ("repository", "dataset")
-                or semantic.deliverable_form in ("report", "briefing")
                 or semantic.deliverable_contract in (
                     "architecture_report", "research_briefing",
                     "dataset_summary_report", "dataset_validation_report",
+                    "dataset_comparison_report",
                 )
             )
             if has_workflow_skeleton:
