@@ -1,0 +1,78 @@
+"""Phase 1A: FrontChainState ORM model.
+
+This table is the single authoritative persistence home for front-chain
+authority objects produced by the new front-chain pipeline. It is NOT a
+shadow of ``requirements.compiler_result_json`` and must never be populated
+from the legacy compile path.
+
+Table-level CHECK constraint (matches API-layer validation):
+    preview_mode OR session_id IS NOT NULL OR requirement_id IS NOT NULL
+
+Rationale:
+    * DB nullable FKs are retained so test fixtures and preview/debug
+      endpoints can create orphan rows without manufacturing fake sessions.
+    * Production callers must supply a binding; the CHECK gives
+      belt-and-braces enforcement even if the API layer is bypassed.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Optional
+
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import JSON
+
+from app.db.base import Base
+from app.db.models.entities import generate_uuid
+
+
+class FrontChainState(Base):
+    __tablename__ = "front_chain_states"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("requirement_sessions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    requirement_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("requirements.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    preview_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    raw_intent: Mapped[str] = mapped_column(Text, nullable=False)
+
+    problem_formulation_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    input_closure_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    output_closure_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    merged_gaps_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    top_questions_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    llm_trace_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    interpreter_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    validator_version: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "preview_mode = 1 OR session_id IS NOT NULL OR requirement_id IS NOT NULL",
+            name="front_chain_states_binding_required",
+        ),
+    )

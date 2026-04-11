@@ -19,6 +19,7 @@ from app.db.models.entities import (
     TokenUsageLog,
 )
 from app.db.models.executable import Executable
+from app.db.models.front_chain_state import FrontChainState
 from app.db.models.job import Job
 from app.db.models.requirement import Requirement
 from app.db.models.requirement_compile_record import RequirementCompileRecord
@@ -39,6 +40,7 @@ __all__ = [
     "Build",
     "BuildStepV2",
     "Executable",
+    "FrontChainState",
     "Job",
     "RuntimeProfile",
     "Run",
