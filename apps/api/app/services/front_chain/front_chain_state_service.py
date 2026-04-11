@@ -21,6 +21,8 @@ from app.schemas.front_chain import (
     FrontChainAnswerItem,
     FrontChainAnswerRequest,
     FrontChainClarificationQuestion,
+    FrontChainEvaluationRequest,
+    FrontChainEvaluationResponse,
     FrontChainInterpretationRequest,
     FrontChainInterpretationResponse,
     FrontChainLayerName,
@@ -33,6 +35,12 @@ from app.schemas.problem_formulation import (
     InputClosureContract,
     OutputClosureContract,
     ProblemFormulationContract,
+)
+from app.schemas.solvability import (
+    SolvabilityContract,
+)
+from app.schemas.workflow_native import (
+    ExecutionAdmissibilityContract,
 )
 from app.services.front_chain.clarification_interpreter_llm_service import (
     CLARIFICATION_INTERPRETER_VERSION,
@@ -58,10 +66,24 @@ from app.services.front_chain.contract_update_engine import (
     UPDATE_ENGINE_VERSION,
     ContractUpdateEngine,
 )
+from app.services.front_chain.execution_admissibility_service import (
+    ADMISSIBILITY_VERSION,
+    ExecutionAdmissibilityService,
+)
 from app.services.front_chain.front_chain_interpreter_llm_service import (
     INTERPRETER_VERSION,
     FrontChainInterpreterLLMService,
 )
+from app.services.front_chain.solvability_llm_service import (
+    SOLVABILITY_LLM_VERSION,
+    SolvabilityLLMService,
+)
+from app.services.front_chain.solvability_validator import (
+    VALIDATOR_VERSION as SOLVABILITY_VALIDATOR_VERSION,
+    SolvabilityValidator,
+)
+
+EVALUATION_VERSION = "front_chain_evaluation_v1"
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +116,9 @@ class FrontChainStateService:
         clarification_interpreter: Optional[ClarificationInterpreterLLMService] = None,
         update_engine: Optional[ContractUpdateEngine] = None,
         reevaluation_service: Optional[ClosureReevaluationService] = None,
+        solvability_service: Optional[SolvabilityLLMService] = None,
+        solvability_validator: Optional[SolvabilityValidator] = None,
+        admissibility_service: Optional[ExecutionAdmissibilityService] = None,
     ) -> None:
         self._db = db
         self._interpreter = interpreter or FrontChainInterpreterLLMService()
@@ -108,6 +133,10 @@ class FrontChainStateService:
             merger=self._merger,
             policy_engine=self._policy_engine,
         )
+        # Phase 3
+        self._solvability_service = solvability_service or SolvabilityLLMService()
+        self._solvability_validator = solvability_validator or SolvabilityValidator()
+        self._admissibility_service = admissibility_service or ExecutionAdmissibilityService()
 
     # ------------------------------------------------------------------
     # Public API
@@ -261,6 +290,108 @@ class FrontChainStateService:
             changed_contracts=list(update_result.changed_layers),
         )
 
+    def evaluate(
+        self,
+        *,
+        parent_state_id: str,
+        request: Optional[FrontChainEvaluationRequest] = None,
+    ) -> FrontChainEvaluationResponse:
+        """Phase 3: derive solvability + admissibility from the closure contracts.
+
+        Pipeline (1 LLM call total):
+            1. Load parent FrontChainState
+            2. SolvabilityLLMService.propose(...)                 [LLM × 1]
+            3. SolvabilityValidator.validate_and_produce(...)     [deterministic]
+            4. ExecutionAdmissibilityService.decide(...)          [deterministic, 0 LLM]
+            5. Persist as a NEW chained turn row with:
+                 * closure contracts byte-equal preserved
+                 * solvability_json + admissibility_json populated
+            6. Return FrontChainEvaluationResponse
+        """
+        parent_row = (
+            self._db.query(FrontChainState).filter(FrontChainState.id == parent_state_id).first()
+        )
+        if parent_row is None:
+            raise FrontChainStateNotFoundError(parent_state_id)
+
+        parent_problem = ProblemFormulationContract.model_validate(parent_row.problem_formulation_json)
+        parent_input = InputClosureContract.model_validate(parent_row.input_closure_json)
+        parent_output = OutputClosureContract.model_validate(parent_row.output_closure_json)
+        parent_merged = MergedGapSet.model_validate(parent_row.merged_gaps_json)
+        parent_top_questions = [
+            FrontChainClarificationQuestion.model_validate(q)
+            for q in (parent_row.top_questions_json or [])
+        ]
+        parent_trace = FrontChainLLMTraceSummary.model_validate(parent_row.llm_trace_json)
+
+        # Step 1: solvability LLM (single call)
+        proposal = self._solvability_service.propose(
+            problem_formulation=parent_problem,
+            input_closure=parent_input,
+            output_closure=parent_output,
+            capability_envelope=None,
+        )
+
+        # Step 2: deterministic validator
+        validation = self._solvability_validator.validate_and_produce(
+            candidate=proposal.candidate,
+            problem_formulation=parent_problem,
+            input_closure=parent_input,
+            output_closure=parent_output,
+            known_capability_ids=None,
+            raw_candidate_payload=None,
+        )
+
+        # Step 3: deterministic admissibility policy
+        decision = self._admissibility_service.decide(
+            problem_formulation=parent_problem,
+            input_closure=parent_input,
+            output_closure=parent_output,
+            solvability=validation.contract,
+            policy_overrides=(request.policy_overrides if request else None),
+        )
+
+        # Step 4: persist a new chained turn row with closure contracts
+        # preserved byte-equal. Phase 3 does NOT re-run interpret or
+        # reevaluation; the gap/top_questions payloads from the parent
+        # carry forward unchanged.
+        new_row = self._persist_evaluation(
+            parent_row=parent_row,
+            solvability=validation.contract,
+            admissibility=decision.contract,
+            solvability_trace=proposal.trace_summary,
+            parent_trace=parent_trace,
+            parent_merged=parent_merged,
+            parent_top_questions=parent_top_questions,
+            parent_problem=parent_problem,
+            parent_input=parent_input,
+            parent_output=parent_output,
+        )
+
+        return FrontChainEvaluationResponse(
+            state_id=new_row.id,
+            project_id=new_row.project_id,
+            session_id=new_row.session_id,
+            requirement_id=new_row.requirement_id,
+            preview_mode=new_row.preview_mode,
+            parent_state_id=new_row.parent_state_id,
+            turn_number=new_row.turn_number,
+            raw_intent=new_row.raw_intent,
+            problem_formulation=parent_problem,
+            input_closure=parent_input,
+            output_closure=parent_output,
+            merged_gaps=parent_merged,
+            top_questions=parent_top_questions,
+            llm_trace_summary=parent_trace,
+            solvability=validation.contract,
+            execution_admissibility=decision.contract,
+            solvability_llm_trace=proposal.trace_summary,
+            evaluation_version=EVALUATION_VERSION,
+            interpreter_version=INTERPRETER_VERSION,
+            validator_version=VALIDATOR_VERSION,
+            created_at=new_row.created_at,
+        )
+
     def get_by_id(self, state_id: str) -> Optional[FrontChainStateResponse]:
         row = self._db.query(FrontChainState).filter(FrontChainState.id == state_id).first()
         if row is None:
@@ -288,6 +419,71 @@ class FrontChainStateService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _persist_evaluation(
+        self,
+        *,
+        parent_row: FrontChainState,
+        solvability: SolvabilityContract,
+        admissibility: ExecutionAdmissibilityContract,
+        solvability_trace: FrontChainLLMTraceSummary,
+        parent_trace: FrontChainLLMTraceSummary,
+        parent_merged: MergedGapSet,
+        parent_top_questions: list[FrontChainClarificationQuestion],
+        parent_problem: ProblemFormulationContract,
+        parent_input: InputClosureContract,
+        parent_output: OutputClosureContract,
+    ) -> FrontChainState:
+        """Persist a new chained turn carrying Phase 3 evaluation fields.
+
+        The closure contracts on the new row are byte-equal to the parent's
+        closure contracts (Phase 3 never mutates them). Only the Phase 3
+        columns (solvability_json, admissibility_json, solvability_llm_trace_json,
+        evaluation_version) are populated anew.
+        """
+        row = FrontChainState(
+            project_id=parent_row.project_id,
+            session_id=parent_row.session_id,
+            requirement_id=parent_row.requirement_id,
+            preview_mode=parent_row.preview_mode,
+            parent_state_id=parent_row.id,
+            turn_number=parent_row.turn_number + 1,
+            raw_intent=parent_row.raw_intent,
+            problem_formulation_json=parent_problem.model_dump(mode="json"),
+            input_closure_json=parent_input.model_dump(mode="json"),
+            output_closure_json=parent_output.model_dump(mode="json"),
+            merged_gaps_json=parent_merged.model_dump(mode="json"),
+            top_questions_json=[q.model_dump(mode="json") for q in parent_top_questions],
+            # Preserve the original interpret trace on the new row so callers
+            # can trace how we got here; Phase 3 also stores its own trace
+            # separately in solvability_llm_trace_json.
+            llm_trace_json=parent_trace.model_dump(mode="json"),
+            solvability_json=solvability.model_dump(mode="json"),
+            admissibility_json=admissibility.model_dump(mode="json"),
+            solvability_llm_trace_json=solvability_trace.model_dump(mode="json"),
+            evaluation_version=EVALUATION_VERSION,
+            interpreter_version=INTERPRETER_VERSION,
+            validator_version=VALIDATOR_VERSION,
+        )
+        self._db.add(row)
+        self._db.commit()
+        self._db.refresh(row)
+        logger.info(
+            "front_chain_state.evaluation_persisted",
+            extra={
+                "state_id": row.id,
+                "parent_state_id": row.parent_state_id,
+                "turn_number": row.turn_number,
+                "solvability_status": solvability.solvability_status,
+                "admissibility_status": admissibility.admissibility_status,
+                "primary_regime": admissibility.primary_execution_regime,
+                "solvability_llm_version": SOLVABILITY_LLM_VERSION,
+                "solvability_validator_version": SOLVABILITY_VALIDATOR_VERSION,
+                "admissibility_version": ADMISSIBILITY_VERSION,
+                "evaluation_version": EVALUATION_VERSION,
+            },
+        )
+        return row
 
     def _persist(
         self,
@@ -347,6 +543,21 @@ class FrontChainStateService:
 
     @staticmethod
     def _row_to_response(row: FrontChainState) -> FrontChainStateResponse:
+        solvability = (
+            SolvabilityContract.model_validate(row.solvability_json)
+            if row.solvability_json is not None
+            else None
+        )
+        admissibility = (
+            ExecutionAdmissibilityContract.model_validate(row.admissibility_json)
+            if row.admissibility_json is not None
+            else None
+        )
+        solvability_trace = (
+            FrontChainLLMTraceSummary.model_validate(row.solvability_llm_trace_json)
+            if row.solvability_llm_trace_json is not None
+            else None
+        )
         return FrontChainStateResponse(
             id=row.id,
             project_id=row.project_id,
@@ -366,6 +577,10 @@ class FrontChainStateService:
             llm_trace_summary=FrontChainLLMTraceSummary.model_validate(row.llm_trace_json),
             interpreter_version=row.interpreter_version,
             validator_version=row.validator_version,
+            solvability=solvability,
+            execution_admissibility=admissibility,
+            solvability_llm_trace=solvability_trace,
+            evaluation_version=row.evaluation_version,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

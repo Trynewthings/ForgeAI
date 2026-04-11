@@ -12,6 +12,8 @@ request through ``FrontChainStateService``.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -19,6 +21,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.schemas.front_chain import (
     FrontChainAnswerRequest,
+    FrontChainEvaluationRequest,
+    FrontChainEvaluationResponse,
     FrontChainInterpretationRequest,
     FrontChainInterpretationResponse,
     FrontChainStateResponse,
@@ -93,6 +97,35 @@ def answer_front_chain_state(
     service = FrontChainStateService(db)
     try:
         return service.apply_answers(parent_state_id=state_id, request=payload)
+    except FrontChainStateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/states/{state_id}/evaluate",
+    response_model=FrontChainEvaluationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def evaluate_front_chain_state(
+    state_id: str,
+    payload: Optional[FrontChainEvaluationRequest] = None,
+    db: Session = Depends(get_db),
+) -> FrontChainEvaluationResponse:
+    """Phase 3: derive solvability + admissibility from a prior state.
+
+    Creates a NEW chained state row (turn_number = parent.turn_number + 1)
+    that carries the same closure contracts byte-equal plus the freshly
+    derived SolvabilityContract and ExecutionAdmissibilityContract.
+
+    Hard guarantees:
+        * Exactly 1 LLM call total (solvability proposer).
+        * Closure contracts are preserved byte-equal from the parent.
+        * Execution admissibility is fully deterministic (0 LLM calls).
+    """
+    request = payload or FrontChainEvaluationRequest()
+    service = FrontChainStateService(db)
+    try:
+        return service.evaluate(parent_state_id=state_id, request=request)
     except FrontChainStateNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

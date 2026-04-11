@@ -70,6 +70,17 @@ class FrontChainState(Base):
     top_questions_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     llm_trace_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
+    # Phase 3 — solvability + admissibility are populated when the state is
+    # produced by ``FrontChainStateService.evaluate()``. Rows produced by
+    # ``interpret()`` or ``apply_answers()`` leave these NULL. The
+    # accompanying LLM trace is separate from ``llm_trace_json`` so callers
+    # can distinguish the interpreter call count from the solvability call
+    # count.
+    solvability_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    admissibility_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    solvability_llm_trace_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    evaluation_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     interpreter_version: Mapped[str] = mapped_column(String(64), nullable=False)
     validator_version: Mapped[str] = mapped_column(String(64), nullable=False)
 

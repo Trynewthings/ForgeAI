@@ -35,6 +35,15 @@ from app.schemas.problem_formulation import (
     ProblemFormulationContract,
 )
 from app.schemas.semantic_core import SemanticCore
+from app.schemas.solvability import (
+    CapabilityMatch,
+    GraphFeasibility,
+    SolvabilityContract,
+    SolvabilityLLMCandidate,
+    SolvabilityLLMSubgoal,
+    SolvabilitySubgoal,
+)
+from app.schemas.workflow_native import ExecutionAdmissibilityContract
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +343,11 @@ class FrontChainStateResponse(BaseModel):
     llm_trace_summary: FrontChainLLMTraceSummary
     interpreter_version: str
     validator_version: str
+    # Phase 3 additions — present only on rows produced by /evaluate.
+    solvability: Optional[SolvabilityContract] = None
+    execution_admissibility: Optional[ExecutionAdmissibilityContract] = None
+    solvability_llm_trace: Optional[FrontChainLLMTraceSummary] = None
+    evaluation_version: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -388,6 +402,65 @@ class ClarificationInterpretationResult(BaseModel):
     llm_trace: FrontChainLLMTraceSummary
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 — Evaluation (solvability + admissibility)
+# ---------------------------------------------------------------------------
+
+
+class FrontChainEvaluationRequest(BaseModel):
+    """Body for ``POST /front-chain/states/{state_id}/evaluate``.
+
+    Phase 3 adds a deterministic evaluate step that reads the parent state's
+    three closure contracts and produces:
+        * SolvabilityContract        (1 LLM call via solvability_llm_service)
+        * ExecutionAdmissibilityContract (deterministic, 0 LLM calls)
+
+    The closure contracts themselves are preserved byte-equal in the new
+    chained state row (R3/R4 — solvability/admissibility are downstream
+    derivations, not rewrites).
+    """
+
+    policy_overrides: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Phase 3 admissibility policy overrides. Reserved for future use;"
+            " Phase 3 ignores the content and runs the default policy."
+        ),
+    )
+
+
+class FrontChainEvaluationResponse(BaseModel):
+    """Response returned by /front-chain/states/{state_id}/evaluate.
+
+    The response carries the full state (same shape as
+    ``FrontChainInterpretationResponse``) plus the freshly derived
+    ``solvability`` and ``execution_admissibility`` contracts.
+    """
+
+    state_id: str
+    project_id: str
+    session_id: Optional[str] = None
+    requirement_id: Optional[str] = None
+    preview_mode: bool = False
+    parent_state_id: Optional[str] = None
+    turn_number: int = 1
+    raw_intent: str
+    problem_formulation: ProblemFormulationContract
+    input_closure: InputClosureContract
+    output_closure: OutputClosureContract
+    merged_gaps: MergedGapSet
+    top_questions: list[FrontChainClarificationQuestion] = Field(default_factory=list)
+    llm_trace_summary: FrontChainLLMTraceSummary
+    # Phase 3 additions
+    solvability: SolvabilityContract
+    execution_admissibility: ExecutionAdmissibilityContract
+    solvability_llm_trace: FrontChainLLMTraceSummary
+    evaluation_version: str = "front_chain_evaluation_v1"
+    interpreter_version: str = "front_chain_interpreter_v1"
+    validator_version: str = "front_chain_partition_validator_v1"
+    created_at: datetime
+
+
 # Re-export the shared contract types so tests and callers that work against
 # the front-chain namespace don't need a second import from
 # ``app.schemas.problem_formulation``.
@@ -410,6 +483,16 @@ __all__ = [
     "FrontChainAnswerRequest",
     "ClarificationInterpretationResult",
     "ClarificationResolutionRecord",
+    # Phase 3
+    "FrontChainEvaluationRequest",
+    "FrontChainEvaluationResponse",
+    "SolvabilityContract",
+    "SolvabilityLLMCandidate",
+    "SolvabilityLLMSubgoal",
+    "SolvabilitySubgoal",
+    "CapabilityMatch",
+    "GraphFeasibility",
+    "ExecutionAdmissibilityContract",
     # Re-exports
     "ProblemFormulationContract",
     "InputClosureContract",
