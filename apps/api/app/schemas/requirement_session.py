@@ -25,7 +25,28 @@ class RequirementMessageCreateRequest(BaseModel):
 
 
 class RequirementSessionResolutionRequest(BaseModel):
-    axis: Literal["source_locator", "source_modality", "deliverable_form", "analysis_frame", "workflow_shape"]
+    # Pre-existing mismatch: the output_closure service can produce axes
+    # (delivery_target, output_modality) and the problem_formulation service
+    # can produce axes (target_object, problem_kind) that the /resolve
+    # endpoint used to reject with a 422. The backend's
+    # ``_store_explicit_resolution`` already handles any axis correctly
+    # (records the resolution and lets downstream closure services skip it),
+    # so this literal is expanded to cover the full set of axes the
+    # closure services actually emit.
+    axis: Literal[
+        "source_locator",
+        "source_modality",
+        "source_kind",
+        "acquisition_path",
+        "deliverable_form",
+        "delivery_target",
+        "output_modality",
+        "analysis_frame",
+        "workflow_shape",
+        "target_object",
+        "problem_kind",
+        "current_system_fit",
+    ]
     resolved_value: Any
     resolution_type: Literal[
         "user_provided_explicit_value",

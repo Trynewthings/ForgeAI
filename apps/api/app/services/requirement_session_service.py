@@ -853,6 +853,27 @@ class RequirementSessionService:
                     sem["input_items"][0] = normalized_value
                 else:
                     sem["input_items"].append(normalized_value)
+        elif axis == "delivery_target" and isinstance(resolved_value, str) and resolved_value.strip():
+            normalized_value = resolved_value.strip()
+            # Output closure axis: project into the draft's output_description
+            # so downstream closure services see a concrete delivery target
+            # and can flip output_closure_status to "output_closed".
+            requirement_draft["output_description"] = normalized_value
+            if isinstance(sem.get("output_items"), list):
+                if sem["output_items"]:
+                    sem["output_items"][0] = normalized_value
+                else:
+                    sem["output_items"].append(normalized_value)
+        elif axis == "output_modality" and isinstance(resolved_value, str) and resolved_value.strip():
+            normalized_value = resolved_value.strip().lower()
+            sem["output_modality"] = normalized_value
+            if global_core is not None:
+                global_core["output_modality"] = normalized_value
+        elif axis == "target_object" and isinstance(resolved_value, str) and resolved_value.strip():
+            normalized_value = resolved_value.strip().lower()
+            sem["target_object"] = normalized_value
+            if global_core is not None:
+                global_core["target_object"] = normalized_value
 
         if axis in sem.get("pending_semantic_fields", []):
             sem["pending_semantic_fields"] = [field for field in sem["pending_semantic_fields"] if field != axis]
