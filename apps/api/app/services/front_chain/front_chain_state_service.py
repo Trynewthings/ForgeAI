@@ -17,17 +17,26 @@ from sqlalchemy.orm import Session
 
 from app.db.models import FrontChainState
 from app.schemas.front_chain import (
+    ClarificationInterpretationResult,
+    FrontChainAnswerItem,
+    FrontChainAnswerRequest,
     FrontChainClarificationQuestion,
     FrontChainInterpretationRequest,
     FrontChainInterpretationResponse,
+    FrontChainLayerName,
     FrontChainLLMTraceSummary,
     FrontChainStateResponse,
     MergedGapSet,
 )
 from app.schemas.problem_formulation import (
+    ClarificationResolutionRecord,
     InputClosureContract,
     OutputClosureContract,
     ProblemFormulationContract,
+)
+from app.services.front_chain.clarification_interpreter_llm_service import (
+    CLARIFICATION_INTERPRETER_VERSION,
+    ClarificationInterpreterLLMService,
 )
 from app.services.front_chain.clarification_policy_engine import (
     POLICY_VERSION,
@@ -37,9 +46,17 @@ from app.services.front_chain.closure_gap_merger import (
     MERGER_VERSION,
     ClosureGapMerger,
 )
+from app.services.front_chain.closure_reevaluation_service import (
+    REEVALUATION_VERSION,
+    ClosureReevaluationService,
+)
 from app.services.front_chain.contract_partition_validator import (
     VALIDATOR_VERSION,
     ContractPartitionValidator,
+)
+from app.services.front_chain.contract_update_engine import (
+    UPDATE_ENGINE_VERSION,
+    ContractUpdateEngine,
 )
 from app.services.front_chain.front_chain_interpreter_llm_service import (
     INTERPRETER_VERSION,
@@ -47,6 +64,14 @@ from app.services.front_chain.front_chain_interpreter_llm_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class FrontChainStateNotFoundError(Exception):
+    """Raised when an apply_answers call references a non-existent parent state."""
+
+    def __init__(self, state_id: str) -> None:
+        super().__init__(f"front_chain_state {state_id!r} not found")
+        self.state_id = state_id
 
 
 class FrontChainStateService:
@@ -66,12 +91,23 @@ class FrontChainStateService:
         validator: Optional[ContractPartitionValidator] = None,
         merger: Optional[ClosureGapMerger] = None,
         policy_engine: Optional[ClarificationPolicyEngine] = None,
+        clarification_interpreter: Optional[ClarificationInterpreterLLMService] = None,
+        update_engine: Optional[ContractUpdateEngine] = None,
+        reevaluation_service: Optional[ClosureReevaluationService] = None,
     ) -> None:
         self._db = db
         self._interpreter = interpreter or FrontChainInterpreterLLMService()
         self._validator = validator or ContractPartitionValidator()
         self._merger = merger or ClosureGapMerger()
         self._policy_engine = policy_engine or ClarificationPolicyEngine(max_questions=3)
+        self._clarification_interpreter = (
+            clarification_interpreter or ClarificationInterpreterLLMService()
+        )
+        self._update_engine = update_engine or ContractUpdateEngine()
+        self._reevaluation_service = reevaluation_service or ClosureReevaluationService(
+            merger=self._merger,
+            policy_engine=self._policy_engine,
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -101,6 +137,8 @@ class FrontChainStateService:
             requirement_id=request.requirement_id,
             preview_mode=request.preview,
             raw_intent=request.raw_intent,
+            parent_state_id=None,
+            turn_number=1,
             problem_formulation=partition.problem_formulation,
             input_closure=partition.input_closure,
             output_closure=partition.output_closure,
@@ -115,6 +153,8 @@ class FrontChainStateService:
             session_id=row.session_id,
             requirement_id=row.requirement_id,
             preview_mode=row.preview_mode,
+            parent_state_id=row.parent_state_id,
+            turn_number=row.turn_number,
             raw_intent=row.raw_intent,
             problem_formulation=partition.problem_formulation,
             input_closure=partition.input_closure,
@@ -125,6 +165,100 @@ class FrontChainStateService:
             interpreter_version=INTERPRETER_VERSION,
             validator_version=VALIDATOR_VERSION,
             created_at=row.created_at,
+            applied_resolutions=[],
+            changed_contracts=[],
+        )
+
+    def apply_answers(
+        self,
+        *,
+        parent_state_id: str,
+        request: FrontChainAnswerRequest,
+    ) -> FrontChainInterpretationResponse:
+        """Phase 1B: consume the user's answers and produce a new state turn.
+
+        Pipeline (1 LLM call total):
+            1. Load parent FrontChainState
+            2. clarification_interpreter.interpret_answers(answers, parent.top_questions)
+            3. contract_update_engine.apply_resolutions(parent.contracts, resolutions)
+            4. closure_reevaluation_service.reevaluate(patched contracts)
+            5. Persist as a new state row with parent_state_id chain
+            6. Return new state's full interpretation response
+        """
+        parent_row = (
+            self._db.query(FrontChainState).filter(FrontChainState.id == parent_state_id).first()
+        )
+        if parent_row is None:
+            raise FrontChainStateNotFoundError(parent_state_id)
+
+        parent_problem = ProblemFormulationContract.model_validate(parent_row.problem_formulation_json)
+        parent_input = InputClosureContract.model_validate(parent_row.input_closure_json)
+        parent_output = OutputClosureContract.model_validate(parent_row.output_closure_json)
+        parent_questions = [
+            FrontChainClarificationQuestion.model_validate(q)
+            for q in (parent_row.top_questions_json or [])
+        ]
+
+        interpretation: ClarificationInterpretationResult = (
+            self._clarification_interpreter.interpret_answers(
+                answers=list(request.answers),
+                outstanding_questions=parent_questions,
+            )
+        )
+
+        update_result = self._update_engine.apply_resolutions(
+            problem_formulation=parent_problem,
+            input_closure=parent_input,
+            output_closure=parent_output,
+            resolutions=list(interpretation.resolutions),
+        )
+
+        reeval = self._reevaluation_service.reevaluate(
+            problem_formulation=update_result.problem_formulation,
+            input_closure=update_result.input_closure,
+            output_closure=update_result.output_closure,
+        )
+
+        # When the update was a no-op (no resolution actually mutated a
+        # contract), we still persist a new row so the audit chain stays
+        # complete. The trace summary preserves the LLM call count from the
+        # interpreter (1 in real / mock paths, 0 in the no-op path).
+        new_row = self._persist(
+            project_id=parent_row.project_id,
+            session_id=parent_row.session_id,
+            requirement_id=parent_row.requirement_id,
+            preview_mode=parent_row.preview_mode,
+            raw_intent=parent_row.raw_intent,
+            parent_state_id=parent_row.id,
+            turn_number=parent_row.turn_number + 1,
+            problem_formulation=update_result.problem_formulation,
+            input_closure=update_result.input_closure,
+            output_closure=update_result.output_closure,
+            merged_gaps=reeval.merged_gaps,
+            top_questions=reeval.top_questions,
+            trace_summary=interpretation.llm_trace,
+        )
+
+        return FrontChainInterpretationResponse(
+            state_id=new_row.id,
+            project_id=new_row.project_id,
+            session_id=new_row.session_id,
+            requirement_id=new_row.requirement_id,
+            preview_mode=new_row.preview_mode,
+            parent_state_id=new_row.parent_state_id,
+            turn_number=new_row.turn_number,
+            raw_intent=new_row.raw_intent,
+            problem_formulation=update_result.problem_formulation,
+            input_closure=update_result.input_closure,
+            output_closure=update_result.output_closure,
+            merged_gaps=reeval.merged_gaps,
+            top_questions=reeval.top_questions,
+            llm_trace_summary=interpretation.llm_trace,
+            interpreter_version=INTERPRETER_VERSION,
+            validator_version=VALIDATOR_VERSION,
+            created_at=new_row.created_at,
+            applied_resolutions=list(update_result.applied_resolutions),
+            changed_contracts=list(update_result.changed_layers),
         )
 
     def get_by_id(self, state_id: str) -> Optional[FrontChainStateResponse]:
@@ -163,6 +297,8 @@ class FrontChainStateService:
         requirement_id: Optional[str],
         preview_mode: bool,
         raw_intent: str,
+        parent_state_id: Optional[str],
+        turn_number: int,
         problem_formulation: ProblemFormulationContract,
         input_closure: InputClosureContract,
         output_closure: OutputClosureContract,
@@ -175,6 +311,8 @@ class FrontChainStateService:
             session_id=session_id,
             requirement_id=requirement_id,
             preview_mode=preview_mode,
+            parent_state_id=parent_state_id,
+            turn_number=turn_number,
             raw_intent=raw_intent,
             problem_formulation_json=problem_formulation.model_dump(mode="json"),
             input_closure_json=input_closure.model_dump(mode="json"),
@@ -196,8 +334,13 @@ class FrontChainStateService:
                 "session_id": row.session_id,
                 "requirement_id": row.requirement_id,
                 "preview_mode": row.preview_mode,
+                "parent_state_id": row.parent_state_id,
+                "turn_number": row.turn_number,
                 "merger_version": MERGER_VERSION,
                 "policy_version": POLICY_VERSION,
+                "update_engine_version": UPDATE_ENGINE_VERSION,
+                "reevaluation_version": REEVALUATION_VERSION,
+                "clarification_interpreter_version": CLARIFICATION_INTERPRETER_VERSION,
             },
         )
         return row
@@ -210,6 +353,8 @@ class FrontChainStateService:
             session_id=row.session_id,
             requirement_id=row.requirement_id,
             preview_mode=row.preview_mode,
+            parent_state_id=row.parent_state_id,
+            turn_number=row.turn_number,
             raw_intent=row.raw_intent,
             problem_formulation=ProblemFormulationContract.model_validate(row.problem_formulation_json),
             input_closure=InputClosureContract.model_validate(row.input_closure_json),

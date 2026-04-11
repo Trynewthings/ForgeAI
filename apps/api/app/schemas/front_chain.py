@@ -23,6 +23,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.problem_formulation import (
+    ClarificationResolutionRecord,
     InputClosureContract,
     InputClosureRequirement,
     InputSourceCandidate,
@@ -292,6 +293,8 @@ class FrontChainInterpretationResponse(BaseModel):
     requirement_id: Optional[str] = None
     preview_mode: bool = False
     raw_intent: str
+    parent_state_id: Optional[str] = None
+    turn_number: int = 1
     problem_formulation: ProblemFormulationContract
     input_closure: InputClosureContract
     output_closure: OutputClosureContract
@@ -301,6 +304,15 @@ class FrontChainInterpretationResponse(BaseModel):
     interpreter_version: str = "front_chain_interpreter_v1"
     validator_version: str = "front_chain_partition_validator_v1"
     created_at: datetime
+    # Phase 1B — populated only when the response is the result of an
+    # /answer call. Lists the resolutions the clarification interpreter
+    # produced for the user's answer (so callers can audit which axes were
+    # touched and which were ignored).
+    applied_resolutions: list[ClarificationResolutionRecord] = Field(default_factory=list)
+    # Phase 1B — names the contracts whose dump actually changed between the
+    # parent state and this state. Empty for turn 1, or when an /answer call
+    # produced a no-op (e.g., the answer didn't resolve any axis).
+    changed_contracts: list[FrontChainLayerName] = Field(default_factory=list)
 
 
 class FrontChainStateResponse(BaseModel):
@@ -311,6 +323,8 @@ class FrontChainStateResponse(BaseModel):
     session_id: Optional[str] = None
     requirement_id: Optional[str] = None
     preview_mode: bool = False
+    parent_state_id: Optional[str] = None
+    turn_number: int = 1
     raw_intent: str
     problem_formulation: ProblemFormulationContract
     input_closure: InputClosureContract
@@ -322,6 +336,56 @@ class FrontChainStateResponse(BaseModel):
     validator_version: str
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Phase 1B — Answer flow request/response
+# ---------------------------------------------------------------------------
+
+
+class FrontChainAnswerItem(BaseModel):
+    """A single answer to one of the prior state's top questions."""
+
+    question_id: str
+    answer_text: str = Field(..., min_length=1)
+    # Optional: caller can hint which axis the answer should target. The
+    # interpreter still inspects the parent state's top_questions catalogue
+    # so this is just a fast-path / disambiguation hint.
+    axis_hint: Optional[str] = None
+
+
+class FrontChainAnswerRequest(BaseModel):
+    """Body for ``POST /front-chain/states/{state_id}/answer``.
+
+    The interpreter strictly answers questions that exist on the parent
+    state's ``top_questions`` list. Anything off-list is ignored (and
+    surfaced via ``applied_resolutions`` so the caller can see the
+    interpreter's routing decisions).
+    """
+
+    answers: list[FrontChainAnswerItem] = Field(..., min_length=1)
+
+
+class ClarificationInterpretationResult(BaseModel):
+    """Internal envelope returned by ClarificationInterpreterLLMService.
+
+    The interpreter MUST NOT directly modify contracts. It only converts the
+    user's free-text answers into structured ``ClarificationResolutionRecord``
+    objects. The deterministic ``ContractUpdateEngine`` then applies them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    interpreter_version: str = "front_chain_clarification_interpreter_v1"
+    resolutions: list[ClarificationResolutionRecord] = Field(default_factory=list)
+    rejected_answers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "question_ids that the interpreter could not map to any axis."
+        ),
+    )
+    reasoning_summary: Optional[str] = None
+    llm_trace: FrontChainLLMTraceSummary
 
 
 # Re-export the shared contract types so tests and callers that work against
@@ -341,6 +405,12 @@ __all__ = [
     "FrontChainInterpretationRequest",
     "FrontChainInterpretationResponse",
     "FrontChainStateResponse",
+    # Phase 1B
+    "FrontChainAnswerItem",
+    "FrontChainAnswerRequest",
+    "ClarificationInterpretationResult",
+    "ClarificationResolutionRecord",
+    # Re-exports
     "ProblemFormulationContract",
     "InputClosureContract",
     "OutputClosureContract",

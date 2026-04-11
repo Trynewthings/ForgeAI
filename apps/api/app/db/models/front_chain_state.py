@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -47,6 +47,19 @@ class FrontChainState(Base):
         index=True,
     )
     preview_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Phase 1B — state chaining for selective updates after a user answer.
+    # turn_number=1 is the initial interpret; each subsequent ``apply_answers``
+    # call creates a new row with parent_state_id pointing back to the prior
+    # state and turn_number incremented. This makes contract stability
+    # observable: tests can diff state_v1 against state_v2 to prove only
+    # affected axes changed.
+    parent_state_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("front_chain_states.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    turn_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     raw_intent: Mapped[str] = mapped_column(Text, nullable=False)
 
