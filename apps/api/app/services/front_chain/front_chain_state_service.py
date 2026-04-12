@@ -15,6 +15,8 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+
 from app.db.models import FrontChainState
 from app.schemas.front_chain import (
     ClarificationInterpretationResult,
@@ -46,6 +48,7 @@ from app.services.front_chain.clarification_interpreter_llm_service import (
     CLARIFICATION_INTERPRETER_VERSION,
     ClarificationInterpreterLLMService,
 )
+from app.services.front_chain.closure_axis_registry import get_axis
 from app.services.front_chain.clarification_policy_engine import (
     POLICY_VERSION,
     ClarificationPolicyEngine,
@@ -228,18 +231,56 @@ class FrontChainStateService:
             for q in (parent_row.top_questions_json or [])
         ]
 
-        interpretation: ClarificationInterpretationResult = (
-            self._clarification_interpreter.interpret_answers(
-                answers=list(request.answers),
+        # Phase 1C: split option selections from free-text answers.
+        # Option selections are resolved deterministically via the closure
+        # axis registry (no LLM call). Free-text answers go through the
+        # clarification interpreter LLM as a fallback.
+        option_resolutions: list[ClarificationResolutionRecord] = []
+        free_text_answers: list[FrontChainAnswerItem] = []
+
+        question_index = {q.question_id: q for q in parent_questions}
+        for answer in request.answers:
+            if answer.is_option_selection():
+                resolution = self._resolve_option_deterministically(
+                    answer=answer,
+                    question_index=question_index,
+                )
+                if resolution:
+                    option_resolutions.extend(resolution)
+            elif answer.answer_text and answer.answer_text.strip():
+                free_text_answers.append(answer)
+
+        # Free-text answers go through the LLM interpreter (degraded to
+        # standard-axis-only resolution per Rule 4).
+        interpretation: ClarificationInterpretationResult
+        if free_text_answers:
+            interpretation = self._clarification_interpreter.interpret_answers(
+                answers=free_text_answers,
                 outstanding_questions=parent_questions,
             )
-        )
+        else:
+            from app.schemas.front_chain import FrontChainLLMTraceSummary
+            interpretation = ClarificationInterpretationResult(
+                interpreter_version=CLARIFICATION_INTERPRETER_VERSION,
+                resolutions=[],
+                rejected_answers=[],
+                reasoning_summary="All answers resolved via deterministic option selection; no LLM call needed.",
+                llm_trace=FrontChainLLMTraceSummary(
+                    call_count=0,
+                    interpreter_version=CLARIFICATION_INTERPRETER_VERSION,
+                    llm_mode=getattr(settings, "llm_mode", "mock"),
+                    finish_reason="deterministic_option",
+                ),
+            )
+
+        # Merge option resolutions + LLM resolutions, then apply.
+        all_resolutions = option_resolutions + list(interpretation.resolutions)
 
         update_result = self._update_engine.apply_resolutions(
             problem_formulation=parent_problem,
             input_closure=parent_input,
             output_closure=parent_output,
-            resolutions=list(interpretation.resolutions),
+            resolutions=all_resolutions,
         )
 
         reeval = self._reevaluation_service.reevaluate(
@@ -419,6 +460,74 @@ class FrontChainStateService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _resolve_option_deterministically(
+        self,
+        *,
+        answer: FrontChainAnswerItem,
+        question_index: dict[str, FrontChainClarificationQuestion],
+    ) -> list[ClarificationResolutionRecord]:
+        """Phase 1C: convert a selected option into deterministic resolutions.
+
+        Reads the option's ``resolves`` mapping from the closure axis registry
+        and produces one ``ClarificationResolutionRecord`` per axis in the map.
+        No LLM call is made (Rule 3).
+        """
+        from datetime import datetime, timezone
+
+        question = question_index.get(answer.question_id)
+        if question is None:
+            return []
+
+        # Find the option definition.
+        option_def = None
+        for opt in question.suggested_options:
+            if opt.option_id == answer.selected_option_id:
+                option_def = opt
+                break
+        if option_def is None:
+            # Fallback: look up in the global registry.
+            axis_def = get_axis(question.axis)
+            if axis_def is not None:
+                option_def_raw = axis_def.get_option(answer.selected_option_id or "")
+                if option_def_raw is not None:
+                    from app.schemas.front_chain import FrontChainClarificationOption
+                    option_def = FrontChainClarificationOption(
+                        option_id=option_def_raw.option_id,
+                        label=option_def_raw.label,
+                        value=option_def_raw.value,
+                        resolves=dict(option_def_raw.resolves),
+                        is_default=option_def_raw.is_default,
+                        requires_free_text_suffix=option_def_raw.requires_free_text_suffix,
+                    )
+        if option_def is None:
+            return []
+
+        recorded_at = datetime.now(timezone.utc).isoformat()
+        resolutions: list[ClarificationResolutionRecord] = []
+        resolves = option_def.resolves
+        if not resolves:
+            # Option with no resolves map but has a value → resolve the
+            # question's own axis with the option value.
+            resolves = {question.axis: option_def.value}
+
+        for axis, value in resolves.items():
+            # If the option requires a free-text suffix (e.g., "Other"),
+            # append the user's answer_text to the value.
+            final_value = value
+            if option_def.requires_free_text_suffix and answer.answer_text:
+                final_value = answer.answer_text.strip() if not value else f"{value}: {answer.answer_text.strip()}"
+            resolutions.append(
+                ClarificationResolutionRecord(
+                    axis=axis,
+                    resolution_type="user_confirmed_suggested_value",
+                    resolved_value=final_value,
+                    source_text=f"option:{option_def.option_id}",
+                    accepted=True,
+                    recorded_at=recorded_at,
+                )
+            )
+        return resolutions
 
     def _persist_evaluation(
         self,

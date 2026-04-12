@@ -17,11 +17,13 @@ from __future__ import annotations
 from typing import Optional
 
 from app.schemas.front_chain import (
+    FrontChainClarificationOption,
     FrontChainClarificationQuestion,
     FrontChainLayerName,
     MergedGapItem,
     MergedGapSet,
 )
+from app.services.front_chain.closure_axis_registry import get_axis
 
 POLICY_VERSION = "front_chain_clarification_policy_v1"
 
@@ -115,7 +117,32 @@ class ClarificationPolicyEngine:
             if key in seen_axes:
                 continue
             seen_axes.add(key)
-            question_text, context_hint = _template_question_for_axis(item.axis, item.layer)
+
+            # Pull from the closure axis registry if available. This gives
+            # us structured options, proper question text, and context hints
+            # from a single source of truth.
+            axis_def = get_axis(item.axis)
+            if axis_def is not None:
+                question_text = axis_def.question_text
+                context_hint = item.reason or axis_def.context_hint
+                suggested_options = [
+                    FrontChainClarificationOption(
+                        option_id=opt.option_id,
+                        label=opt.label,
+                        value=opt.value,
+                        resolves=dict(opt.resolves),
+                        is_default=opt.is_default,
+                        requires_free_text_suffix=opt.requires_free_text_suffix,
+                    )
+                    for opt in axis_def.options
+                ]
+            else:
+                question_text, context_hint_tmpl = _template_question_for_axis(
+                    item.axis, item.layer
+                )
+                context_hint = item.reason or context_hint_tmpl
+                suggested_options = []
+
             questions.append(
                 FrontChainClarificationQuestion(
                     question_id=f"q_{item.layer}_{item.axis}",
@@ -124,7 +151,8 @@ class ClarificationPolicyEngine:
                     severity=item.severity,
                     question_text=question_text,
                     priority=priority_index,
-                    context_hint=item.reason or context_hint,
+                    context_hint=context_hint,
+                    suggested_options=suggested_options,
                 )
             )
             if len(questions) >= limit:

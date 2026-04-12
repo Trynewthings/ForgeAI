@@ -218,13 +218,41 @@ class MergedGapSet(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class FrontChainClarificationOption(BaseModel):
+    """A structured option the user can pick for a given closure axis.
+
+    When the user selects an option, the frontend sends the ``option_id``
+    and the backend deterministically applies the ``resolves`` mapping to
+    the affected contracts WITHOUT calling the clarification LLM. This is
+    the primary mechanism for deterministic closure progression.
+    """
+
+    option_id: str
+    label: str
+    value: str
+    resolves: dict[str, str] = Field(
+        default_factory=dict,
+        description="Deterministic axis→value mapping. When this option is "
+        "selected, each key is written into the corresponding contract "
+        "field. Example: {'deliverable_form': 'report', 'output_modality': 'markdown'}",
+    )
+    is_default: bool = False
+    requires_free_text_suffix: bool = Field(
+        default=False,
+        description='When True, selecting this option also shows a text '
+        'input for additional detail (e.g., "Other, please specify").',
+    )
+
+
 class FrontChainClarificationQuestion(BaseModel):
     """A single question emitted by the deterministic policy engine.
 
-    These questions are template-derived, NOT LLM-generated (LLM-generated
-    follow-up clarification prompts are Phase 1B). Each question is tied to a
-    specific gap axis / layer, so Phase 1B's ``clarification_interpreter`` can
-    route user answers back to the right contract without ambiguity.
+    Each question is tied to a specific gap axis / layer and carries
+    ``suggested_options`` from the closure axis registry. When options
+    are present, the frontend renders structured buttons instead of a
+    free-text input. The deterministic update path (option → resolves →
+    patch) bypasses the clarification LLM entirely. Free-text fallback
+    is still available for axes that have no option set.
     """
 
     question_id: str
@@ -234,6 +262,7 @@ class FrontChainClarificationQuestion(BaseModel):
     question_text: str
     priority: int
     context_hint: Optional[str] = None
+    suggested_options: list[FrontChainClarificationOption] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -364,23 +393,37 @@ class FrontChainStateResponse(BaseModel):
 
 
 class FrontChainAnswerItem(BaseModel):
-    """A single answer to one of the prior state's top questions."""
+    """A single answer to one of the prior state's top questions.
+
+    Two modes:
+        1. **Option selection** — ``selected_option_id`` is set: the answer
+           is resolved via the deterministic ``resolves`` mapping from the
+           closure axis registry. NO LLM call. ``answer_text`` is optional
+           and serves as a free-text suffix (for options with
+           ``requires_free_text_suffix=True``).
+        2. **Free-text fallback** — ``selected_option_id`` is None: the
+           answer text is interpreted by the clarification LLM (degraded to
+           standard-axis-only resolution).
+    """
 
     question_id: str
-    answer_text: str = Field(..., min_length=1)
-    # Optional: caller can hint which axis the answer should target. The
-    # interpreter still inspects the parent state's top_questions catalogue
-    # so this is just a fast-path / disambiguation hint.
+    selected_option_id: Optional[str] = None
+    answer_text: Optional[str] = None
     axis_hint: Optional[str] = None
+
+    def is_option_selection(self) -> bool:
+        return self.selected_option_id is not None
 
 
 class FrontChainAnswerRequest(BaseModel):
     """Body for ``POST /front-chain/states/{state_id}/answer``.
 
-    The interpreter strictly answers questions that exist on the parent
-    state's ``top_questions`` list. Anything off-list is ignored (and
-    surfaced via ``applied_resolutions`` so the caller can see the
-    interpreter's routing decisions).
+    Answers can be **option selections** (``selected_option_id`` set →
+    deterministic resolve, no LLM) or **free-text** (``answer_text`` set →
+    clarification LLM fallback constrained to standard axes).
+
+    The deterministic path is preferred; free-text is the escape hatch for
+    axes where the option set doesn't cover the user's intent.
     """
 
     answers: list[FrontChainAnswerItem] = Field(..., min_length=1)

@@ -40,6 +40,7 @@ from app.schemas.problem_formulation import (
     InputSourceCandidate,
 )
 from app.schemas.semantic_core import SemanticCore
+from app.services.front_chain.closure_axis_registry import get_prompt_axis_list, get_registered_axis_ids
 from app.services.provider_runtime import (
     BaseProviderAdapter,
     ProviderCallError,
@@ -63,7 +64,17 @@ assumption_candidates at the top level. Never include fields that belong to \
 a different layer: problem formulation is about understanding the task, \
 input closure is about source sufficiency, output closure is about \
 deliverable sufficiency. Do not include graph/plan/runtime/capability \
-content. Emit strictly valid JSON."""
+content.
+
+CRITICAL AXIS RULE: You may ONLY use the following registered closure axes \
+in blocking_axes and review_axes fields. Do NOT invent custom axis names. \
+Specification-level concerns (data_fields, data_granularity, \
+report_structure, visualization_requirement, etc.) must go into \
+reasoning_summary, NOT into blocking or review axes.
+
+{axis_registry}
+
+Emit strictly valid JSON."""
 
 _USER_PROMPT_TEMPLATE = """Raw user intent:
 \"\"\"
@@ -253,8 +264,9 @@ class FrontChainInterpreterLLMService:
             schema_hint=_SCHEMA_HINT,
         )
 
+        system_prompt = _SYSTEM_PROMPT.format(axis_registry=get_prompt_axis_list())
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
@@ -617,7 +629,8 @@ def _normalize_llm_payload(payload: dict) -> None:
             # let the default empty candidate kick in.
             payload.pop(section_key, None)
 
-    # --- blocking_axes / review_axes: sometimes returned as a single str ---
+    # --- blocking_axes / review_axes: normalize + filter to registered axes ---
+    registered = get_registered_axis_ids()
     for section_key in (
         "problem_formulation_candidate",
         "input_closure_candidate",
@@ -628,7 +641,11 @@ def _normalize_llm_payload(payload: dict) -> None:
             for axes_key in ("blocking_axes", "review_axes"):
                 val = section.get(axes_key)
                 if isinstance(val, str):
-                    section[axes_key] = [val] if val.strip() else []
+                    val = [val] if val.strip() else []
+                if isinstance(val, list):
+                    # Filter out LLM-invented custom axes (R1: only
+                    # registered closure axes are allowed).
+                    section[axes_key] = [a for a in val if isinstance(a, str) and a in registered]
 
 
 def _infer_content_kind_from_url(url: str) -> str:
