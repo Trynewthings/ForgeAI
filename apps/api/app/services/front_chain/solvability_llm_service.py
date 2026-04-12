@@ -352,11 +352,24 @@ class SolvabilityLLMService:
         runtime_config: ResolvedModelConfig
         adapter, runtime_config = self._adapter_factory()
 
+        # Override max_tokens — same reason as the interpreter: the
+        # structured JSON envelope needs more space than the default 1024.
+        if runtime_config and runtime_config.max_tokens and runtime_config.max_tokens < 4096:
+            runtime_config.max_tokens = 4096
+
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": prompt_body},
         ]
         response: ProviderResponse = adapter.chat(messages)
+        logger.info(
+            "solvability_llm.real_response",
+            extra={
+                "content_length": len(response.content or ""),
+                "content_preview": (response.content or "")[:500],
+                "completion_tokens": response.completion_tokens,
+            },
+        )
         candidate = _parse_candidate(response.content)
         trace = FrontChainLLMTraceSummary(
             call_count=1,

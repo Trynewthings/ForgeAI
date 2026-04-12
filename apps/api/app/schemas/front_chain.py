@@ -153,7 +153,13 @@ class FrontChainInterpreterLLMOutput(BaseModel):
     calls. See ``R9``: one LLM call per interpret.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="ignore" rather than "forbid" — real LLMs (DeepSeek, GPT, etc.)
+    # frequently include commentary keys ("status", "notes", "explanation")
+    # that aren't part of our schema. With "forbid" the entire validation
+    # fails and the parser falls back to an empty envelope, which is the
+    # opposite of what we want. "ignore" silently drops unknown fields while
+    # still validating the expected ones.
+    model_config = ConfigDict(extra="ignore")
 
     interpreter_version: str = "front_chain_interpreter_v1"
     confidence: float = 0.0
@@ -435,6 +441,12 @@ class FrontChainEvaluationResponse(BaseModel):
     The response carries the full state (same shape as
     ``FrontChainInterpretationResponse``) plus the freshly derived
     ``solvability`` and ``execution_admissibility`` contracts.
+
+    Note: ``applied_resolutions`` and ``changed_contracts`` are included
+    for shape compatibility with ``FrontChainInterpretationResponse`` so
+    the frontend can render both response types through the same card
+    pipeline without null-guard gymnastics. Evaluate never mutates the
+    closure contracts, so ``changed_contracts`` is always empty.
     """
 
     state_id: str
@@ -451,6 +463,9 @@ class FrontChainEvaluationResponse(BaseModel):
     merged_gaps: MergedGapSet
     top_questions: list[FrontChainClarificationQuestion] = Field(default_factory=list)
     llm_trace_summary: FrontChainLLMTraceSummary
+    # Shape-compat with FrontChainInterpretationResponse
+    applied_resolutions: list[ClarificationResolutionRecord] = Field(default_factory=list)
+    changed_contracts: list[FrontChainLayerName] = Field(default_factory=list)
     # Phase 3 additions
     solvability: SolvabilityContract
     execution_admissibility: ExecutionAdmissibilityContract

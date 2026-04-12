@@ -231,6 +231,14 @@ class FrontChainInterpreterLLMService:
         runtime_config: ResolvedModelConfig
         adapter, runtime_config = self._adapter_factory()
 
+        # Override max_tokens for the front-chain interpreter: the structured
+        # JSON envelope (3 candidate sections + decisions + assumptions) needs
+        # considerably more space than the default 1024. With 1024, DeepSeek
+        # truncates the JSON mid-object, json.loads fails, and the parser
+        # silently falls back to an empty envelope.
+        if runtime_config and runtime_config.max_tokens and runtime_config.max_tokens < 4096:
+            runtime_config.max_tokens = 4096
+
         substrate_section = ""
         if semantic_substrate is not None:
             substrate_section = (
@@ -251,6 +259,17 @@ class FrontChainInterpreterLLMService:
         ]
 
         response: ProviderResponse = adapter.chat(messages)
+        logger.info(
+            "front_chain_interpreter.real_response",
+            extra={
+                "prompt_hash": prompt_hash,
+                "content_length": len(response.content or ""),
+                "content_preview": (response.content or "")[:500],
+                "prompt_tokens": response.prompt_tokens,
+                "completion_tokens": response.completion_tokens,
+                "total_tokens": response.total_tokens,
+            },
+        )
         parsed = _parse_llm_output(response.content)
         trace = FrontChainLLMTraceSummary(
             call_count=1,
@@ -284,10 +303,22 @@ def _parse_llm_output(raw_content: str) -> FrontChainInterpreterLLMOutput:
 
     Uses a forgiving JSON extractor (strip code fences, grab the first JSON
     object in the content) before validating against the pydantic model.
+    Every failure path logs diagnostics so truncation / format / schema
+    mismatches are immediately visible in the backend terminal.
     """
     if not raw_content:
+        logger.warning("front_chain_interpreter.parse: empty raw_content")
         return _empty_llm_output()
     text = raw_content.strip()
+    # Log a preview so truncation / format issues are visible.
+    logger.info(
+        "front_chain_interpreter.parse_input",
+        extra={
+            "content_length": len(text),
+            "first_200": text[:200],
+            "last_200": text[-200:],
+        },
+    )
     if text.startswith("```"):
         text = text.strip("`")
         # strip optional language tag (json)
@@ -296,17 +327,47 @@ def _parse_llm_output(raw_content: str) -> FrontChainInterpreterLLMOutput:
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end <= start:
+        logger.warning(
+            "front_chain_interpreter.parse: no JSON braces found",
+            extra={"first_200": text[:200]},
+        )
         return _empty_llm_output()
     candidate = text[start : end + 1]
     try:
         payload = json.loads(candidate)
-    except json.JSONDecodeError:
-        logger.warning("front_chain_interpreter.parse_failed", extra={"snippet": candidate[:120]})
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "front_chain_interpreter.parse: json.loads failed",
+            extra={"error": str(exc), "first_200": candidate[:200], "last_200": candidate[-200:]},
+        )
         return _empty_llm_output()
+    # Log what keys the payload has so we can see the LLM's actual structure.
+    logger.info(
+        "front_chain_interpreter.parse: json parsed OK",
+        extra={"top_keys": list(payload.keys())[:20]},
+    )
+    # Normalize fields that LLMs frequently return in the wrong shape.
+    # DeepSeek (and others) often emit assumption_candidates as plain strings
+    # ["假设...A", "假设...B"] instead of [{axis, assumed_value, ...}], and
+    # decision_candidates as strings instead of [{decision_id, axis, ...}].
+    _normalize_llm_payload(payload)
     try:
-        return FrontChainInterpreterLLMOutput.model_validate(payload)
-    except Exception:  # noqa: BLE001
-        logger.exception("front_chain_interpreter.validate_failed")
+        result = FrontChainInterpreterLLMOutput.model_validate(payload)
+        logger.info(
+            "front_chain_interpreter.parse: validation OK",
+            extra={
+                "pf_target": result.problem_formulation_candidate.target_object,
+                "ic_sources": len(result.input_closure_candidate.candidate_sources),
+                "oc_form": result.output_closure_candidate.deliverable_form,
+                "confidence": result.confidence,
+            },
+        )
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "front_chain_interpreter.parse: model_validate failed",
+            exc_info=exc,
+        )
         return _empty_llm_output()
 
 
@@ -498,6 +559,76 @@ def _heuristic_llm_output(raw_intent: str) -> FrontChainInterpreterLLMOutput:
         decision_candidates=[{"decision_id": d["decision_id"], "axis": d["axis"], "question": d["question"], "why_it_matters": d["why_it_matters"], "required": True} for d in decisions],  # type: ignore[list-item]
         assumption_candidates=[],
     )
+
+
+def _normalize_llm_payload(payload: dict) -> None:
+    """In-place normalization of common LLM output quirks.
+
+    Real LLMs frequently return fields in simpler shapes than the schema
+    expects. Rather than failing the entire validation (and falling back to
+    an empty envelope), we convert well-known misshapen fields into the
+    expected structure so the downstream partition validator can still work.
+
+    Known patterns handled:
+        * assumption_candidates as list[str] → list[ProblemAssumption-dict]
+        * decision_candidates as list[str] → list[ProblemDecision-dict]
+        * Nested candidate sections returned as flat dicts missing wrapper
+          keys → wrapped into the expected candidate schema
+    """
+    # --- assumption_candidates: str[] → ProblemAssumption[] ---
+    raw_assumptions = payload.get("assumption_candidates")
+    if isinstance(raw_assumptions, list) and raw_assumptions:
+        if isinstance(raw_assumptions[0], str):
+            payload["assumption_candidates"] = [
+                {
+                    "axis": f"assumption_{idx}",
+                    "assumed_value": text,
+                    "confidence": 0.5,
+                    "safe": True,
+                    "rationale": text,
+                }
+                for idx, text in enumerate(raw_assumptions, 1)
+            ]
+
+    # --- decision_candidates: str[] → ProblemDecision[] ---
+    raw_decisions = payload.get("decision_candidates")
+    if isinstance(raw_decisions, list) and raw_decisions:
+        if isinstance(raw_decisions[0], str):
+            payload["decision_candidates"] = [
+                {
+                    "decision_id": f"dec_{idx}",
+                    "axis": "unknown",
+                    "question": text,
+                    "why_it_matters": text,
+                    "required": False,
+                }
+                for idx, text in enumerate(raw_decisions, 1)
+            ]
+
+    # --- candidate sections: ensure nested dicts are present ---
+    for section_key in (
+        "problem_formulation_candidate",
+        "input_closure_candidate",
+        "output_closure_candidate",
+    ):
+        section = payload.get(section_key)
+        if section is not None and not isinstance(section, dict):
+            # LLM returned the section as a string or list — drop it and
+            # let the default empty candidate kick in.
+            payload.pop(section_key, None)
+
+    # --- blocking_axes / review_axes: sometimes returned as a single str ---
+    for section_key in (
+        "problem_formulation_candidate",
+        "input_closure_candidate",
+        "output_closure_candidate",
+    ):
+        section = payload.get(section_key)
+        if isinstance(section, dict):
+            for axes_key in ("blocking_axes", "review_axes"):
+                val = section.get(axes_key)
+                if isinstance(val, str):
+                    section[axes_key] = [val] if val.strip() else []
 
 
 def _infer_content_kind_from_url(url: str) -> str:

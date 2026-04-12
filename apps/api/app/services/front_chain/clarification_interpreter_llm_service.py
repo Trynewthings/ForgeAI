@@ -291,7 +291,20 @@ class ClarificationInterpreterLLMService:
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ]
+        # Override max_tokens — same as the front-chain interpreter: the
+        # structured JSON envelope needs more than the default 1024.
+        if runtime_config and runtime_config.max_tokens and runtime_config.max_tokens < 4096:
+            runtime_config.max_tokens = 4096
+
         response: ProviderResponse = adapter.chat(messages)
+        logger.info(
+            "clarification_interpreter.real_response",
+            extra={
+                "content_length": len(response.content or ""),
+                "content_preview": (response.content or "")[:500],
+                "completion_tokens": response.completion_tokens,
+            },
+        )
         parsed = _parse_resolutions(response.content)
         # Ensure rejected list always reflects what we actually sent.
         sent_question_ids = {

@@ -95,8 +95,12 @@ class FrontChainState(Base):
     )
 
     __table_args__ = (
+        # ``preview_mode`` is a real boolean column; we express the CHECK as
+        # a boolean expression (``preview_mode OR ...``) rather than
+        # ``preview_mode = 1`` so the constraint DDL is portable between
+        # SQLite (integer-backed booleans) and PostgreSQL (native boolean).
         CheckConstraint(
-            "preview_mode = 1 OR session_id IS NOT NULL OR requirement_id IS NOT NULL",
+            "preview_mode OR session_id IS NOT NULL OR requirement_id IS NOT NULL",
             name="front_chain_states_binding_required",
         ),
     )

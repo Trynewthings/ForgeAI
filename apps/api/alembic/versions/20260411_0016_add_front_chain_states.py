@@ -26,7 +26,9 @@ def upgrade() -> None:
         sa.Column("project_id", sa.String(length=36), nullable=False),
         sa.Column("session_id", sa.String(length=36), nullable=True),
         sa.Column("requirement_id", sa.String(length=36), nullable=True),
-        sa.Column("preview_mode", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        # server_default uses sa.false() so SQLAlchemy renders the correct
+        # dialect-specific literal (FALSE on PostgreSQL, 0 on SQLite).
+        sa.Column("preview_mode", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("raw_intent", sa.Text(), nullable=False),
         sa.Column("problem_formulation_json", sa.JSON(), nullable=False),
         sa.Column("input_closure_json", sa.JSON(), nullable=False),
@@ -52,8 +54,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["session_id"], ["requirement_sessions.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["requirement_id"], ["requirements.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        # Dialect-neutral boolean CHECK — ``preview_mode`` is already a
+        # boolean column so ``preview_mode OR ...`` evaluates correctly on
+        # both PostgreSQL and SQLite. An earlier version used
+        # ``preview_mode = 1`` which failed on PostgreSQL (boolean != integer).
         sa.CheckConstraint(
-            "preview_mode = 1 OR session_id IS NOT NULL OR requirement_id IS NOT NULL",
+            "preview_mode OR session_id IS NOT NULL OR requirement_id IS NOT NULL",
             name="front_chain_states_binding_required",
         ),
     )

@@ -99,11 +99,26 @@ class ContractUpdateEngine:
             "input_closure": [],
             "output_closure": [],
         }
+        # Build a dynamic axis→layer fallback from the current contracts'
+        # blocking_axes / review_axes. This handles LLM-generated custom
+        # axes (data_fields, data_granularity, report_structure, etc.) that
+        # aren't in the static _AXIS_TO_LAYER map. The static map takes
+        # priority; the dynamic fallback only kicks in for unknown axes.
+        dynamic_axis_to_layer: dict[str, FrontChainLayerName] = {}
+        for axis in (problem_formulation.blocking_axes + problem_formulation.review_axes):
+            dynamic_axis_to_layer.setdefault(axis, "problem_formulation")
+        for axis in (input_closure.blocking_axes + input_closure.review_axes):
+            dynamic_axis_to_layer.setdefault(axis, "input_closure")
+        for axis in (output_closure.blocking_axes + output_closure.review_axes):
+            dynamic_axis_to_layer.setdefault(axis, "output_closure")
+
         for resolution in resolutions:
             if not resolution.accepted:
                 unapplied.append(resolution)
                 continue
             layer = _AXIS_TO_LAYER.get(resolution.axis)
+            if layer is None:
+                layer = dynamic_axis_to_layer.get(resolution.axis)
             if layer is None:
                 unapplied.append(resolution)
                 continue
@@ -193,8 +208,13 @@ def _patch_problem_formulation(
             if new_value and new_value != payload.get("current_system_fit"):
                 payload["current_system_fit"] = new_value
                 mutated = True
-        else:  # pragma: no cover — guarded by router
-            continue
+        else:
+            # LLM-generated custom axis (not in the static map but routed
+            # here via the dynamic fallback). We can't project it into a
+            # specific draft field, but we CAN clear it from blocking/review
+            # so the gap disappears from the merged gap set and the closure
+            # can progress toward "closed".
+            pass  # fall through to the blocking/review removal below
         # Drop the axis from blocking + reasons + required_decisions whose
         # axis matches.
         if axis in blocking_axes:
@@ -262,8 +282,9 @@ def _patch_input_closure(
             if new_value and new_value != payload.get("acquisition_path_kind"):
                 payload["acquisition_path_kind"] = new_value
                 mutated = True
-        else:  # pragma: no cover
-            continue
+        else:
+            # Custom LLM-generated axis — clear from blocking/review below.
+            pass
         if axis in blocking_axes:
             blocking_axes = [a for a in blocking_axes if a != axis]
             mutated = True
@@ -317,8 +338,9 @@ def _patch_output_closure(
             if new_value and new_value != payload.get("output_modality"):
                 payload["output_modality"] = new_value
                 mutated = True
-        else:  # pragma: no cover
-            continue
+        else:
+            # Custom LLM-generated axis — clear from blocking/review below.
+            pass
         if axis in blocking_axes:
             blocking_axes = [a for a in blocking_axes if a != axis]
             mutated = True
