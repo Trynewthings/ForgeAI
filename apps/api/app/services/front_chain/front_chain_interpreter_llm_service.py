@@ -587,35 +587,66 @@ def _normalize_llm_payload(payload: dict) -> None:
         * Nested candidate sections returned as flat dicts missing wrapper
           keys → wrapped into the expected candidate schema
     """
-    # --- assumption_candidates: str[] → ProblemAssumption[] ---
+    # --- assumption_candidates: normalize to ProblemAssumption shape ---
+    # LLMs return assumptions in wildly varying shapes:
+    #   str[]  →  ["假设...A", "假设...B"]
+    #   dict[] with wrong keys  →  [{"assumption_id": "...", "category": "..."}]
+    # Normalize all variants into {axis, assumed_value, confidence, safe, rationale}.
     raw_assumptions = payload.get("assumption_candidates")
     if isinstance(raw_assumptions, list) and raw_assumptions:
-        if isinstance(raw_assumptions[0], str):
-            payload["assumption_candidates"] = [
-                {
+        normalized = []
+        for idx, item in enumerate(raw_assumptions, 1):
+            if isinstance(item, str):
+                normalized.append({
                     "axis": f"assumption_{idx}",
-                    "assumed_value": text,
+                    "assumed_value": item,
                     "confidence": 0.5,
                     "safe": True,
-                    "rationale": text,
-                }
-                for idx, text in enumerate(raw_assumptions, 1)
-            ]
+                    "rationale": item,
+                })
+            elif isinstance(item, dict):
+                # Dict but possibly missing "axis" (required by ProblemAssumption).
+                # Map common LLM field names to the expected schema.
+                axis = (
+                    item.get("axis")
+                    or item.get("category")
+                    or item.get("assumption_id")
+                    or f"assumption_{idx}"
+                )
+                normalized.append({
+                    "axis": str(axis),
+                    "assumed_value": item.get("assumed_value") or item.get("value") or item.get("description") or str(item),
+                    "confidence": float(item.get("confidence", 0.5)),
+                    "safe": bool(item.get("safe", True)),
+                    "rationale": item.get("rationale") or item.get("description") or item.get("reasoning") or str(axis),
+                })
+            # else: skip non-str/non-dict items silently
+        payload["assumption_candidates"] = normalized
 
-    # --- decision_candidates: str[] → ProblemDecision[] ---
+    # --- decision_candidates: normalize to ProblemDecision shape ---
     raw_decisions = payload.get("decision_candidates")
     if isinstance(raw_decisions, list) and raw_decisions:
-        if isinstance(raw_decisions[0], str):
-            payload["decision_candidates"] = [
-                {
+        normalized = []
+        for idx, item in enumerate(raw_decisions, 1):
+            if isinstance(item, str):
+                normalized.append({
                     "decision_id": f"dec_{idx}",
                     "axis": "unknown",
-                    "question": text,
-                    "why_it_matters": text,
+                    "question": item,
+                    "why_it_matters": item,
                     "required": False,
-                }
-                for idx, text in enumerate(raw_decisions, 1)
-            ]
+                })
+            elif isinstance(item, dict):
+                normalized.append({
+                    "decision_id": item.get("decision_id") or f"dec_{idx}",
+                    "axis": item.get("axis") or item.get("category") or "unknown",
+                    "question": item.get("question") or item.get("description") or str(item),
+                    "why_it_matters": item.get("why_it_matters") or item.get("rationale") or item.get("question") or "",
+                    "required": bool(item.get("required", False)),
+                    "suggested_options": list(item.get("suggested_options") or []),
+                    "suggested_default": item.get("suggested_default"),
+                })
+        payload["decision_candidates"] = normalized
 
     # --- candidate sections: ensure nested dicts are present ---
     for section_key in (
