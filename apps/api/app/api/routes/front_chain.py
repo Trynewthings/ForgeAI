@@ -21,13 +21,25 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.schemas.front_chain import (
     FrontChainAnswerRequest,
+    FrontChainCompileResponse,
     FrontChainEvaluationRequest,
     FrontChainEvaluationResponse,
     FrontChainInterpretationRequest,
     FrontChainInterpretationResponse,
+    FrontChainSessionCreateRequest,
+    FrontChainSessionResponse,
+    FrontChainSessionSummary,
+    FrontChainSessionTurnRequest,
+    FrontChainSessionTurnResponse,
     FrontChainStateResponse,
 )
+from app.services.front_chain.front_chain_session_service import (
+    FrontChainSessionNotFoundError,
+    FrontChainSessionService,
+    FrontChainSessionStateMismatchError,
+)
 from app.services.front_chain.front_chain_state_service import (
+    FrontChainStateNotEvaluatedError,
     FrontChainStateNotFoundError,
     FrontChainStateService,
 )
@@ -130,6 +142,37 @@ def evaluate_front_chain_state(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.post(
+    "/states/{state_id}/compile",
+    response_model=FrontChainCompileResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def compile_front_chain_state(
+    state_id: str,
+    db: Session = Depends(get_db),
+) -> FrontChainCompileResponse:
+    """Phase 4: assemble CompileContextResponse from an evaluated state.
+
+    Creates a NEW chained state row (turn_number = parent.turn_number + 1)
+    that carries the same authority objects byte-equal plus the freshly
+    assembled CompileContextResponse.
+
+    Hard guarantees:
+        * Zero LLM calls — pure deterministic packaging (R7).
+        * All prior authority objects preserved byte-equal.
+        * Requires prior /evaluate (solvability + admissibility must exist).
+    """
+    service = FrontChainStateService(db)
+    try:
+        return service.compile(parent_state_id=state_id)
+    except FrontChainStateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FrontChainStateNotEvaluatedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
 @router.get("/states/{state_id}", response_model=FrontChainStateResponse)
 def get_front_chain_state(
     state_id: str,
@@ -164,3 +207,91 @@ def list_front_chain_states_for_requirement(
 ) -> list[FrontChainStateResponse]:
     service = FrontChainStateService(db)
     return service.list_for_requirement(requirement_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — session orchestration (the main user-facing path)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/sessions",
+    response_model=FrontChainSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_front_chain_session(
+    payload: FrontChainSessionCreateRequest,
+    db: Session = Depends(get_db),
+) -> FrontChainSessionResponse:
+    """Create a new empty front-chain session bound to a project."""
+    service = FrontChainSessionService(db)
+    return service.create(project_id=payload.project_id)
+
+
+@router.post(
+    "/sessions/{session_id}/turn",
+    response_model=FrontChainSessionTurnResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def submit_front_chain_session_turn(
+    session_id: str,
+    payload: FrontChainSessionTurnRequest,
+    db: Session = Depends(get_db),
+) -> FrontChainSessionTurnResponse:
+    """Unified turn endpoint. Auto-chains interpret|answer -> evaluate -> compile.
+
+    First turn: payload.kind="raw_intent". Subsequent turns: kind="answers".
+    Stops early if blocking gaps remain, or if solvability is not_solvable.
+    ``stages_run`` reports which stages actually executed.
+    """
+    service = FrontChainSessionService(db)
+    try:
+        return service.submit_turn(session_id=session_id, request=payload)
+    except FrontChainSessionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FrontChainSessionStateMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
+@router.get(
+    "/sessions/{session_id}",
+    response_model=FrontChainSessionResponse,
+)
+def get_front_chain_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+) -> FrontChainSessionResponse:
+    service = FrontChainSessionService(db)
+    try:
+        return service.get(session_id=session_id)
+    except FrontChainSessionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/projects/{project_id}/sessions",
+    response_model=list[FrontChainSessionSummary],
+)
+def list_front_chain_sessions_for_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+) -> list[FrontChainSessionSummary]:
+    service = FrontChainSessionService(db)
+    return service.list_for_project(project_id=project_id)
+
+
+@router.post(
+    "/sessions/{session_id}/close",
+    response_model=FrontChainSessionResponse,
+)
+def close_front_chain_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+) -> FrontChainSessionResponse:
+    service = FrontChainSessionService(db)
+    try:
+        return service.close(session_id=session_id)
+    except FrontChainSessionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

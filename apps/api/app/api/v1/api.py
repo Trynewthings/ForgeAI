@@ -18,7 +18,6 @@ from app.api.v1.routers.build_tasks import router as build_tasks_router
 from app.api.v1.routers.health import router as health_router
 from app.api.v1.routers.model_configs import router as model_configs_router
 from app.api.v1.routers.registries import router as registries_router
-from app.api.v1.routers.requirements import router as requirements_legacy_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(health_router)
@@ -37,7 +36,6 @@ api_v1_router.include_router(runs_router)
 api_v1_router.include_router(provider_debug_router)
 
 # Legacy routes kept for compatibility while v2 becomes the mainline.
-api_v1_router.include_router(requirements_legacy_router)
 api_v1_router.include_router(build_tasks_router)
 api_v1_router.include_router(model_configs_router)
 api_v1_router.include_router(agent_systems_router)

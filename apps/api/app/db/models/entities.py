@@ -14,9 +14,6 @@ from app.core.enums import (
     BuildTaskStatus,
     ModelProviderType,
     ProjectStatus,
-    RequirementMessageRole,
-    RequirementSessionStage,
-    RequirementSessionStatus,
 )
 from app.db.base import Base
 
@@ -43,7 +40,6 @@ class Project(TimestampMixin, Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default=ProjectStatus.DRAFT.value, nullable=False)
 
-    requirement_sessions: Mapped[list["RequirementSession"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     build_tasks: Mapped[list["BuildTask"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     agent_systems: Mapped[list["AgentSystem"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     requirements_v2: Mapped[list["Requirement"]] = relationship(
@@ -83,46 +79,6 @@ class Project(TimestampMixin, Base):
     )
 
 
-class RequirementSession(TimestampMixin, Base):
-    __tablename__ = "requirement_sessions"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    current_stage: Mapped[str] = mapped_column(String(100), default=RequirementSessionStage.DISCOVERY.value, nullable=False)
-    raw_user_input: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    requirement_draft_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    markdown_document: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(50), default=RequirementSessionStatus.ACTIVE.value, nullable=False)
-    exported_requirement_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    exported_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    export_status: Mapped[str] = mapped_column(String(50), default="not_exported", nullable=False)
-
-    project: Mapped["Project"] = relationship(back_populates="requirement_sessions")
-    messages: Mapped[list["RequirementMessage"]] = relationship(
-        back_populates="requirement_session",
-        cascade="all, delete-orphan",
-        order_by="RequirementMessage.created_at",
-    )
-    build_tasks: Mapped[list["BuildTask"]] = relationship(
-        back_populates="requirement_session",
-        primaryjoin="RequirementSession.id == foreign(BuildTask.requirement_document_id)",
-        viewonly=True,
-    )
-
-
-class RequirementMessage(Base):
-    __tablename__ = "requirement_messages"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    requirement_session_id: Mapped[str] = mapped_column(ForeignKey("requirement_sessions.id", ondelete="CASCADE"), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), default=RequirementMessageRole.USER.value, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    structured_snapshot_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    requirement_session: Mapped["RequirementSession"] = relationship(back_populates="messages")
-
-
 class BuildTask(TimestampMixin, Base):
     __tablename__ = "build_tasks"
 
@@ -136,11 +92,6 @@ class BuildTask(TimestampMixin, Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="build_tasks")
-    requirement_session: Mapped[Optional["RequirementSession"]] = relationship(
-        back_populates="build_tasks",
-        primaryjoin="foreign(BuildTask.requirement_document_id) == RequirementSession.id",
-        viewonly=True,
-    )
     build_steps: Mapped[list["BuildStep"]] = relationship(back_populates="build_task")
     artifacts: Mapped[list["Artifact"]] = relationship(back_populates="build_task")
     token_usage_logs: Mapped[list["TokenUsageLog"]] = relationship(back_populates="build_task")

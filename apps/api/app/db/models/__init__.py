@@ -13,12 +13,11 @@ from app.db.models.entities import (
     MCPBinding,
     ModelConfig,
     Project,
-    RequirementMessage,
-    RequirementSession,
     SkillBinding,
     TokenUsageLog,
 )
 from app.db.models.executable import Executable
+from app.db.models.front_chain_session import FrontChainSession
 from app.db.models.front_chain_state import FrontChainState
 from app.db.models.job import Job
 from app.db.models.requirement import Requirement
@@ -30,8 +29,6 @@ __all__ = [
     "Project",
     "Requirement",
     "RequirementCompileRecord",
-    "RequirementSession",
-    "RequirementMessage",
     "Blueprint",
     "CapabilityLifecycleEntry",
     "CapabilityMaterialization",
@@ -40,6 +37,7 @@ __all__ = [
     "Build",
     "BuildStepV2",
     "Executable",
+    "FrontChainSession",
     "FrontChainState",
     "Job",
     "RuntimeProfile",

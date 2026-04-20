@@ -207,7 +207,7 @@ def build_compile_context(
                 policy_supported=True,
             ),
         ),
-        semantic_core={"target_object": target_object, "deliverable_form": "report"},
+        # ``semantic_core`` was hard-removed from CompileContextResponse.
         execution_admissibility=execution_admissibility,
         capability_envelope=CompileContextCapabilityEnvelopeResponse(
             capability_signatures=signatures,

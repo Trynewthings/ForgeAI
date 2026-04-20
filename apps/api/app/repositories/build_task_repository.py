@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models.entities import BuildTask, RequirementSession
+from app.db.models.entities import BuildTask
 
 
 class BuildTaskRepository:
@@ -23,7 +23,6 @@ class BuildTaskRepository:
         if with_relations:
             statement = statement.options(
                 selectinload(BuildTask.project),
-                selectinload(BuildTask.requirement_session).selectinload(RequirementSession.messages),
                 selectinload(BuildTask.build_steps),
                 selectinload(BuildTask.artifacts),
                 selectinload(BuildTask.token_usage_logs),

@@ -37,7 +37,7 @@ class FrontChainState(Base):
         index=True,
     )
     session_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("requirement_sessions.id", ondelete="CASCADE"),
+        ForeignKey("front_chain_sessions.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
@@ -80,6 +80,12 @@ class FrontChainState(Base):
     admissibility_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     solvability_llm_trace_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     evaluation_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    # Phase 4 — compile context assembled from the six authority objects.
+    # Populated by ``FrontChainStateService.compile()``. NULL on rows
+    # produced by interpret / apply_answers / evaluate.
+    compile_context_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    compile_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     interpreter_version: Mapped[str] = mapped_column(String(64), nullable=False)
     validator_version: Mapped[str] = mapped_column(String(64), nullable=False)

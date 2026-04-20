@@ -73,7 +73,7 @@ def _create_project_via_api(client: TestClient) -> dict:
 
 
 def _create_session_via_api(client: TestClient, project_id: str) -> dict:
-    resp = client.post("/api/v1/requirements/sessions", json={"project_id": project_id})
+    resp = client.post("/api/v1/front-chain/sessions", json={"project_id": project_id})
     assert resp.status_code == 201
     return resp.json()
 

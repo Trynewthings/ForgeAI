@@ -619,29 +619,48 @@ class CompileContextConstraintsResponse(BaseModel):
 
 
 class CompileContextResponse(BaseModel):
+    # Metadata only — not authority. v2 keeps the version stamp; planner must
+    # not branch on its value. Other identifiers below are scope/audit only.
     compile_context_version: str = "compile_context_v1"
     requirement_id: Optional[str] = None
     project_id: Optional[str] = None
-    selected_blueprint_type: BlueprintType
+
+    # --- DEPRECATED (soft) -------------------------------------------------
+    # The v2 compile_context_assembler does NOT populate these. They remain
+    # on the schema so the legacy ``requirement_compiler_service`` keeps
+    # working during the transition. Planner / consumers in the v2 path
+    # MUST treat these as absent. They will be removed once the legacy
+    # compiler is retired. R5: ``selected_blueprint_type`` must not be
+    # planner authority — it is derived from
+    # ``execution_admissibility.primary_execution_regime``.
+    selected_blueprint_type: Optional[BlueprintType] = None
     graph_closure_status: Optional[str] = None
     selected_template_id: Optional[str] = None
+    # ----------------------------------------------------------------------
 
+    # Six v2 authority contracts (passthrough, byte-equal)
     problem_formulation: ProblemFormulationContract
     input_closure: InputClosureContract
     output_closure: OutputClosureContract
     solvability: SolvabilityContract
-
-    semantic_core: dict[str, Any] = Field(default_factory=dict)
     execution_admissibility: Optional[ExecutionAdmissibilityContract] = None
+
+    # Convenience projections derived from the authority contracts
     capability_envelope: CompileContextCapabilityEnvelopeResponse = Field(
         default_factory=CompileContextCapabilityEnvelopeResponse
     )
     compile_constraints: CompileContextConstraintsResponse = Field(
         default_factory=CompileContextConstraintsResponse
     )
+    # Hint material (R2) — NOT final nodes
     candidate_work_units: list[CompileContextWorkUnitResponse] = Field(default_factory=list)
 
+    # Audit / provenance metadata
     compile_trace: dict[str, Any] = Field(default_factory=dict)
+
+    # NOTE: ``semantic_core`` was hard-removed from this schema. SemanticCore
+    # is substrate, not planner authority — it must not flow through
+    # CompileContextResponse. See R-substrate.
 
 
 class RequirementCompilationResultResponse(BaseModel):

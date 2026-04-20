@@ -66,7 +66,14 @@
       "Bash(python -m pytest tests/test_capability_activation_v48.py tests/test_capability_lifecycle_v46.py tests/test_capability_materialization_v53.py tests/test_capability_request_pipeline_v45.py -x -v --tb=short)",
       "Bash(python -m pytest tests/test_requirement_compiler_v253.py --collect-only -q)",
       "Bash(python -m pytest tests/test_requirement_compiler_v251.py tests/test_requirement_compiler_v253.py tests/test_requirement_compiler_v254.py tests/test_requirement_compiler_v591.py tests/test_planning_graph_integration_v593.py tests/test_graph_closure_v597.py tests/test_semantic_graph_closure_v597.py tests/test_data_skeletons_v5966.py tests/test_llm_semantic_judgement_v5967.py tests/test_semantic_interpretation_v594.py --collect-only -q)",
-      "Bash(python -m pytest tests/test_workflow_planner.py tests/test_workflow_planner_llm.py tests/test_authority_tiers.py --tb=line -q)"
+      "Bash(python -m pytest tests/test_workflow_planner.py tests/test_workflow_planner_llm.py tests/test_authority_tiers.py --tb=line -q)",
+      "Bash(PYTHONPATH=. .venv/bin/python -c \"from app.main import app; print\\('OK', len\\(app.routes\\)\\)\")",
+      "Bash(PYTHONPATH=. .venv/bin/pytest tests/test_front_chain_phase1.py tests/test_front_chain_phase1b.py tests/test_front_chain_phase3.py tests/test_front_chain_phase4.py)",
+      "Bash(PYTHONPATH=. .venv/bin/pytest --collect-only --ignore=tests/test_worker_task_failure_serialization.py)",
+      "Bash(grep -l \"from tests.test_phase3_core\\\\|from tests.test_requirement_compiler_v\\\\|from tests.test_problem_formulation_closure\\\\|from tests.test_semantic_core_split\\\\|from tests.test_llm_semantic_judgement\" tests/*.py)",
+      "Bash(curl -sv http://127.0.0.1:8000/api/v1/front-chain/projects/b4aff354-1637-46a5-8867-d330137c9e3f/sessions)",
+      "Bash(curl -sv http://localhost:8000/api/v1/front-chain/projects/b4aff354-1637-46a5-8867-d330137c9e3f/sessions)",
+      "Bash(PYTHONPATH=. .venv/bin/alembic upgrade head)"
     ]
   }
 }

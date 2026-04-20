@@ -4,20 +4,12 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.enums import BuildStatus, BuildTaskStatus, ExecutableStatus, ExecutableType, ProjectStatus, RequirementSessionStatus, RunStatus
+from app.core.enums import BuildStatus, BuildTaskStatus, ExecutableStatus, ExecutableType, ProjectStatus, RunStatus
 
 
 class ProjectCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: Optional[str] = None
-
-
-class RequirementSessionListItem(BaseModel):
-    id: str
-    status: RequirementSessionStatus
-    current_stage: str
-    created_at: str
-    updated_at: str
 
 
 class BuildTaskListItem(BaseModel):
@@ -104,7 +96,6 @@ class ProjectListResponse(BaseModel):
 
 
 class ProjectDetailResponse(ProjectResponse):
-    requirement_sessions: list[RequirementSessionListItem] = Field(default_factory=list)
     build_tasks: list[BuildTaskListItem] = Field(default_factory=list)
     requirements: list[RequirementListItem] = Field(default_factory=list)
     blueprints: list[BlueprintListItem] = Field(default_factory=list)

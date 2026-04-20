@@ -16,7 +16,6 @@ from app.schemas.project import (
     ProjectListResponse,
     ProjectResponse,
     RequirementListItem,
-    RequirementSessionListItem,
     RunListItem,
     RuntimeProfileListItem,
 )
@@ -53,16 +52,6 @@ class ProjectService:
             raise AppException("Project not found", status_code=404)
         return ProjectDetailResponse(
             **self._serialize_project(project).model_dump(),
-            requirement_sessions=[
-                RequirementSessionListItem(
-                    id=item.id,
-                    status=item.status,
-                    current_stage=item.current_stage,
-                    created_at=_iso(item.created_at),
-                    updated_at=_iso(item.updated_at),
-                )
-                for item in sorted(project.requirement_sessions, key=lambda value: value.created_at, reverse=True)
-            ],
             build_tasks=[
                 BuildTaskListItem(
                     id=item.id,

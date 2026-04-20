@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models.entities import BuildTask, Project, RequirementSession
+from app.db.models.entities import BuildTask, Project
 
 
 class ProjectRepository:
@@ -26,7 +26,6 @@ class ProjectRepository:
         statement = select(Project).where(Project.id == project_id)
         if with_children:
             statement = statement.options(
-                selectinload(Project.requirement_sessions).selectinload(RequirementSession.messages),
                 selectinload(Project.build_tasks).selectinload(BuildTask.build_steps),
             )
         return self.db.scalar(statement)

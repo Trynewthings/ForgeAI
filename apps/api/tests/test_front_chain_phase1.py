@@ -30,7 +30,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 
-from app.db.models import FrontChainState, Project, Requirement, RequirementSession
+from app.db.models import FrontChainSession, FrontChainState, Project, Requirement
 from app.schemas.front_chain import (
     FrontChainClarificationQuestion,
     FrontChainInterpretationRequest,
@@ -75,7 +75,7 @@ def _create_project_via_api(client: TestClient) -> dict:
 
 
 def _create_session_via_api(client: TestClient, project_id: str) -> dict:
-    resp = client.post("/api/v1/requirements/sessions", json={"project_id": project_id})
+    resp = client.post("/api/v1/front-chain/sessions", json={"project_id": project_id})
     assert resp.status_code == 201, resp.text
     return resp.json()
 

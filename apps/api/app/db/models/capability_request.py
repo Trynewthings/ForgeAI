@@ -23,7 +23,10 @@ class CapabilityRequest(Base):
         ForeignKey("requirement_compile_records.id", ondelete="SET NULL"),
         nullable=True,
     )
-    source_session_id: Mapped[Optional[str]] = mapped_column(ForeignKey("requirement_sessions.id", ondelete="SET NULL"), nullable=True)
+    # Phase 2: requirement_sessions table was dropped. Keep the column as a
+    # free-form string (no FK) so historical data imports still work; it
+    # references the legacy session, not the new front_chain_sessions.
+    source_session_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     source_blueprint_id: Mapped[Optional[str]] = mapped_column(ForeignKey("blueprints.id", ondelete="SET NULL"), nullable=True)
     source_build_id: Mapped[Optional[str]] = mapped_column(ForeignKey("builds.id", ondelete="SET NULL"), nullable=True)
     request_kind: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -49,6 +52,5 @@ class CapabilityRequest(Base):
     project = relationship("Project")
     requirement = relationship("Requirement")
     compile_record = relationship("RequirementCompileRecord")
-    requirement_session = relationship("RequirementSession")
     blueprint = relationship("Blueprint")
     build = relationship("Build")

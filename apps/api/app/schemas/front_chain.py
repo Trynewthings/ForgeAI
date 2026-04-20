@@ -35,6 +35,7 @@ from app.schemas.problem_formulation import (
     ProblemFormulationContract,
 )
 from app.schemas.semantic_core import SemanticCore
+from app.schemas.requirement_compiler import CompileContextResponse
 from app.schemas.solvability import (
     CapabilityMatch,
     GraphFeasibility,
@@ -383,6 +384,9 @@ class FrontChainStateResponse(BaseModel):
     execution_admissibility: Optional[ExecutionAdmissibilityContract] = None
     solvability_llm_trace: Optional[FrontChainLLMTraceSummary] = None
     evaluation_version: Optional[str] = None
+    # Phase 4 — present only on rows produced by /compile.
+    compile_context: Optional[CompileContextResponse] = None
+    compile_version: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -519,6 +523,137 @@ class FrontChainEvaluationResponse(BaseModel):
     created_at: datetime
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 — Compile (deterministic packaging)
+# ---------------------------------------------------------------------------
+
+
+class FrontChainCompileResponse(BaseModel):
+    """Response returned by /front-chain/states/{state_id}/compile.
+
+    Carries the full state lineage plus the freshly assembled
+    ``compile_context`` (CompileContextResponse).  The compile step is
+    fully deterministic (0 LLM calls) — it packages the six authority
+    objects into the planner's sole authoritative input (R1).
+    """
+
+    state_id: str
+    project_id: str
+    session_id: Optional[str] = None
+    requirement_id: Optional[str] = None
+    preview_mode: bool = False
+    parent_state_id: Optional[str] = None
+    turn_number: int = 1
+    raw_intent: str
+    problem_formulation: ProblemFormulationContract
+    input_closure: InputClosureContract
+    output_closure: OutputClosureContract
+    merged_gaps: MergedGapSet
+    top_questions: list[FrontChainClarificationQuestion] = Field(default_factory=list)
+    llm_trace_summary: FrontChainLLMTraceSummary
+    # Phase 3 carry-forward
+    solvability: SolvabilityContract
+    execution_admissibility: ExecutionAdmissibilityContract
+    solvability_llm_trace: FrontChainLLMTraceSummary
+    evaluation_version: str = "front_chain_evaluation_v1"
+    # Phase 4
+    compile_context: CompileContextResponse
+    compile_version: str = "front_chain_compile_v1"
+    interpreter_version: str = "front_chain_interpreter_v1"
+    validator_version: str = "front_chain_partition_validator_v1"
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Session orchestration (front-chain takes over the session path)
+# ---------------------------------------------------------------------------
+
+
+FrontChainSessionStatus = Literal["open", "compilable", "closed"]
+FrontChainTurnStage = Literal["interpret", "answer", "evaluate", "compile"]
+
+
+class FrontChainSessionCreateRequest(BaseModel):
+    """Body for ``POST /front-chain/sessions``."""
+
+    project_id: str
+
+
+class FrontChainSessionResponse(BaseModel):
+    """Serialized row of ``front_chain_sessions`` + its state chain.
+
+    ``turns`` is the ordered (ascending) list of FrontChainState rows bound
+    to this session. ``latest_compile_context`` is populated only when the
+    most recent state carries a compile_context (session status
+    ``compilable``).
+    """
+
+    id: str
+    project_id: str
+    status: FrontChainSessionStatus
+    created_at: datetime
+    updated_at: datetime
+    turns: list[FrontChainStateResponse] = Field(default_factory=list)
+    latest_compile_context: Optional["CompileContextResponse"] = None
+
+
+class FrontChainSessionSummary(BaseModel):
+    """Lightweight summary used by the project-level list endpoint."""
+
+    id: str
+    project_id: str
+    status: FrontChainSessionStatus
+    created_at: datetime
+    updated_at: datetime
+    turn_count: int = 0
+    latest_raw_intent: Optional[str] = None
+
+
+class FrontChainRawIntentTurn(BaseModel):
+    """First-turn payload: the user's raw intent."""
+
+    kind: Literal["raw_intent"] = "raw_intent"
+    raw_intent: str = Field(..., min_length=1)
+
+
+class FrontChainAnswersTurn(BaseModel):
+    """Subsequent-turn payload: the user's answers to prior top_questions."""
+
+    kind: Literal["answers"] = "answers"
+    answers: list[FrontChainAnswerItem] = Field(..., min_length=1)
+
+
+class FrontChainSessionTurnRequest(BaseModel):
+    """Body for ``POST /front-chain/sessions/{session_id}/turn``.
+
+    Discriminated union on ``kind``. Use ``raw_intent`` for the first turn
+    of a session; use ``answers`` for subsequent turns.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["raw_intent", "answers"]
+    raw_intent: Optional[str] = None
+    answers: Optional[list[FrontChainAnswerItem]] = None
+
+
+class FrontChainSessionTurnResponse(BaseModel):
+    """Response envelope produced by the unified turn endpoint.
+
+    ``stages_run`` records which of interpret / answer / evaluate / compile
+    actually executed this turn (the auto-chain short-circuits when any
+    stage stops progress — e.g. blocking gaps remain after interpret, or
+    solvability is ``not_solvable``). ``latest_state`` is always set; other
+    fields are populated based on how far the chain got.
+    """
+
+    session_id: str
+    status: FrontChainSessionStatus
+    stages_run: list[FrontChainTurnStage]
+    latest_state: FrontChainStateResponse
+    compile_context: Optional["CompileContextResponse"] = None
+
+
 # Re-export the shared contract types so tests and callers that work against
 # the front-chain namespace don't need a second import from
 # ``app.schemas.problem_formulation``.
@@ -544,6 +679,19 @@ __all__ = [
     # Phase 3
     "FrontChainEvaluationRequest",
     "FrontChainEvaluationResponse",
+    # Phase 4
+    "FrontChainCompileResponse",
+    "CompileContextResponse",
+    # Phase 2 — session orchestration
+    "FrontChainSessionStatus",
+    "FrontChainTurnStage",
+    "FrontChainSessionCreateRequest",
+    "FrontChainSessionResponse",
+    "FrontChainSessionSummary",
+    "FrontChainRawIntentTurn",
+    "FrontChainAnswersTurn",
+    "FrontChainSessionTurnRequest",
+    "FrontChainSessionTurnResponse",
     "SolvabilityContract",
     "SolvabilityLLMCandidate",
     "SolvabilityLLMSubgoal",
@@ -559,3 +707,9 @@ __all__ = [
     "ProblemDecision",
     "ProblemAssumption",
 ]
+
+
+# Resolve forward references after CompileContextResponse is in scope (it is
+# imported at the top of this module).
+FrontChainSessionResponse.model_rebuild()
+FrontChainSessionTurnResponse.model_rebuild()

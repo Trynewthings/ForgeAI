@@ -23,6 +23,7 @@ from app.schemas.front_chain import (
     FrontChainAnswerItem,
     FrontChainAnswerRequest,
     FrontChainClarificationQuestion,
+    FrontChainCompileResponse,
     FrontChainEvaluationRequest,
     FrontChainEvaluationResponse,
     FrontChainInterpretationRequest,
@@ -32,6 +33,7 @@ from app.schemas.front_chain import (
     FrontChainStateResponse,
     MergedGapSet,
 )
+from app.schemas.requirement_compiler import CompileContextResponse
 from app.schemas.problem_formulation import (
     ClarificationResolutionRecord,
     InputClosureContract,
@@ -47,6 +49,10 @@ from app.schemas.workflow_native import (
 from app.services.front_chain.clarification_interpreter_llm_service import (
     CLARIFICATION_INTERPRETER_VERSION,
     ClarificationInterpreterLLMService,
+)
+from app.services.front_chain.compile_context_assembler import (
+    ASSEMBLER_VERSION,
+    CompileContextAssembler,
 )
 from app.services.front_chain.closure_axis_registry import get_axis
 from app.services.front_chain.clarification_policy_engine import (
@@ -87,6 +93,7 @@ from app.services.front_chain.solvability_validator import (
 )
 
 EVALUATION_VERSION = "front_chain_evaluation_v1"
+COMPILE_VERSION = "front_chain_compile_v1"
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +103,17 @@ class FrontChainStateNotFoundError(Exception):
 
     def __init__(self, state_id: str) -> None:
         super().__init__(f"front_chain_state {state_id!r} not found")
+        self.state_id = state_id
+
+
+class FrontChainStateNotEvaluatedError(Exception):
+    """Raised when compile is called on a state that lacks solvability/admissibility."""
+
+    def __init__(self, state_id: str) -> None:
+        super().__init__(
+            f"front_chain_state {state_id!r} has not been evaluated yet "
+            "(missing solvability_json or admissibility_json)"
+        )
         self.state_id = state_id
 
 
@@ -122,6 +140,7 @@ class FrontChainStateService:
         solvability_service: Optional[SolvabilityLLMService] = None,
         solvability_validator: Optional[SolvabilityValidator] = None,
         admissibility_service: Optional[ExecutionAdmissibilityService] = None,
+        compile_assembler: Optional[CompileContextAssembler] = None,
     ) -> None:
         self._db = db
         self._interpreter = interpreter or FrontChainInterpreterLLMService()
@@ -140,6 +159,8 @@ class FrontChainStateService:
         self._solvability_service = solvability_service or SolvabilityLLMService()
         self._solvability_validator = solvability_validator or SolvabilityValidator()
         self._admissibility_service = admissibility_service or ExecutionAdmissibilityService()
+        # Phase 4
+        self._compile_assembler = compile_assembler or CompileContextAssembler()
 
     # ------------------------------------------------------------------
     # Public API
@@ -433,6 +454,94 @@ class FrontChainStateService:
             created_at=new_row.created_at,
         )
 
+    def compile(
+        self,
+        *,
+        parent_state_id: str,
+    ) -> FrontChainCompileResponse:
+        """Phase 4: assemble CompileContextResponse from evaluated state.
+
+        Pipeline (0 LLM calls — pure deterministic packaging, R7):
+            1. Load parent FrontChainState (must have solvability + admissibility)
+            2. CompileContextAssembler.assemble(...)      [deterministic]
+            3. Persist as a NEW chained turn row with:
+                 * closure contracts byte-equal preserved
+                 * compile_context_json populated
+            4. Return FrontChainCompileResponse
+        """
+        parent_row = (
+            self._db.query(FrontChainState).filter(FrontChainState.id == parent_state_id).first()
+        )
+        if parent_row is None:
+            raise FrontChainStateNotFoundError(parent_state_id)
+
+        if parent_row.solvability_json is None or parent_row.admissibility_json is None:
+            raise FrontChainStateNotEvaluatedError(parent_state_id)
+
+        parent_problem = ProblemFormulationContract.model_validate(parent_row.problem_formulation_json)
+        parent_input = InputClosureContract.model_validate(parent_row.input_closure_json)
+        parent_output = OutputClosureContract.model_validate(parent_row.output_closure_json)
+        parent_merged = MergedGapSet.model_validate(parent_row.merged_gaps_json)
+        parent_top_questions = [
+            FrontChainClarificationQuestion.model_validate(q)
+            for q in (parent_row.top_questions_json or [])
+        ]
+        parent_trace = FrontChainLLMTraceSummary.model_validate(parent_row.llm_trace_json)
+        solvability = SolvabilityContract.model_validate(parent_row.solvability_json)
+        admissibility = ExecutionAdmissibilityContract.model_validate(parent_row.admissibility_json)
+        solvability_trace = FrontChainLLMTraceSummary.model_validate(parent_row.solvability_llm_trace_json)
+
+        compile_context = self._compile_assembler.assemble(
+            state_id=parent_row.id,
+            project_id=parent_row.project_id,
+            requirement_id=parent_row.requirement_id,
+            problem_formulation=parent_problem,
+            input_closure=parent_input,
+            output_closure=parent_output,
+            solvability=solvability,
+            execution_admissibility=admissibility,
+        )
+
+        new_row = self._persist_compile(
+            parent_row=parent_row,
+            compile_context=compile_context,
+            parent_trace=parent_trace,
+            parent_merged=parent_merged,
+            parent_top_questions=parent_top_questions,
+            parent_problem=parent_problem,
+            parent_input=parent_input,
+            parent_output=parent_output,
+            solvability=solvability,
+            admissibility=admissibility,
+            solvability_trace=solvability_trace,
+        )
+
+        return FrontChainCompileResponse(
+            state_id=new_row.id,
+            project_id=new_row.project_id,
+            session_id=new_row.session_id,
+            requirement_id=new_row.requirement_id,
+            preview_mode=new_row.preview_mode,
+            parent_state_id=new_row.parent_state_id,
+            turn_number=new_row.turn_number,
+            raw_intent=new_row.raw_intent,
+            problem_formulation=parent_problem,
+            input_closure=parent_input,
+            output_closure=parent_output,
+            merged_gaps=parent_merged,
+            top_questions=parent_top_questions,
+            llm_trace_summary=parent_trace,
+            solvability=solvability,
+            execution_admissibility=admissibility,
+            solvability_llm_trace=solvability_trace,
+            evaluation_version=parent_row.evaluation_version or EVALUATION_VERSION,
+            compile_context=compile_context,
+            compile_version=COMPILE_VERSION,
+            interpreter_version=INTERPRETER_VERSION,
+            validator_version=VALIDATOR_VERSION,
+            created_at=new_row.created_at,
+        )
+
     def get_by_id(self, state_id: str) -> Optional[FrontChainStateResponse]:
         row = self._db.query(FrontChainState).filter(FrontChainState.id == state_id).first()
         if row is None:
@@ -594,6 +703,77 @@ class FrontChainStateService:
         )
         return row
 
+    def _persist_compile(
+        self,
+        *,
+        parent_row: FrontChainState,
+        compile_context: CompileContextResponse,
+        parent_trace: FrontChainLLMTraceSummary,
+        parent_merged: MergedGapSet,
+        parent_top_questions: list[FrontChainClarificationQuestion],
+        parent_problem: ProblemFormulationContract,
+        parent_input: InputClosureContract,
+        parent_output: OutputClosureContract,
+        solvability: SolvabilityContract,
+        admissibility: ExecutionAdmissibilityContract,
+        solvability_trace: FrontChainLLMTraceSummary,
+    ) -> FrontChainState:
+        """Persist a new chained turn carrying Phase 4 compile context.
+
+        All prior authority objects (closure contracts, solvability,
+        admissibility) are preserved byte-equal. Only compile_context_json
+        and compile_version are new.
+        """
+        row = FrontChainState(
+            project_id=parent_row.project_id,
+            session_id=parent_row.session_id,
+            requirement_id=parent_row.requirement_id,
+            preview_mode=parent_row.preview_mode,
+            parent_state_id=parent_row.id,
+            turn_number=parent_row.turn_number + 1,
+            raw_intent=parent_row.raw_intent,
+            problem_formulation_json=parent_problem.model_dump(mode="json"),
+            input_closure_json=parent_input.model_dump(mode="json"),
+            output_closure_json=parent_output.model_dump(mode="json"),
+            merged_gaps_json=parent_merged.model_dump(mode="json"),
+            top_questions_json=[q.model_dump(mode="json") for q in parent_top_questions],
+            llm_trace_json=parent_trace.model_dump(mode="json"),
+            solvability_json=solvability.model_dump(mode="json"),
+            admissibility_json=admissibility.model_dump(mode="json"),
+            solvability_llm_trace_json=solvability_trace.model_dump(mode="json"),
+            evaluation_version=parent_row.evaluation_version or EVALUATION_VERSION,
+            compile_context_json=compile_context.model_dump(mode="json"),
+            compile_version=COMPILE_VERSION,
+            interpreter_version=INTERPRETER_VERSION,
+            validator_version=VALIDATOR_VERSION,
+        )
+        self._db.add(row)
+        self._db.commit()
+        self._db.refresh(row)
+        logger.info(
+            "front_chain_state.compile_persisted",
+            extra={
+                "state_id": row.id,
+                "parent_state_id": row.parent_state_id,
+                "turn_number": row.turn_number,
+                # v2 path no longer carries selected_blueprint_type /
+                # graph_closure_status (R5 + redundancy with solvability).
+                "solvability_status": compile_context.solvability.solvability_status,
+                "admissibility_regime": (
+                    compile_context.execution_admissibility.primary_execution_regime
+                    if compile_context.execution_admissibility is not None
+                    else None
+                ),
+                "work_unit_count": len(compile_context.candidate_work_units),
+                "capability_signature_count": len(
+                    compile_context.capability_envelope.capability_signatures
+                ),
+                "assembler_version": ASSEMBLER_VERSION,
+                "compile_version": COMPILE_VERSION,
+            },
+        )
+        return row
+
     def _persist(
         self,
         *,
@@ -667,6 +847,11 @@ class FrontChainStateService:
             if row.solvability_llm_trace_json is not None
             else None
         )
+        compile_context = (
+            CompileContextResponse.model_validate(row.compile_context_json)
+            if row.compile_context_json is not None
+            else None
+        )
         return FrontChainStateResponse(
             id=row.id,
             project_id=row.project_id,
@@ -690,6 +875,8 @@ class FrontChainStateService:
             execution_admissibility=admissibility,
             solvability_llm_trace=solvability_trace,
             evaluation_version=row.evaluation_version,
+            compile_context=compile_context,
+            compile_version=row.compile_version,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

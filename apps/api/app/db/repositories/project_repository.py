@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import Blueprint, Build, BuildTask, Executable, Project, Requirement, RequirementSession, Run, RuntimeProfile
+from app.db.models import Blueprint, Build, BuildTask, Executable, Project, Requirement, Run, RuntimeProfile
 
 
 class ProjectRepository:
@@ -29,7 +29,6 @@ class ProjectRepository:
         statement = select(Project).where(Project.id == project_id)
         if with_v2_children:
             statement = statement.options(
-                selectinload(Project.requirement_sessions),
                 selectinload(Project.build_tasks),
                 selectinload(Project.requirements_v2),
                 selectinload(Project.blueprints_v2),

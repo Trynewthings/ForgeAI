@@ -294,7 +294,9 @@ class WorkflowPlannerService:
                     if compile_context.problem_formulation.planning_intent is not None
                     else None
                 ),
-                "input_semantic_core_present": bool(compile_context.semantic_core),
+                # ``semantic_core`` was hard-removed from CompileContextResponse;
+                # the planner no longer receives it through the compile context.
+                "input_semantic_core_present": False,
                 "input_admissibility_present": compile_context.execution_admissibility is not None,
                 "input_capability_signature_count": planner_context.capability_signature_count,
                 "structural_source": "solvability.required_subgoals",
@@ -425,14 +427,19 @@ class WorkflowPlannerService:
                     continue
                 step_kind_preferences.setdefault(kind, []).append(signature.capability_id)
 
+        # ``semantic_core`` was hard-removed from CompileContextResponse
+        # (R-substrate). The planner now starts from an empty SemanticCore
+        # surface; callers that genuinely need SemanticCore-style hints must
+        # pass them through a dedicated substrate channel, not via
+        # CompileContextResponse.
         return PlannerContext(
-            semantic_core=dict(compile_context.semantic_core or {}),
+            semantic_core={},
             typed_evidence_dag=dict(compile_context.compile_trace.get("typed_evidence_dag") or {}),
             graph_closure_status=compile_context.graph_closure_status,
             deliverable_form=compile_context.output_closure.deliverable_form,
-            analysis_frame=compile_context.semantic_core.get("analysis_frame"),
-            evidence_basis=compile_context.semantic_core.get("evidence_basis"),
-            workflow_shape=compile_context.semantic_core.get("workflow_shape"),
+            analysis_frame=None,
+            evidence_basis=None,
+            workflow_shape=None,
             step_kind_preferences=step_kind_preferences,
             allowed_node_semantic_types=list(compile_context.compile_constraints.allowed_node_semantic_types),
             forbidden_side_effect_classes=list(compile_context.compile_constraints.forbidden_side_effect_classes),
