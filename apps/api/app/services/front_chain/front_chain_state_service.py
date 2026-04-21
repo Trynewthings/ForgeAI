@@ -70,6 +70,7 @@ from app.services.front_chain.closure_reevaluation_service import (
 from app.services.front_chain.contract_partition_validator import (
     VALIDATOR_VERSION,
     ContractPartitionValidator,
+    PartitionValidationResult,
 )
 from app.services.front_chain.contract_update_engine import (
     UPDATE_ENGINE_VERSION,
@@ -137,11 +138,14 @@ class FrontChainStateService:
         clarification_interpreter: Optional[ClarificationInterpreterLLMService] = None,
         update_engine: Optional[ContractUpdateEngine] = None,
         reevaluation_service: Optional[ClosureReevaluationService] = None,
-        solvability_service: Optional[SolvabilityLLMService] = None,
-        solvability_validator: Optional[SolvabilityValidator] = None,
+        solvability_orchestrator: Optional["SolvabilityOrchestrator"] = None,
         admissibility_service: Optional[ExecutionAdmissibilityService] = None,
         compile_assembler: Optional[CompileContextAssembler] = None,
     ) -> None:
+        from app.services.front_chain.solvability_orchestrator import (
+            SolvabilityOrchestrator,
+        )
+
         self._db = db
         self._interpreter = interpreter or FrontChainInterpreterLLMService()
         self._validator = validator or ContractPartitionValidator()
@@ -155,9 +159,12 @@ class FrontChainStateService:
             merger=self._merger,
             policy_engine=self._policy_engine,
         )
-        # Phase 3
-        self._solvability_service = solvability_service or SolvabilityLLMService()
-        self._solvability_validator = solvability_validator or SolvabilityValidator()
+        # Phase 3 — the three-phase solvability orchestrator replaces
+        # the old (SolvabilityLLMService + SolvabilityValidator) pair
+        # as the default path. The legacy pair remains available in
+        # the codebase for comparison/migration but is not wired into
+        # evaluate().
+        self._solvability_orchestrator = solvability_orchestrator or SolvabilityOrchestrator()
         self._admissibility_service = admissibility_service or ExecutionAdmissibilityService()
         # Phase 4
         self._compile_assembler = compile_assembler or CompileContextAssembler()
@@ -182,7 +189,10 @@ class FrontChainStateService:
             partition.input_closure,
             partition.output_closure,
         )
-        top_questions = self._policy_engine.select_top_questions(merged_gaps)
+        top_questions = self._select_top_questions_with_clarity_gate(
+            pf=partition.problem_formulation,
+            merged_gaps=merged_gaps,
+        )
 
         row = self._persist(
             project_id=request.project_id,
@@ -222,6 +232,18 @@ class FrontChainStateService:
             changed_contracts=[],
         )
 
+    # Hard cap on PF clarity rounds. When this many free-form
+    # clarification exchanges have happened without the interpreter
+    # flipping ``intent_clarity`` to ``clear``, we stop nagging and
+    # force-advance to the axis stage with ``ambiguous`` — downstream
+    # admissibility will downgrade to ``admit_with_review`` so humans
+    # still see the risk.
+    PF_CLARITY_ROUND_CAP = 5
+
+    # The question_id used by the policy engine's PF clarity question;
+    # see ``ClarificationPolicyEngine.select_pf_clarity_question``.
+    PF_CLARITY_QUESTION_ID = "q_problem_formulation_intent_clarity"
+
     def apply_answers(
         self,
         *,
@@ -230,13 +252,15 @@ class FrontChainStateService:
     ) -> FrontChainInterpretationResponse:
         """Phase 1B: consume the user's answers and produce a new state turn.
 
-        Pipeline (1 LLM call total):
-            1. Load parent FrontChainState
-            2. clarification_interpreter.interpret_answers(answers, parent.top_questions)
-            3. contract_update_engine.apply_resolutions(parent.contracts, resolutions)
-            4. closure_reevaluation_service.reevaluate(patched contracts)
-            5. Persist as a new state row with parent_state_id chain
-            6. Return new state's full interpretation response
+        Two branches:
+          1. If the user is answering the PF clarity free-form question,
+             we treat their reply as an intent clarification. The text
+             is concatenated onto the session's original raw_intent and
+             we re-interpret — giving the interpreter full context to
+             flip ``intent_clarity`` toward ``clear``. This keeps the
+             conversational loop honest: PF is semantic, not axis-based.
+          2. Otherwise we follow the classic axis clarification path
+             (option selection + clarification interpreter).
         """
         parent_row = (
             self._db.query(FrontChainState).filter(FrontChainState.id == parent_state_id).first()
@@ -251,6 +275,22 @@ class FrontChainStateService:
             FrontChainClarificationQuestion.model_validate(q)
             for q in (parent_row.top_questions_json or [])
         ]
+
+        # Branch 1: PF clarity loop.
+        clarity_answer = next(
+            (
+                a
+                for a in request.answers
+                if a.question_id == self.PF_CLARITY_QUESTION_ID and a.answer_text
+            ),
+            None,
+        )
+        if clarity_answer is not None and parent_problem.intent_clarity != "clear":
+            return self._apply_clarity_answer(
+                parent_row=parent_row,
+                parent_problem=parent_problem,
+                clarification_text=clarity_answer.answer_text or "",
+            )
 
         # Phase 1C: split option selections from free-text answers.
         # Option selections are resolved deterministically via the closure
@@ -309,6 +349,14 @@ class FrontChainStateService:
             input_closure=update_result.input_closure,
             output_closure=update_result.output_closure,
         )
+        # Re-apply the PF clarity gate after axis resolution so the
+        # free-form clarity question re-surfaces if clarity regressed.
+        # (Normal path rarely regresses since axis answers don't touch
+        # clarity, but this keeps the two paths symmetric.)
+        gated_top_questions = self._select_top_questions_with_clarity_gate(
+            pf=update_result.problem_formulation,
+            merged_gaps=reeval.merged_gaps,
+        )
 
         # When the update was a no-op (no resolution actually mutated a
         # contract), we still persist a new row so the audit chain stays
@@ -326,7 +374,7 @@ class FrontChainStateService:
             input_closure=update_result.input_closure,
             output_closure=update_result.output_closure,
             merged_gaps=reeval.merged_gaps,
-            top_questions=reeval.top_questions,
+            top_questions=gated_top_questions,
             trace_summary=interpretation.llm_trace,
         )
 
@@ -343,7 +391,7 @@ class FrontChainStateService:
             input_closure=update_result.input_closure,
             output_closure=update_result.output_closure,
             merged_gaps=reeval.merged_gaps,
-            top_questions=reeval.top_questions,
+            top_questions=gated_top_questions,
             llm_trace_summary=interpretation.llm_trace,
             interpreter_version=INTERPRETER_VERSION,
             validator_version=VALIDATOR_VERSION,
@@ -386,30 +434,43 @@ class FrontChainStateService:
         ]
         parent_trace = FrontChainLLMTraceSummary.model_validate(parent_row.llm_trace_json)
 
-        # Step 1: solvability LLM (single call)
-        proposal = self._solvability_service.propose(
+        # Hydrate the capability envelope from the registry so the
+        # solvability LLM and validator both see the actual execution-layer
+        # surface (capability ids, supported step kinds, runtime adapters,
+        # policy hints). Historically this was passed as None, which caused
+        # the LLM to invent capability_classes that nothing in the registry
+        # could match — so every request tripped not_solvable at the
+        # capability layer. We project a minimal, serialisable subset:
+        # enough for the LLM to reason about what exists without leaking
+        # the full registry schema.
+        envelope_snapshot, known_capability_ids = self._build_solvability_envelope(
             problem_formulation=parent_problem,
             input_closure=parent_input,
             output_closure=parent_output,
-            capability_envelope=None,
         )
 
-        # Step 2: deterministic validator
-        validation = self._solvability_validator.validate_and_produce(
-            candidate=proposal.candidate,
+        # Steps 1+2: three-phase solvability orchestrator.
+        # Phase A (enumerator) → Phase B (deterministic binder +
+        # optional LLM rerank on narrowed pools only) → Phase C
+        # (deterministic reducer). See ``SolvabilityOrchestrator``
+        # for the full rule table; this seam is the only place the
+        # evaluate flow touches Phase A/B/C.
+        orchestration = self._solvability_orchestrator.orchestrate(
             problem_formulation=parent_problem,
             input_closure=parent_input,
             output_closure=parent_output,
-            known_capability_ids=None,
-            raw_candidate_payload=None,
+            capability_envelope=envelope_snapshot,
+            known_capability_ids=known_capability_ids,
         )
+        solvability_contract = orchestration.contract
+        solvability_trace = orchestration.trace_summary
 
         # Step 3: deterministic admissibility policy
         decision = self._admissibility_service.decide(
             problem_formulation=parent_problem,
             input_closure=parent_input,
             output_closure=parent_output,
-            solvability=validation.contract,
+            solvability=solvability_contract,
             policy_overrides=(request.policy_overrides if request else None),
         )
 
@@ -419,9 +480,9 @@ class FrontChainStateService:
         # carry forward unchanged.
         new_row = self._persist_evaluation(
             parent_row=parent_row,
-            solvability=validation.contract,
+            solvability=solvability_contract,
             admissibility=decision.contract,
-            solvability_trace=proposal.trace_summary,
+            solvability_trace=solvability_trace,
             parent_trace=parent_trace,
             parent_merged=parent_merged,
             parent_top_questions=parent_top_questions,
@@ -445,9 +506,9 @@ class FrontChainStateService:
             merged_gaps=parent_merged,
             top_questions=parent_top_questions,
             llm_trace_summary=parent_trace,
-            solvability=validation.contract,
+            solvability=solvability_contract,
             execution_admissibility=decision.contract,
-            solvability_llm_trace=proposal.trace_summary,
+            solvability_llm_trace=solvability_trace,
             evaluation_version=EVALUATION_VERSION,
             interpreter_version=INTERPRETER_VERSION,
             validator_version=VALIDATOR_VERSION,
@@ -569,6 +630,207 @@ class FrontChainStateService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _select_top_questions_with_clarity_gate(
+        self,
+        *,
+        pf: ProblemFormulationContract,
+        merged_gaps: MergedGapSet,
+    ) -> list[FrontChainClarificationQuestion]:
+        """When PF intent_clarity != "clear", surface the free-form PF
+        clarity question ALONE. Axis-based top_questions are deferred
+        until the semantic gate opens."""
+        if pf.intent_clarity != "clear":
+            return [
+                self._policy_engine.select_pf_clarity_question(
+                    clarification_question=pf.clarification_question
+                    or "你希望我具体做什么？",
+                    interpreted_goal=pf.interpreted_goal,
+                )
+            ]
+        return self._policy_engine.select_top_questions(merged_gaps)
+
+    def _count_clarity_rounds(self, parent_row: FrontChainState) -> int:
+        """Walk the parent chain counting states whose top_questions
+        carried the PF clarity question. Used to enforce the
+        ``PF_CLARITY_ROUND_CAP``."""
+        count = 0
+        current: Optional[FrontChainState] = parent_row
+        visited: set[str] = set()
+        while current is not None and current.id not in visited:
+            visited.add(current.id)
+            for q in current.top_questions_json or []:
+                if isinstance(q, dict) and q.get("question_id") == self.PF_CLARITY_QUESTION_ID:
+                    count += 1
+                    break
+            parent_id = current.parent_state_id
+            if not parent_id:
+                break
+            current = (
+                self._db.query(FrontChainState)
+                .filter(FrontChainState.id == parent_id)
+                .first()
+            )
+        return count
+
+    def _apply_clarity_answer(
+        self,
+        *,
+        parent_row: FrontChainState,
+        parent_problem: ProblemFormulationContract,
+        clarification_text: str,
+    ) -> FrontChainInterpretationResponse:
+        """Re-interpret the session's intent with the user's clarification
+        appended. Enforces the 5-round cap; after that, force-advances
+        with ``intent_clarity="ambiguous"`` so the axis loop can take
+        over (downstream admissibility downgrades to ``admit_with_review``).
+        """
+        combined_intent = self._combine_intent(
+            original=parent_row.raw_intent or "",
+            follow_up=clarification_text.strip(),
+        )
+        interpretation = self._interpreter.interpret(combined_intent)
+        partition = self._validator.validate_and_partition(interpretation.llm_output)
+
+        # 5-round cap: if we've already gone through the cap and the
+        # interpreter STILL didn't flip clarity to "clear", downgrade to
+        # "ambiguous" and proceed to the axis loop.
+        rounds_before_this_turn = self._count_clarity_rounds(parent_row)
+        if (
+            rounds_before_this_turn + 1 >= self.PF_CLARITY_ROUND_CAP
+            and partition.problem_formulation.intent_clarity != "clear"
+        ):
+            partition = PartitionValidationResult(
+                problem_formulation=partition.problem_formulation.model_copy(
+                    update={
+                        "intent_clarity": "ambiguous",
+                        "clarification_question": None,
+                    }
+                ),
+                input_closure=partition.input_closure,
+                output_closure=partition.output_closure,
+                issues=partition.issues,
+            )
+
+        merged_gaps = self._merger.merge(
+            partition.problem_formulation,
+            partition.input_closure,
+            partition.output_closure,
+        )
+        top_questions = self._select_top_questions_with_clarity_gate(
+            pf=partition.problem_formulation,
+            merged_gaps=merged_gaps,
+        )
+
+        new_row = self._persist(
+            project_id=parent_row.project_id,
+            session_id=parent_row.session_id,
+            requirement_id=parent_row.requirement_id,
+            preview_mode=parent_row.preview_mode,
+            raw_intent=combined_intent,
+            parent_state_id=parent_row.id,
+            turn_number=parent_row.turn_number + 1,
+            problem_formulation=partition.problem_formulation,
+            input_closure=partition.input_closure,
+            output_closure=partition.output_closure,
+            merged_gaps=merged_gaps,
+            top_questions=top_questions,
+            trace_summary=interpretation.trace_summary,
+        )
+
+        return FrontChainInterpretationResponse(
+            state_id=new_row.id,
+            project_id=new_row.project_id,
+            session_id=new_row.session_id,
+            requirement_id=new_row.requirement_id,
+            preview_mode=new_row.preview_mode,
+            parent_state_id=new_row.parent_state_id,
+            turn_number=new_row.turn_number,
+            raw_intent=new_row.raw_intent,
+            problem_formulation=partition.problem_formulation,
+            input_closure=partition.input_closure,
+            output_closure=partition.output_closure,
+            merged_gaps=merged_gaps,
+            top_questions=top_questions,
+            llm_trace_summary=interpretation.trace_summary,
+            interpreter_version=INTERPRETER_VERSION,
+            validator_version=VALIDATOR_VERSION,
+            created_at=new_row.created_at,
+            applied_resolutions=[],
+            changed_contracts=[],
+        )
+
+    @staticmethod
+    def _combine_intent(*, original: str, follow_up: str) -> str:
+        """Merge the session's original intent with a free-form clarity
+        reply into one ``raw_intent`` the interpreter can consume. The
+        user's latest words go last so the LLM treats them as the
+        current binding."""
+        original = (original or "").strip()
+        follow_up = (follow_up or "").strip()
+        if not follow_up:
+            return original
+        if not original:
+            return follow_up
+        return f"{original}\n\n[User clarification]: {follow_up}"
+
+    def _build_solvability_envelope(
+        self,
+        *,
+        problem_formulation: ProblemFormulationContract,
+        input_closure: InputClosureContract,
+        output_closure: OutputClosureContract,
+    ) -> tuple[list[dict], list[str]]:
+        """Project the capability registry into the shape solvability expects.
+
+        Returns a tuple of ``(envelope_list, known_capability_ids)``:
+            * ``envelope_list`` — list of per-capability dicts with just
+              the fields the solvability LLM and validator need. We keep
+              the projection narrow so prompt size stays bounded and the
+              validator doesn't have to worry about the full registry
+              schema.
+            * ``known_capability_ids`` — the set of capability_ids the
+              validator should accept when filtering LLM-proposed matches.
+
+        The registry is consulted at ``blueprint_planning`` context because
+        front-chain solvability is pre-build: capabilities that are only
+        allowed at ``runtime`` or ``authoring`` shouldn't be advertised as
+        solvers. If the registry can't be loaded for any reason (import
+        error in sandboxed tests, missing project context), we fall back
+        to an empty envelope — existing behaviour before this change.
+        """
+        try:
+            from app.services.capabilities.registry import CapabilityRegistryService
+        except Exception:  # pragma: no cover - defensive import guard
+            return [], []
+        try:
+            registry = CapabilityRegistryService()
+            definitions = registry.list_capabilities(context="blueprint_planning")
+        except Exception:  # pragma: no cover - defensive
+            return [], []
+
+        _ = (problem_formulation, input_closure, output_closure)  # reserved for future narrowing
+        envelope: list[dict] = []
+        ids: list[str] = []
+        for cap in definitions:
+            envelope.append(
+                {
+                    "capability_id": cap.capability_id,
+                    "name": cap.name,
+                    # Solvability mock matches on this key (see
+                    # solvability_llm_service._mock_propose); also the
+                    # shared vocabulary between LLM and validator.
+                    "supported_step_kinds": list(cap.supported_step_kinds),
+                    # Kept short — full descriptions would bloat the prompt.
+                    "semantic_purpose": cap.semantic_purpose or "",
+                    "capability_type": cap.capability_type,
+                    "execution_kind": cap.execution_kind,
+                    "runtime_adapter": cap.runtime_adapter,
+                    "requires_confirmation": cap.requires_confirmation,
+                }
+            )
+            ids.append(cap.capability_id)
+        return envelope, ids
 
     def _resolve_option_deterministically(
         self,

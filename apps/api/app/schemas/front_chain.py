@@ -98,6 +98,13 @@ class FrontChainInterpreterProblemCandidate(BaseModel):
     review_axes: list[str] = Field(default_factory=list)
     blocking_reasons: list[str] = Field(default_factory=list)
     reasoning_summary: Optional[str] = None
+    # PF semantic-gate signals. ``intent_clarity`` is the interpreter's
+    # own judgement of whether the user's goal is understandable. The
+    # partition validator forwards it onto ProblemFormulationContract
+    # without further interpretation.
+    intent_clarity: Literal["clear", "ambiguous", "missing_goal"] = "ambiguous"
+    interpreted_goal: Optional[str] = None
+    clarification_question: Optional[str] = None
 
 
 class FrontChainInterpreterInputClosureCandidate(BaseModel):

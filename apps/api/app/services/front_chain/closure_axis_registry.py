@@ -201,6 +201,43 @@ _reg(ClosureAxisDef(
 
 
 # ---------------------------------------------------------------------------
+# Semantic side-effect helpers
+# ---------------------------------------------------------------------------
+
+# problem_kind values that describe pure synthesis / generation — the task
+# produces an output from internal capability, not by operating on external
+# input data. When the resolved problem_kind lands in this set, the input
+# closure layer is considered ``not_applicable`` and the deterministic layer
+# auto-closes it. This keeps the user from being asked "where is the data?"
+# for a task like "generate a picture of a red dragon".
+#
+# The set is deliberately narrow. Anything that downstream still needs to
+# retrieve or transform data (research, analysis, data_processing, synthesis
+# *of a research result*) stays outside this set because the input closure
+# is still meaningful. Add values here only when the semantics are "no
+# external input is part of the task".
+SYNTHESIS_PROBLEM_KINDS: frozenset[str] = frozenset({
+    "synthesis",            # registry option pk_synth → "综合 / 生成"
+    "generation",
+    "generate",
+    "content_generation",
+    "creative_generation",
+    "creation",
+    "image_generation",
+    "text_generation",
+})
+
+
+def is_synthesis_problem_kind(problem_kind: Optional[str]) -> bool:
+    """Return True when the resolved problem_kind makes input closure
+    semantically not applicable.
+    """
+    if not problem_kind:
+        return False
+    return problem_kind.lower() in SYNTHESIS_PROBLEM_KINDS
+
+
+# ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
 

@@ -1,4 +1,10 @@
-"""Solvability LLM service (Phase 3).
+"""Solvability LLM service — LEGACY (superseded by three-phase pipeline).
+
+.. deprecated::
+   Kept for comparison/regression only. The production evaluate() path
+   now uses ``SolvabilityOrchestrator`` (Phase A enumerator → Phase B
+   binder → Phase C reducer). This module retains its single-pass
+   interface so legacy tests can still compare behaviours.
 
 Single-pass proof-style interpretation of a fully closed front-chain state
 into a ``SolvabilityLLMCandidate``. The candidate carries:
@@ -59,12 +65,62 @@ SOLVABILITY_LLM_VERSION = "front_chain_solvability_llm_v1"
 
 
 _SYSTEM_PROMPT = """You are the solvability proof assistant for a task \
-planning system. Given three closure contracts (problem formulation, input \
-closure, output closure) and a capability envelope, emit a JSON object that \
-enumerates the proof subgoals, capability matches, unsatisfied and unsafe \
-requirements. Do NOT emit graph node ordering, edges, or execution \
-topology — those belong to the planner, not the solvability layer. \
-Respond with ONLY the JSON object."""
+planning system. You have access to a concrete tool catalog (below in \
+the user message). Your job: for each proof subgoal, SELECT the tool \
+ids from the catalog that can actually cover the work. Do NOT describe \
+what tool would be needed in natural language — pick existing ones.
+
+Output contract — read carefully:
+
+1. ``required_capability_classes`` is an enum. The ONLY legal values are:
+   ``ingest``, ``transform``, ``summarize``, ``rank``, ``validate``,
+   ``persist``, ``notify``, ``review``. Never write a sentence here.
+   Never write parenthesised annotations. Never write anything like
+   "file reading capability". Pick the step_kind that best classifies
+   what the subgoal needs done.
+
+2. ``matched_capability_ids`` MUST contain tool ids chosen verbatim
+   from the ``id`` column of the tool catalog below. Every id you emit
+   must be a literal string match to an id in the catalog. If nothing
+   in the catalog fits, emit an empty list and set match_status to
+   ``unmatched`` — do not invent ids.
+
+3. If you see ``general_agentic_reasoning`` in the catalog, you MAY
+   pick it for any transform / summarize / validate / review subgoal
+   as a universal reasoning backbone — it's the bounded-LLM loop and
+   always available.
+
+4. Set match_status to ``matched`` when at least one catalog tool
+   covers the subgoal's work, ``partial`` when coverage is incomplete,
+   ``unmatched`` when nothing fits.
+
+Do NOT emit graph node ordering, edges, or execution topology — those
+belong to the planner. Respond with ONLY the JSON object."""
+
+
+_FEW_SHOT_EXAMPLE = """Example — correct shape:
+
+{{
+  "required_subgoals": [
+    {{"subgoal_id": "sg_1", "label": "Read local file",
+      "description": "Read /tmp/a.txt",
+      "subgoal_kind": "acquire",
+      "required_capability_classes": ["ingest"],
+      "input_evidence_kinds": [], "output_evidence_kinds": ["raw_text"],
+      "human_review_required": false}}
+  ],
+  "capability_matches": [
+    {{"subgoal_id": "sg_1",
+      "required_capability_classes": ["ingest"],
+      "matched_capability_ids": ["filesystem_read"],
+      "match_status": "matched",
+      "reasoning": "filesystem_read supports ingest step_kind."}}
+  ],
+  "unsatisfied_requirements": [], "unsafe_requirements": [],
+  "candidate_shape_hint": "linear",
+  "reasoning_summary": "File read subgoal is covered by filesystem_read."
+}}
+"""
 
 
 _USER_PROMPT_TEMPLATE = """Front-chain closure contracts:
@@ -78,23 +134,27 @@ Input Closure:
 Output Closure:
 {output_closure}
 
-Available capability envelope (hint, not authority):
-{capability_envelope}
+## TOOL CATALOG ({tool_count} tools available — your matched_capability_ids MUST come from this list)
 
-Emit JSON of this shape:
+{tool_catalog}
+
+{few_shot}
+
+Produce JSON with this shape (no markdown fence, no prose, JSON only):
+
 {{
   "required_subgoals": [
     {{"subgoal_id": "sg_1", "label": "...", "description": "...",
       "subgoal_kind": "acquire|analyze|synthesize|deliver|review|generic",
-      "required_capability_classes": ["..."],
+      "required_capability_classes": ["<one-of: ingest,transform,summarize,rank,validate,persist,notify,review>"],
       "input_evidence_kinds": ["..."],
       "output_evidence_kinds": ["..."],
       "human_review_required": false}}
   ],
   "capability_matches": [
     {{"subgoal_id": "sg_1",
-      "required_capability_classes": ["..."],
-      "matched_capability_ids": ["..."],
+      "required_capability_classes": ["<step_kind from the enum above>"],
+      "matched_capability_ids": ["<tool-id-from-catalog>"],
       "match_status": "matched|partial|unmatched",
       "reasoning": "..."}}
   ],
@@ -211,7 +271,9 @@ class SolvabilityLLMService:
             index += 1
             return f"sg_{index}"
 
-        # acquire subgoal — only when input closure has a resolved locator
+        # acquire subgoal — only when input closure has a resolved locator.
+        # Uses canonical step_kind ``ingest`` so the validator's fallback
+        # lookup can find ingest-capable capabilities in the envelope.
         if input_closure.resolved_source_locator:
             subgoals.append(
                 SolvabilityLLMSubgoal(
@@ -222,21 +284,21 @@ class SolvabilityLLMService:
                         f" via {input_closure.acquisition_path_kind}."
                     ),
                     subgoal_kind="acquire",
-                    required_capability_classes=["acquire"],
+                    required_capability_classes=["ingest"],
                     output_evidence_kinds=["raw_input"],
                 )
             )
 
         # analyze subgoal — when target object suggests analysis
         target_object = problem_formulation.target_object or ""
-        if target_object in {"repository", "dataset", "web_resource"}:
+        if target_object in {"repository", "dataset", "web_resource", "local_workspace"}:
             subgoals.append(
                 SolvabilityLLMSubgoal(
                     subgoal_id=_next_id(),
                     label="Analyze source material",
                     description=f"Analyze the acquired {target_object}.",
                     subgoal_kind="analyze",
-                    required_capability_classes=["analyze", "transform"],
+                    required_capability_classes=["transform"],
                     input_evidence_kinds=["raw_input"],
                     output_evidence_kinds=["analysis_result"],
                 )
@@ -250,7 +312,7 @@ class SolvabilityLLMService:
                     label="Synthesize deliverable",
                     description="Compose the final deliverable from the analysis output.",
                     subgoal_kind="synthesize",
-                    required_capability_classes=["synthesize", "summarize"],
+                    required_capability_classes=["summarize"],
                     input_evidence_kinds=["analysis_result"],
                     output_evidence_kinds=["draft_deliverable"],
                 )
@@ -264,7 +326,7 @@ class SolvabilityLLMService:
                     label="Deliver result",
                     description=f"Persist or deliver to {output_closure.delivery_target}.",
                     subgoal_kind="deliver",
-                    required_capability_classes=["deliver", "persist"],
+                    required_capability_classes=["persist"],
                     input_evidence_kinds=["draft_deliverable"],
                     output_evidence_kinds=["delivered_artifact"],
                 )
@@ -396,8 +458,43 @@ class SolvabilityLLMService:
             problem_formulation=problem_formulation.model_dump_json(exclude_none=True),
             input_closure=input_closure.model_dump_json(exclude_none=True),
             output_closure=output_closure.model_dump_json(exclude_none=True),
-            capability_envelope=json.dumps(capability_envelope or [], ensure_ascii=False)[:2000],
+            tool_catalog=_render_tool_catalog(capability_envelope),
+            tool_count=len(capability_envelope or []),
+            few_shot=_FEW_SHOT_EXAMPLE,
         )
+
+
+def _render_tool_catalog(envelope: list[dict]) -> str:
+    """Render the capability envelope as a compact markdown table the
+    LLM can actually parse, keyed on ``id`` so tool selection becomes
+    a literal look-up rather than a fuzzy matching exercise.
+
+    Kept terse (one line per tool) so prompt size stays bounded even if
+    the registry grows. When the registry outgrows what the prompt can
+    comfortably carry, a deterministic pre-filter / retrieval step
+    upstream (e.g. by problem_kind or target_object) should be added
+    here — this function is the single point to hook it in.
+    """
+    if not envelope:
+        return "(empty — no tools registered at blueprint_planning context)"
+    lines = ["| id | step_kinds | purpose |", "|---|---|---|"]
+    for entry in envelope:
+        if not isinstance(entry, dict):
+            continue
+        cap_id = str(entry.get("capability_id") or "")
+        if not cap_id:
+            continue
+        step_kinds = ", ".join(str(k) for k in entry.get("supported_step_kinds") or [])
+        # Prefer semantic_purpose; fall back to name. Cap to ~90 chars so
+        # the table stays readable at any scale.
+        purpose = (
+            str(entry.get("semantic_purpose") or entry.get("name") or "").strip()
+        )
+        purpose = purpose.replace("|", "/").replace("\n", " ")
+        if len(purpose) > 90:
+            purpose = purpose[:87] + "..."
+        lines.append(f"| `{cap_id}` | {step_kinds} | {purpose} |")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

@@ -734,6 +734,64 @@ CAPABILITIES: list[CapabilityDefinition] = [
         confidence_semantics="Review outcomes are explicit operator signals rather than inferred automation.",
         tags=["review", "approval"],
     ),
+    # Generic bounded-LLM reasoning capability. Registering the agentic
+    # reasoning loop itself as a capability lets solvability see that most
+    # "analyze / summarize / transform / synthesize" work is reachable even
+    # when no specialised tool is registered — an agentic node with file
+    # read + bounded reasoning can cover it. WITHOUT this entry the
+    # front-chain systematically over-reports capability gaps for ordinary
+    # "read this and summarise it" tasks. See solvability_validator for
+    # the matching step_kind-fallback logic that gives this capability
+    # universal reachability across the listed step kinds.
+    CapabilityDefinition(
+        capability_id="general_agentic_reasoning",
+        name="General Agentic Reasoning",
+        description=(
+            "Bounded LLM reasoning loop backed by node_loop_executor. Can "
+            "read input evidence, produce summaries / analysis / structured "
+            "content, and decide between provided tools. Not a specialised "
+            "tool — the universal reasoning backbone every workflow has "
+            "access to."
+        ),
+        supported_step_kinds=["transform", "summarize", "validate", "review"],
+        capability_type="llm_assisted",
+        input_contract_summary=(
+            "Evidence bundle (text, structured records, or file content) plus "
+            "a natural-language objective. Optional tool set for inline use."
+        ),
+        output_contract_summary=(
+            "Structured reasoning output — free-form text, JSON, or a "
+            "summary — produced inside a bounded agentic loop."
+        ),
+        execution_kind="llm_task",
+        runtime_adapter="node_loop_executor",
+        runtime_requirements=["llm_provider"],
+        provider_requirements=["chat_completion"],
+        allowed_contexts=["authoring", "blueprint_planning", "build_planning", "runtime"],
+        policy_summary=(
+            "Reasoning-only path: no network, no filesystem, no shell by "
+            "itself. Side-effect capabilities must be explicitly attached "
+            "as tools to the loop to have any effect."
+        ),
+        semantic_purpose=(
+            "Universal reasoning backbone for analysis, summarisation, "
+            "synthesis, and validation tasks when no specialised tool "
+            "applies."
+        ),
+        semantic_role="evidence_transform",
+        consumes_evidence_types=["text.content", "local.content", "research.sources"],
+        produces_evidence_types=["text.summary", "text.analysis", "text.synthesis"],
+        coverage_semantics=(
+            "Covers bounded reasoning over provided evidence. Does not "
+            "fabricate evidence it was not given."
+        ),
+        confidence_semantics=(
+            "Confidence depends on the quality and completeness of the "
+            "evidence supplied to the loop."
+        ),
+        planning_visibility="reusable_allowed",
+        tags=["llm", "agentic", "reasoning", "universal"],
+    ),
 ]
 
 
@@ -764,13 +822,13 @@ CAPABILITY_BINDINGS: list[CapabilityBindingDefinition] = [
     ),
     CapabilityBindingDefinition(
         step_kind="transform",
-        capability_ids=["parse_json", "deduplicate_items", "run_python_template", "filesystem_read", "terminal_command", "browser_interaction", "source_structure_extract", "repository_relationship_map", "repository_execution_surface_inspect", "architecture_report_brief"],
+        capability_ids=["parse_json", "deduplicate_items", "run_python_template", "filesystem_read", "terminal_command", "browser_interaction", "source_structure_extract", "repository_relationship_map", "repository_execution_surface_inspect", "architecture_report_brief", "general_agentic_reasoning"],
         preferred_capability_ids=["parse_json", "deduplicate_items", "filesystem_read", "terminal_command", "source_structure_extract", "architecture_report_brief"],
         allowed_contexts=["authoring", "blueprint_planning", "build_planning", "runtime"],
     ),
     CapabilityBindingDefinition(
         step_kind="summarize",
-        capability_ids=["summarize_text_llm", "architecture_report_synthesis", "architecture_report_synthesis_llm", "architecture_report_brief"],
+        capability_ids=["summarize_text_llm", "architecture_report_synthesis", "architecture_report_synthesis_llm", "architecture_report_brief", "general_agentic_reasoning"],
         preferred_capability_ids=["summarize_text_llm", "architecture_report_brief", "architecture_report_synthesis", "architecture_report_synthesis_llm"],
         allowed_contexts=["authoring", "blueprint_planning", "build_planning", "runtime"],
     ),
@@ -782,7 +840,7 @@ CAPABILITY_BINDINGS: list[CapabilityBindingDefinition] = [
     ),
     CapabilityBindingDefinition(
         step_kind="validate",
-        capability_ids=["validate_schema", "human_review_gate", "terminal_command", "repository_execution_surface_inspect", "architecture_report_quality_gate"],
+        capability_ids=["validate_schema", "human_review_gate", "terminal_command", "repository_execution_surface_inspect", "architecture_report_quality_gate", "general_agentic_reasoning"],
         preferred_capability_ids=["architecture_report_quality_gate", "validate_schema", "terminal_command", "repository_execution_surface_inspect"],
         allowed_contexts=["authoring", "blueprint_planning", "build_planning", "runtime"],
     ),
@@ -800,7 +858,7 @@ CAPABILITY_BINDINGS: list[CapabilityBindingDefinition] = [
     ),
     CapabilityBindingDefinition(
         step_kind="review",
-        capability_ids=["human_review_gate"],
+        capability_ids=["human_review_gate", "general_agentic_reasoning"],
         preferred_capability_ids=["human_review_gate"],
         allowed_contexts=["authoring", "blueprint_planning", "runtime"],
     ),

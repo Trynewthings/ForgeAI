@@ -74,6 +74,34 @@ reasoning_summary, NOT into blocking or review axes.
 
 {axis_registry}
 
+INTENT CLARITY (IMPORTANT — this is the PF semantic gate):
+The problem_formulation_candidate carries three extra fields that judge \
+whether the user's request is actionable at all, independent of axis \
+structure. You MUST set them honestly:
+
+* ``intent_clarity``:
+    - ``clear``        — the user has named both a goal/action AND the \
+                        material it operates on; a reasonable executor \
+                        would know what to do. Example: "compare these \
+                        two Excel files and list common rows."
+    - ``ambiguous``    — goal or scope is hinted at but key details \
+                        missing. Example: "help me with these two \
+                        files" (action too vague, but materials given).
+    - ``missing_goal`` — only materials / nouns mentioned, no action \
+                        verb or objective. Example: "give you two \
+                        Excel tables" — there is no task yet.
+* ``interpreted_goal``      — one-sentence plain restatement of what you \
+                              believe the user wants. If missing_goal, \
+                              describe only what material was provided.
+* ``clarification_question`` — when intent_clarity != clear, a SINGLE \
+                              free-form question to ask the user next. \
+                              When clarity == clear, set this to null.
+
+The axis-based clarification loop (target_object / source_locator / etc.) \
+is downstream of this gate. When intent_clarity != clear, you may still \
+populate closure axes on a best-effort basis, but the session will ask \
+the clarification_question FIRST — it takes priority.
+
 Emit strictly valid JSON."""
 
 _USER_PROMPT_TEMPLATE = """Raw user intent:
@@ -103,7 +131,10 @@ _SCHEMA_HINT = """{
     "blocking_axes": ["..."],
     "review_axes": ["..."],
     "blocking_reasons": ["..."],
-    "reasoning_summary": "..."
+    "reasoning_summary": "...",
+    "intent_clarity": "clear|ambiguous|missing_goal",
+    "interpreted_goal": "... one-sentence restatement of what the user wants ...",
+    "clarification_question": "... a single free-form question; null when clarity == clear ..."
   },
   "input_closure_candidate": {
     "target_object": "...",
@@ -383,6 +414,54 @@ def _parse_llm_output(raw_content: str) -> FrontChainInterpreterLLMOutput:
         return _empty_llm_output()
 
 
+# Coarse action verb hints for the mock heuristic. When the raw intent
+# contains none of these (nor their Chinese equivalents), the mock treats
+# the intent as "missing_goal" — matching what a real LLM would judge
+# when users only supply nouns / materials (e.g. "给你两张表格").
+_ACTION_VERB_HINTS: tuple[str, ...] = (
+    # English action verbs
+    "analyze", "analyse", "summarize", "summarise", "summarize",
+    "compare", "extract", "merge", "combine", "dedupe", "deduplicate",
+    "filter", "rank", "classify", "translate", "generate", "create",
+    "produce", "synthesize", "synthesise", "draft", "write",
+    "report", "review", "audit", "inspect", "check", "validate",
+    "build", "render", "convert", "transform", "clean", "fetch",
+    "collect", "ingest", "search", "find", "list", "count",
+    "compute", "calculate", "visualize", "visualise", "plot",
+    # Chinese action verbs
+    "分析", "对比", "比较", "总结", "汇总", "合并", "提取", "筛选",
+    "排序", "翻译", "生成", "创建", "制作", "产出", "撰写", "写",
+    "报告", "审查", "检查", "校验", "构建", "渲染", "转换", "清洗",
+    "获取", "收集", "搜索", "查找", "列出", "统计", "计算", "可视化",
+    "去重", "分类",
+)
+
+
+def _detect_intent_clarity(raw_intent: str) -> tuple[str, str]:
+    """Return (intent_clarity, clarification_question) for mock mode.
+
+    ``clear``        — at least one action verb hint present.
+    ``missing_goal`` — text length under ~12 words/chars and no verb
+                       hint; treat as pure noun/material drop.
+    ``ambiguous``    — otherwise (text is substantial but verb not found
+                       — could be noun-heavy narrative).
+    """
+    text = raw_intent.lower()
+    has_verb = any(v in text for v in _ACTION_VERB_HINTS)
+    if has_verb:
+        return "clear", ""
+    short = len(raw_intent) < 40 and len(raw_intent.split()) < 12
+    if short:
+        return (
+            "missing_goal",
+            "你想让我对这些内容做什么？可以说一说具体的目标或动作吗？",
+        )
+    return (
+        "ambiguous",
+        "我还不太确定你想让我做什么，可以补充一下具体目标吗？",
+    )
+
+
 def _heuristic_llm_output(raw_intent: str) -> FrontChainInterpreterLLMOutput:
     """Deterministic "LLM response" used in mock mode and tests.
 
@@ -523,12 +602,15 @@ def _heuristic_llm_output(raw_intent: str) -> FrontChainInterpreterLLMOutput:
             }
         )
 
+    intent_clarity, clarification_question = _detect_intent_clarity(raw_intent)
+    interpreted_goal = raw_intent.strip()[:160]
+
     return FrontChainInterpreterLLMOutput(
         interpreter_version=INTERPRETER_VERSION,
         confidence=0.65 if (problem_blocking or input_blocking or output_blocking) else 0.9,
         reasoning_summary=(
             f"Mock interpreter: target={target_object}, sources={len(candidate_sources)}, "
-            f"deliverable={deliverable_form or 'unspecified'}."
+            f"deliverable={deliverable_form or 'unspecified'}, intent_clarity={intent_clarity}."
         ),
         problem_formulation_candidate=FrontChainInterpreterProblemCandidate(
             interpreted_problem_kind=f"{target_object}_task" if target_object else None,
@@ -542,6 +624,9 @@ def _heuristic_llm_output(raw_intent: str) -> FrontChainInterpreterLLMOutput:
             reasoning_summary=(
                 "Problem formulation inferred from target entity and problem kind heuristics."
             ),
+            intent_clarity=intent_clarity,
+            interpreted_goal=interpreted_goal,
+            clarification_question=clarification_question or None,
         ),
         input_closure_candidate=FrontChainInterpreterInputClosureCandidate(
             target_object=target_object,

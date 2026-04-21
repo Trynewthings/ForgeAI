@@ -37,6 +37,7 @@ from app.schemas.problem_formulation import (
     OutputClosureRequirement,
     ProblemFormulationContract,
 )
+from app.services.front_chain.closure_axis_registry import is_synthesis_problem_kind
 
 UPDATE_ENGINE_VERSION = "front_chain_contract_update_engine_v1"
 
@@ -158,6 +159,45 @@ class ContractUpdateEngine:
                 if "output_closure" not in changed_layers:
                     changed_layers.append("output_closure")
             applied.extend(layer_applied)
+
+        # Cross-layer side-effect: if the problem_formulation patch landed
+        # the task in the synthesis / generation family, input closure is
+        # semantically not_applicable — there is no external source to
+        # resolve. Collapse the input_closure layer deterministically so
+        # downstream merger / policy engine stop asking input questions.
+        # This is the "problem is the root" rule made concrete: input
+        # applicability is DERIVED from problem_kind, not asked.
+        if (
+            is_synthesis_problem_kind(new_problem.interpreted_problem_kind)
+            and new_input.applicability != "not_applicable"
+        ):
+            collapsed = _collapse_input_to_not_applicable(new_input)
+            if collapsed is not new_input:
+                new_input = collapsed
+                if "input_closure" not in changed_layers:
+                    changed_layers.append("input_closure")
+
+        # Contract completeness guard. If any layer ended up with no
+        # axes, no review axes, and no resolved canonical field, inject
+        # the canonical required axis so the clarification loop has
+        # something to surface. Without this, a session can enter a
+        # zombie-open state: status=open + top_questions=[] + no path to
+        # contracts_closed.
+        pf_after = _ensure_pf_completeness(new_problem)
+        if pf_after is not new_problem:
+            new_problem = pf_after
+            if "problem_formulation" not in changed_layers:
+                changed_layers.append("problem_formulation")
+        ic_after = _ensure_ic_completeness(new_input)
+        if ic_after is not new_input:
+            new_input = ic_after
+            if "input_closure" not in changed_layers:
+                changed_layers.append("input_closure")
+        oc_after = _ensure_oc_completeness(new_output)
+        if oc_after is not new_output:
+            new_output = oc_after
+            if "output_closure" not in changed_layers:
+                changed_layers.append("output_closure")
 
         return ContractUpdateResult(
             problem_formulation=new_problem,
@@ -364,6 +404,152 @@ def _patch_output_closure(
         has_deliverable=bool(payload.get("deliverable_form")),
     )
     return OutputClosureContract.model_validate(payload), applied
+
+
+# ---------------------------------------------------------------------------
+# Cross-layer side-effect: input closure collapse for synthesis tasks
+# ---------------------------------------------------------------------------
+
+
+def _collapse_input_to_not_applicable(contract: InputClosureContract) -> InputClosureContract:
+    """Return a new InputClosureContract marked not_applicable + input_closed.
+
+    For pure synthesis / generation tasks, the input closure layer has no
+    meaningful content: there is no source to resolve, no acquisition path
+    to pick. Collapse it deterministically so the policy engine stops
+    surfacing input questions and downstream solvability/admissibility can
+    treat input as structurally satisfied.
+
+    The collapse clears blocking/review/requirements, keeps any previously
+    resolved fields (there shouldn't be any for synthesis, but preservation
+    keeps the patcher idempotent), and writes closure_status=input_closed
+    plus applicability=not_applicable. Returns the input contract by
+    identity when already in the target state (idempotent no-op).
+    """
+    already_collapsed = (
+        contract.applicability == "not_applicable"
+        and contract.closure_status == "input_closed"
+        and not contract.blocking_axes
+        and not contract.review_axes
+        and not contract.closure_requirements
+    )
+    if already_collapsed:
+        return contract
+    payload = contract.model_dump(mode="python")
+    payload["blocking_axes"] = []
+    payload["review_axes"] = []
+    payload["closure_requirements"] = []
+    payload["closure_status"] = "input_closed"
+    payload["applicability"] = "not_applicable"
+    return InputClosureContract.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# Contract completeness guards
+#
+# Defensive normalisation. A layer can land in a "zombie open" state when
+# its ``closure_status`` is not closed AND its ``blocking_axes`` /
+# ``review_axes`` are both empty AND its canonical resolved fields are
+# missing — typically because the interpreter LLM shipped a closure_status
+# without an accompanying axis, or because a later patch cleared every
+# axis without fully resolving the layer. In that state the merger emits
+# no gap, the policy engine emits no question, and ``contracts_closed``
+# stays False because status != closed — leaving the session stuck at
+# ``status=open`` with nothing to ask.
+#
+# These helpers re-inject the canonical required axis so the clarification
+# loop can drive the layer to resolution. They are deliberately narrow:
+# they only fire when the layer has NO axes AND no resolved field; they
+# never overwrite existing axes or recomputed statuses.
+# ---------------------------------------------------------------------------
+
+
+_PF_CLOSED_STATUSES = frozenset(
+    {"solvable", "solvable_with_clarification", "solvable_with_review"}
+)
+_IC_CLOSED_STATUSES = frozenset({"input_closed", "input_proposable_with_review"})
+_OC_CLOSED_STATUSES = frozenset({"output_closed", "output_proposable_with_review"})
+
+
+def _ensure_pf_completeness(
+    contract: ProblemFormulationContract,
+) -> ProblemFormulationContract:
+    """Ensure problem_formulation surfaces at least one axis when the
+    layer's canonical fields (target_object, interpreted_problem_kind)
+    are still unresolved. Returns the input contract by identity when
+    the layer has axes, is in a terminal "solvable*" status, or all
+    canonical fields are resolved.
+
+    Semantic gate coupling: when ``intent_clarity`` is not ``clear``,
+    axis-level clarification is NOT the right question form — the
+    session should be asking a free-form "what do you want to do?"
+    question via the PF semantic gate, not presenting option cards for
+    ``target_object`` / ``problem_kind``. In that case the guard is a
+    no-op and the free-form question path owns the turn.
+    """
+    if contract.intent_clarity != "clear":
+        return contract
+    if contract.blocking_axes or contract.review_axes:
+        return contract
+    if contract.problem_status in _PF_CLOSED_STATUSES:
+        return contract
+    needed: list[str] = []
+    if not contract.target_object:
+        needed.append("target_object")
+    if not contract.interpreted_problem_kind:
+        needed.append("problem_kind")
+    if not needed:
+        return contract
+    return contract.model_copy(
+        update={
+            "blocking_axes": needed,
+            "blocking_reasons": [f"{axis} is required but not yet resolved" for axis in needed],
+            "problem_status": "underdetermined",
+        }
+    )
+
+
+def _ensure_ic_completeness(contract: InputClosureContract) -> InputClosureContract:
+    """Ensure input_closure surfaces at least one axis when an input is
+    semantically required but no source has been resolved. Returns the
+    input contract by identity when the layer has axes, is marked
+    not_applicable, is already in a closed/proposable status, or has
+    resolved a source locator.
+    """
+    if contract.applicability == "not_applicable":
+        return contract
+    if contract.blocking_axes or contract.review_axes:
+        return contract
+    if contract.closure_status in _IC_CLOSED_STATUSES:
+        return contract
+    if contract.resolved_source_locator:
+        return contract
+    return contract.model_copy(
+        update={
+            "blocking_axes": ["source_locator"],
+            "closure_status": "input_clarification_required",
+        }
+    )
+
+
+def _ensure_oc_completeness(contract: OutputClosureContract) -> OutputClosureContract:
+    """Ensure output_closure surfaces at least one axis when no
+    deliverable form has been resolved. Returns the input contract by
+    identity when the layer has axes, is already in a closed/proposable
+    status, or deliverable_form is set.
+    """
+    if contract.blocking_axes or contract.review_axes:
+        return contract
+    if contract.closure_status in _OC_CLOSED_STATUSES:
+        return contract
+    if contract.deliverable_form:
+        return contract
+    return contract.model_copy(
+        update={
+            "blocking_axes": ["deliverable_form"],
+            "closure_status": "output_clarification_required",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

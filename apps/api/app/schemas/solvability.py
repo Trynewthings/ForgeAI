@@ -109,3 +109,108 @@ class SolvabilityLLMCandidate(BaseModel):
     unsafe_requirements: list[str] = Field(default_factory=list)
     reasoning_summary: Optional[str] = None
     candidate_shape_hint: Literal["linear", "dag", "conditional", "loop", "unknown"] = "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Phase A / B / C — three-phase solvability internals
+#
+# Internal naming uses ``required_step_kinds`` (the canonical 8-element
+# vocabulary); the external SolvabilityContract consumed by the planner
+# keeps the historical ``required_capability_classes`` name. The reducer
+# (Phase C) is the sole boundary between the two naming conventions.
+# ---------------------------------------------------------------------------
+
+
+class SubgoalDraft(BaseModel):
+    """Phase A output — a proof subgoal with ONLY step_kind references.
+
+    Phase A is forbidden from producing tool ids, edges, or graph
+    topology. Tool binding is Phase B's job. The LLM schema mirrors this
+    boundary: no ``matched_capability_ids`` column at all.
+
+    ``required_step_kinds`` values are expected to be drawn from the
+    8-element canonical vocabulary
+    (ingest/transform/summarize/rank/validate/persist/notify/review).
+    Values that drift are normalised by the canonicalizer before Phase B.
+    """
+
+    subgoal_id: str
+    label: str
+    description: str
+    subgoal_kind: Literal[
+        "acquire", "analyze", "synthesize", "deliver", "review", "generic"
+    ] = "generic"
+    required_step_kinds: list[str] = Field(default_factory=list)
+    # Raw pre-canonicalisation strings preserved for trace / debugging
+    # when the enumerator emits something outside the canonical set.
+    raw_step_kinds: list[str] = Field(default_factory=list)
+    input_evidence_kinds: list[str] = Field(default_factory=list)
+    output_evidence_kinds: list[str] = Field(default_factory=list)
+    human_review_required: bool = False
+    # Semantic category that drives judgment-gap vs capability-gap
+    # classification in the reducer. ``capability`` means real tool
+    # coverage is required; ``judgment`` / ``approval`` / ``verification``
+    # mean a reviewer may substitute when tools are absent.
+    gap_kind: Literal["capability", "judgment", "approval", "verification"] = "capability"
+
+
+class SubgoalDraftEnvelope(BaseModel):
+    """Phase A output envelope."""
+
+    subgoals: list[SubgoalDraft] = Field(default_factory=list)
+    candidate_shape_hint: Literal[
+        "linear", "dag", "conditional", "loop", "unknown"
+    ] = "unknown"
+    unsafe_requirements: list[str] = Field(default_factory=list)
+    reasoning_summary: Optional[str] = None
+
+
+class ToolBinding(BaseModel):
+    """Phase B per-subgoal binding result."""
+
+    subgoal_id: str
+    required_step_kinds: list[str] = Field(default_factory=list)
+    bound_tool_ids: list[str] = Field(default_factory=list)
+    # ``deterministic`` = only the prefilter / narrower picked these
+    # ``llm_assisted`` = LLM rerank picked / confirmed these
+    # ``none``         = no bindings could be made
+    binding_source: Literal["deterministic", "llm_assisted", "none"] = "none"
+    coverage: Literal["full", "partial", "unmatched"] = "unmatched"
+    uncovered_step_kinds: list[str] = Field(default_factory=list)
+    # step_kinds that arrived outside the canonical vocabulary and could
+    # not be normalised. These flag prompt violations upstream.
+    unresolved_oov: list[str] = Field(default_factory=list)
+    reasoning: Optional[str] = None
+
+
+class ToolBindingEnvelope(BaseModel):
+    """Phase B output envelope."""
+
+    bindings: list[ToolBinding] = Field(default_factory=list)
+    # ``deterministic`` — only prefilter/narrower needed
+    # ``llm_rerank``   — LLM rerank pass ran on one or more subgoals
+    # ``llm_failed``   — LLM rerank attempted and failed; deterministic result kept
+    stages: list[str] = Field(default_factory=list)
+    reasoning_summary: Optional[str] = None
+
+
+class OrchestrationTrace(BaseModel):
+    """Merged trace for the whole A+B+C pipeline.
+
+    ``degraded_reason`` is the authoritative explanation when the
+    orchestrator had to downgrade. It distinguishes:
+      * ``phase_a_failed``      — enumerator call failed / parsed empty
+      * ``phase_b_llm_failed``  — LLM rerank failed; kept deterministic
+      * ``phase_b_unresolved``  — some subgoal still uncovered after B
+      * ``closures_blocking``   — reducer hit a blocking closure
+    """
+
+    phase_a_failed: bool = False
+    phase_a_failure_kind: Optional[
+        Literal["provider_error", "schema_error", "timeout", "parse_error", "empty"]
+    ] = None
+    phase_b_llm_invoked: bool = False
+    phase_b_llm_failed: bool = False
+    phase_b_unresolved_subgoal_ids: list[str] = Field(default_factory=list)
+    degraded_reasons: list[str] = Field(default_factory=list)
+    stages_run: list[str] = Field(default_factory=list)

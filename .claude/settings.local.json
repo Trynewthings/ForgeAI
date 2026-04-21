@@ -73,7 +73,8 @@
       "Bash(grep -l \"from tests.test_phase3_core\\\\|from tests.test_requirement_compiler_v\\\\|from tests.test_problem_formulation_closure\\\\|from tests.test_semantic_core_split\\\\|from tests.test_llm_semantic_judgement\" tests/*.py)",
       "Bash(curl -sv http://127.0.0.1:8000/api/v1/front-chain/projects/b4aff354-1637-46a5-8867-d330137c9e3f/sessions)",
       "Bash(curl -sv http://localhost:8000/api/v1/front-chain/projects/b4aff354-1637-46a5-8867-d330137c9e3f/sessions)",
-      "Bash(PYTHONPATH=. .venv/bin/alembic upgrade head)"
+      "Bash(PYTHONPATH=. .venv/bin/alembic upgrade head)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }

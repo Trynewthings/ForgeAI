@@ -21,8 +21,20 @@ The session's status is recomputed after every turn:
     * ``compilable`` — latest state carries a compile_context
     * ``closed``     — explicit user close action
 
-Hard invariant: at most 2 LLM calls per turn (interpret/answer + evaluate).
-Compile is deterministic.
+LLM budget (R9 rewrite):
+    * interpret       — 1 call, produces closure candidates + intent clarity
+                        verdict in a single JSON envelope.
+    * apply_answers   — 1 call (only when free-text answers are present;
+                        deterministic option selections skip the LLM).
+    * evaluate        — 1 call (solvability proposer).
+    * compile         — 0 calls (deterministic assembler).
+
+Per-turn ceiling is therefore 3 LLM calls in the worst case (evaluate
+path with free-text answers). The old "at most 2 per turn" invariant
+was retired when problem_formulation clarity became an explicit axis —
+we now accept a higher ceiling in exchange for actually checking
+whether the task is understandable before forcing it through the
+structured axis loop.
 """
 from __future__ import annotations
 
@@ -223,14 +235,18 @@ class FrontChainSessionService:
         input_closure = current_state_resp.input_closure.closure_status
         output_closure = current_state_resp.output_closure.closure_status
         problem_blocking = bool(current_state_resp.problem_formulation.blocking_axes)
+        intent_clarity = current_state_resp.problem_formulation.intent_clarity
 
         # Proceed to evaluate once all three closure layers are free of
-        # blocking gaps and the policy engine has nothing left to ask. We
-        # intentionally do NOT gate on ``problem_formulation.problem_status``
-        # — it can lag behind the axis-level state after an answer, and
-        # blocking_axes + top_questions are the authoritative signals.
+        # blocking gaps, the policy engine has nothing left to ask, AND
+        # the PF semantic gate has opened (intent_clarity == "clear"
+        # OR forced-advance path left it "ambiguous" after cap).
+        # A missing-goal task must NOT reach evaluate/compile — this is
+        # the root-cause fix for the "骗过自己" case (axis slots filled
+        # but objective completely undefined).
         contracts_closed = (
-            not merged_gaps.has_blocking
+            intent_clarity != "missing_goal"
+            and not merged_gaps.has_blocking
             and not top_questions
             and not problem_blocking
             and input_closure == "input_closed"

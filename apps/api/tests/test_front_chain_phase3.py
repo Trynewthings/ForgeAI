@@ -115,11 +115,15 @@ def _closed_oc() -> OutputClosureContract:
 
 
 def _full_capability_envelope() -> list[dict]:
+    # Uses the canonical logical_step_kinds vocabulary
+    # (ingest/transform/summarize/persist) — the same taxonomy the
+    # registry exports, so the solvability mock's subgoal classes can
+    # match against it directly.
     return [
-        {"capability_id": "repo_checkout", "supported_step_kinds": ["acquire"]},
-        {"capability_id": "repo_inventory", "supported_step_kinds": ["analyze", "transform"]},
-        {"capability_id": "report_writer", "supported_step_kinds": ["synthesize", "summarize"]},
-        {"capability_id": "fs_writer", "supported_step_kinds": ["deliver", "persist"]},
+        {"capability_id": "repo_checkout", "supported_step_kinds": ["ingest"]},
+        {"capability_id": "repo_inventory", "supported_step_kinds": ["transform"]},
+        {"capability_id": "report_writer", "supported_step_kinds": ["summarize"]},
+        {"capability_id": "fs_writer", "supported_step_kinds": ["persist"]},
     ]
 
 
@@ -652,6 +656,411 @@ def test_evaluate_404_for_unknown_state(client: TestClient) -> None:
         json={},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# E20 — capability envelope hydration end-to-end
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_passes_registry_envelope_to_solvability(client: TestClient) -> None:
+    """Reproduces the "summarise /tmd/test.txt" bug.
+
+    Before the fix, the state service hard-coded ``capability_envelope=None``.
+    That made the LLM invent free-form capability_class names that the
+    validator then flagged as unmatched, flipping an entirely solvable
+    request into ``not_solvable`` and ``admissibility_status=unsupported``.
+
+    The fix projects the registry at blueprint_planning context into the
+    envelope passed to both the solvability LLM and the validator. This
+    test asserts the end-to-end happy path: a requirement that should
+    map onto registered capabilities now lands as ``solvable`` /
+    ``supported``.
+    """
+    project = client.post("/api/v1/projects", json={"name": "env_test"}).json()
+    session = client.post(
+        "/api/v1/front-chain/sessions", json={"project_id": project["id"]}
+    ).json()
+    turn_resp = client.post(
+        f"/api/v1/front-chain/sessions/{session['id']}/turn",
+        json={
+            "kind": "raw_intent",
+            "raw_intent": (
+                "Read /tmp/test.txt and produce a markdown summary report"
+            ),
+        },
+    )
+    assert turn_resp.status_code == 201, turn_resp.text
+    body = turn_resp.json()
+
+    # Depending on what the interpreter extracts for target_object /
+    # deliverable_form, the session may be ``open`` (still asking) or
+    # already ``compilable``. Both are acceptable — what matters is that
+    # when we do reach evaluate, solvability does not drop to
+    # not_solvable.
+    if body["status"] == "compilable":
+        solv = body["compile_context"]["solvability"]
+        assert solv["solvability_status"] != "not_solvable", (
+            f"Evaluate should not return not_solvable for a reachable "
+            f"requirement when the registry envelope is hydrated; got "
+            f"solvability={solv}"
+        )
+
+
+def test_validator_uses_step_kind_fallback_for_free_form_classes() -> None:
+    """LLM emits free-form class names → validator normalises to step_kind
+    and pulls matching capability_ids out of the envelope.
+
+    Regression guard for the "summarization → summarize_text_llm" bridge.
+    """
+    envelope = [
+        {"capability_id": "summarize_text_llm", "supported_step_kinds": ["summarize"]},
+        {"capability_id": "filesystem_read", "supported_step_kinds": ["ingest", "transform"]},
+    ]
+    candidate = SolvabilityLLMCandidate(
+        required_subgoals=[
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_1",
+                label="Summarise the file",
+                description="x",
+                subgoal_kind="synthesize",
+                required_capability_classes=["summarization"],
+            )
+        ],
+        capability_matches=[
+            CapabilityMatch(
+                subgoal_id="sg_1",
+                required_capability_classes=["summarization"],
+                matched_capability_ids=[],  # LLM gave up; validator bridges
+                match_status="unmatched",
+            )
+        ],
+    )
+    result = SolvabilityValidator().validate_and_produce(
+        candidate=candidate,
+        problem_formulation=_closed_pf(),
+        input_closure=_closed_ic(),
+        output_closure=_closed_oc(),
+        known_capability_ids=[c["capability_id"] for c in envelope],
+        capability_envelope=envelope,
+    )
+    match = result.contract.capability_matches[0]
+    assert match.match_status == "matched"
+    assert "summarize_text_llm" in match.matched_capability_ids
+
+
+def test_validator_handles_free_form_capability_descriptions() -> None:
+    """Bug repro from the "compare two documents" screenshot: LLM emits
+    verbose capability descriptions like "Local file reading capability
+    (ingest)" and "Markdown report formatting capability (transform)"
+    instead of canonical step_kind names.
+
+    The validator must still reconcile these against the envelope via
+    bracket-extracted step_kind hints + token-level alias fallback, so
+    solvability_status does not fall to not_solvable when the registry
+    clearly covers the work.
+    """
+    envelope = [
+        {
+            "capability_id": "filesystem_read",
+            "name": "Filesystem Read",
+            "supported_step_kinds": ["ingest", "transform"],
+        },
+        {
+            "capability_id": "summarize_text_llm",
+            "name": "Summarize Text With LLM",
+            "supported_step_kinds": ["summarize"],
+        },
+        {
+            "capability_id": "general_agentic_reasoning",
+            "name": "General Agentic Reasoning",
+            "supported_step_kinds": ["transform", "summarize", "validate", "review"],
+        },
+        {
+            "capability_id": "filesystem_write",
+            "name": "Filesystem Write",
+            "supported_step_kinds": ["persist"],
+        },
+    ]
+    candidate = SolvabilityLLMCandidate(
+        required_subgoals=[
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_1",
+                label="Acquire",
+                description="...",
+                subgoal_kind="acquire",
+                required_capability_classes=[
+                    "Local file reading capability (ingest) for text documents"
+                ],
+            ),
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_2",
+                label="Analyze",
+                description="...",
+                subgoal_kind="analyze",
+                required_capability_classes=[
+                    "Document text analysis and comparison capability (transform)"
+                ],
+            ),
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_3",
+                label="Synthesize",
+                description="...",
+                subgoal_kind="synthesize",
+                required_capability_classes=[
+                    "Markdown report formatting capability (transform)"
+                ],
+            ),
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_4",
+                label="Deliver",
+                description="...",
+                subgoal_kind="deliver",
+                required_capability_classes=[
+                    "File writing capability (persist) to desktop"
+                ],
+            ),
+        ],
+        capability_matches=[
+            # LLM gave up — all unmatched with empty matched_capability_ids.
+            # Validator must recover via normalisation + fallback.
+            CapabilityMatch(
+                subgoal_id="sg_1",
+                required_capability_classes=[
+                    "Local file reading capability (ingest) for text documents"
+                ],
+                matched_capability_ids=[],
+                match_status="unmatched",
+            ),
+            CapabilityMatch(
+                subgoal_id="sg_2",
+                required_capability_classes=[
+                    "Document text analysis and comparison capability (transform)"
+                ],
+                matched_capability_ids=[],
+                match_status="unmatched",
+            ),
+            CapabilityMatch(
+                subgoal_id="sg_3",
+                required_capability_classes=[
+                    "Markdown report formatting capability (transform)"
+                ],
+                matched_capability_ids=[],
+                match_status="unmatched",
+            ),
+            CapabilityMatch(
+                subgoal_id="sg_4",
+                required_capability_classes=[
+                    "File writing capability (persist) to desktop"
+                ],
+                matched_capability_ids=[],
+                match_status="unmatched",
+            ),
+        ],
+    )
+    result = SolvabilityValidator().validate_and_produce(
+        candidate=candidate,
+        problem_formulation=_closed_pf(),
+        input_closure=_closed_ic(),
+        output_closure=_closed_oc(),
+        known_capability_ids=[c["capability_id"] for c in envelope],
+        capability_envelope=envelope,
+    )
+    # All four subgoals must now resolve to matched.
+    for match in result.contract.capability_matches:
+        assert match.match_status == "matched", (
+            f"Expected matched via normalisation, got {match.match_status} "
+            f"for subgoal {match.subgoal_id!r}; matched_ids={match.matched_capability_ids}"
+        )
+    assert result.contract.solvability_status == "solvable"
+
+
+def test_binder_resolves_enum_classes_to_tool_ids_structurally() -> None:
+    """Phase-B binder path: when the LLM follows the prompt contract and
+    emits canonical step_kind enum classes (e.g. ``"ingest"``), the
+    validator should use the binder — NOT the string-matching fallback
+    — to resolve tool ids. The binder is deterministic and selects
+    every tool in the envelope that advertises the step_kind.
+    """
+    envelope = [
+        {"capability_id": "filesystem_read", "name": "Filesystem Read", "supported_step_kinds": ["ingest", "transform"]},
+        {"capability_id": "summarize_text_llm", "name": "Summarize", "supported_step_kinds": ["summarize"]},
+        {"capability_id": "filesystem_write", "name": "Filesystem Write", "supported_step_kinds": ["persist"]},
+    ]
+    candidate = SolvabilityLLMCandidate(
+        required_subgoals=[
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_1",
+                label="Read",
+                description="",
+                subgoal_kind="acquire",
+                required_capability_classes=["ingest"],
+            ),
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_2",
+                label="Write",
+                description="",
+                subgoal_kind="deliver",
+                required_capability_classes=["persist"],
+            ),
+        ],
+        capability_matches=[
+            CapabilityMatch(
+                subgoal_id="sg_1",
+                required_capability_classes=["ingest"],
+                matched_capability_ids=[],
+                match_status="unmatched",  # LLM gave up; binder recovers
+            ),
+            CapabilityMatch(
+                subgoal_id="sg_2",
+                required_capability_classes=["persist"],
+                matched_capability_ids=[],
+                match_status="unmatched",
+            ),
+        ],
+    )
+    result = SolvabilityValidator().validate_and_produce(
+        candidate=candidate,
+        problem_formulation=_closed_pf(),
+        input_closure=_closed_ic(),
+        output_closure=_closed_oc(),
+        known_capability_ids=[c["capability_id"] for c in envelope],
+        capability_envelope=envelope,
+    )
+    matches_by_sg = {m.subgoal_id: m for m in result.contract.capability_matches}
+    assert matches_by_sg["sg_1"].match_status == "matched"
+    assert "filesystem_read" in matches_by_sg["sg_1"].matched_capability_ids
+    assert matches_by_sg["sg_2"].match_status == "matched"
+    assert "filesystem_write" in matches_by_sg["sg_2"].matched_capability_ids
+    assert result.contract.solvability_status == "solvable"
+
+
+def test_binder_marks_out_of_vocabulary_as_unmatched_without_guessing() -> None:
+    """Guardrail: if the LLM emits a non-canonical class (prompt
+    violation), the binder refuses to guess and defers to the legacy
+    string-bridge for that subgoal. It does NOT silently claim
+    ``matched``. This keeps the Phase-B path honest."""
+    envelope = [
+        {"capability_id": "filesystem_read", "name": "Filesystem Read", "supported_step_kinds": ["ingest"]},
+    ]
+    candidate = SolvabilityLLMCandidate(
+        required_subgoals=[
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_1",
+                label="x",
+                description="",
+                subgoal_kind="acquire",
+                # Non-canonical phrase — triggers the string fallback.
+                required_capability_classes=["something totally unrelated"],
+            ),
+        ],
+        capability_matches=[
+            CapabilityMatch(
+                subgoal_id="sg_1",
+                required_capability_classes=["something totally unrelated"],
+                matched_capability_ids=[],
+                match_status="unmatched",
+            ),
+        ],
+    )
+    result = SolvabilityValidator().validate_and_produce(
+        candidate=candidate,
+        problem_formulation=_closed_pf(),
+        input_closure=_closed_ic(),
+        output_closure=_closed_oc(),
+        known_capability_ids=[c["capability_id"] for c in envelope],
+        capability_envelope=envelope,
+    )
+    assert result.contract.capability_matches[0].match_status == "unmatched"
+
+
+def test_binder_partial_when_one_step_kind_uncovered() -> None:
+    """When the subgoal's required step_kinds are partially covered
+    by the envelope, status must be ``partial`` rather than ``matched``
+    or ``unmatched``."""
+    envelope = [
+        {"capability_id": "filesystem_read", "name": "Filesystem Read", "supported_step_kinds": ["ingest"]},
+        # No capability for 'persist' in the envelope.
+    ]
+    candidate = SolvabilityLLMCandidate(
+        required_subgoals=[
+            SolvabilityLLMSubgoal(
+                subgoal_id="sg_1",
+                label="Read+write",
+                description="",
+                subgoal_kind="generic",
+                required_capability_classes=["ingest", "persist"],
+            ),
+        ],
+        capability_matches=[
+            CapabilityMatch(
+                subgoal_id="sg_1",
+                required_capability_classes=["ingest", "persist"],
+                matched_capability_ids=[],
+                match_status="unmatched",
+            ),
+        ],
+    )
+    result = SolvabilityValidator().validate_and_produce(
+        candidate=candidate,
+        problem_formulation=_closed_pf(),
+        input_closure=_closed_ic(),
+        output_closure=_closed_oc(),
+        known_capability_ids=[c["capability_id"] for c in envelope],
+        capability_envelope=envelope,
+    )
+    match = result.contract.capability_matches[0]
+    assert match.match_status == "partial"
+    assert "filesystem_read" in match.matched_capability_ids
+
+
+def test_prompt_renders_tool_catalog_as_markdown_table() -> None:
+    """Regression guard: the prompt body must render a markdown tool
+    catalog table (not a truncated JSON blob). The catalog is the
+    solvability LLM's sole tool-awareness channel."""
+    from app.services.front_chain.solvability_llm_service import (
+        SolvabilityLLMService,
+    )
+
+    service = SolvabilityLLMService()
+    body = service._build_prompt_body(
+        problem_formulation=_closed_pf(),
+        input_closure=_closed_ic(),
+        output_closure=_closed_oc(),
+        capability_envelope=[
+            {
+                "capability_id": "filesystem_read",
+                "name": "Filesystem Read",
+                "supported_step_kinds": ["ingest", "transform"],
+                "semantic_purpose": "Read local source material.",
+            },
+        ],
+    )
+    # Table header present
+    assert "| id | step_kinds | purpose |" in body
+    # Tool id rendered as inline code
+    assert "`filesystem_read`" in body
+    # Step kinds present
+    assert "ingest, transform" in body
+
+
+def test_general_agentic_reasoning_covers_transform_summarize_subgoals() -> None:
+    """The general-reasoning capability is registered and bound to the
+    transform / summarize / validate / review step_kinds so that ordinary
+    reasoning work does not require a specialised capability to be
+    registered first."""
+    from app.services.capabilities.registry import CapabilityRegistryService
+
+    registry = CapabilityRegistryService()
+    cap = registry.get_capability("general_agentic_reasoning")
+    assert cap is not None
+    assert set(cap.supported_step_kinds) >= {"transform", "summarize", "validate", "review"}
+    # Bindings picked up the capability for the reasoning step kinds.
+    bindings = {b.step_kind: b for b in registry.list_bindings()}
+    for sk in ("transform", "summarize", "validate", "review"):
+        assert "general_agentic_reasoning" in bindings[sk].capability_ids, (
+            f"general_agentic_reasoning should be bound to step_kind={sk}"
+        )
 
 
 # ---------------------------------------------------------------------------

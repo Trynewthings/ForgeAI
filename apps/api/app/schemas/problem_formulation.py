@@ -98,6 +98,23 @@ class ProblemFormulationContract(BaseModel):
     clarification_plan: list[str] = Field(default_factory=list)
     reasoning_summary: Optional[str] = None
 
+    # Semantic-gate fields. ``intent_clarity`` is the authoritative PF
+    # verdict: is the user's goal understandable enough to proceed to
+    # the structured axis (I/O) layer? Values:
+    #   * ``clear``         — a reasonable executor would know what to do.
+    #   * ``ambiguous``     — rough idea present but key details missing
+    #                         (e.g. action clear, scope or intent vague).
+    #   * ``missing_goal``  — no actionable objective at all; only
+    #                         nouns / materials mentioned.
+    # ``interpreted_goal`` is a one-sentence plain-language restatement of
+    # what the system believes the user wants — shown back to the user
+    # for agreement. ``clarification_question`` is the free-form follow-up
+    # the policy engine surfaces when clarity != "clear". Both live on
+    # PF (not IC/OC) because they are semantic, not structural.
+    intent_clarity: Literal["clear", "ambiguous", "missing_goal"] = "ambiguous"
+    interpreted_goal: Optional[str] = None
+    clarification_question: Optional[str] = None
+
 
 class InputSourceCandidate(BaseModel):
     candidate_id: str
@@ -149,6 +166,14 @@ class InputClosureContract(BaseModel):
         "input_proposable_with_review",
         "input_closed",
     ] = "input_clarification_required"
+    # Whether an input closure is semantically required for this task.
+    # Most tasks need data to operate on, so the default is "required".
+    # Pure synthesis / generation tasks (e.g. "generate a picture of X")
+    # have no external input to resolve — they are marked "not_applicable"
+    # by the deterministic layer when problem_kind lands in the synthesis
+    # family, which causes closure_status to auto-flip to input_closed with
+    # no blocking_axes. This is authority-level state, not a hint.
+    applicability: Literal["required", "not_applicable"] = "required"
     reasoning_summary: Optional[str] = None
 
 

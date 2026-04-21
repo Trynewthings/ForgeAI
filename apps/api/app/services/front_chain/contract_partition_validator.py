@@ -21,7 +21,7 @@ present on the wrong layer, the validator records it as a
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 from app.schemas.front_chain import (
     FrontChainInterpreterInputClosureCandidate,
@@ -202,6 +202,17 @@ class ContractPartitionValidator:
             blocking_reasons=list(problem_payload.get("blocking_reasons", []) or []),
             clarification_plan=[d.question for d in problem_decisions],
             reasoning_summary=problem_payload.get("reasoning_summary"),
+            # PF semantic-gate — passed through verbatim from the
+            # interpreter candidate.
+            intent_clarity=_normalise_intent_clarity(
+                problem_payload.get("intent_clarity")
+            ),
+            interpreted_goal=_coerce_optional_str(
+                problem_payload.get("interpreted_goal")
+            ),
+            clarification_question=_coerce_optional_str(
+                problem_payload.get("clarification_question")
+            ),
         )
 
         input_contract = InputClosureContract(
@@ -229,6 +240,38 @@ class ContractPartitionValidator:
             closure_status=output_payload.get("closure_status", "output_clarification_required"),
             reasoning_summary=output_payload.get("reasoning_summary"),
         )
+
+        # Cross-layer derivation: if the interpreter already landed the
+        # task in the synthesis / generation family on turn 1, collapse
+        # input_closure to not_applicable up-front so the user is not asked
+        # for a data source that doesn't exist. The rule is the same one
+        # enforced by the update engine on later turns — kept in sync by
+        # sharing ``is_synthesis_problem_kind`` from the axis registry.
+        # Importing here (not at module top) avoids adding a service-layer
+        # import cycle for the validator (module keeps its purely
+        # deterministic footprint).
+        from app.services.front_chain.closure_axis_registry import (
+            is_synthesis_problem_kind,
+        )
+        from app.services.front_chain.contract_update_engine import (
+            _collapse_input_to_not_applicable,
+            _ensure_ic_completeness,
+            _ensure_oc_completeness,
+            _ensure_pf_completeness,
+        )
+
+        if is_synthesis_problem_kind(problem_contract.interpreted_problem_kind):
+            input_contract = _collapse_input_to_not_applicable(input_contract)
+
+        # Contract completeness guard on turn 1 — same semantics as in
+        # contract_update_engine.apply_resolutions (see its comment). The
+        # interpreter LLM occasionally emits a layer with
+        # closure_status != closed AND empty blocking/review AND no
+        # resolved field; re-inject the canonical required axis so the
+        # policy engine always has something to surface.
+        problem_contract = _ensure_pf_completeness(problem_contract)
+        input_contract = _ensure_ic_completeness(input_contract)
+        output_contract = _ensure_oc_completeness(output_contract)
 
         # Attach routed decisions directly to the input/output contracts via
         # the clarification list on the problem formulation (they're linked by
@@ -265,6 +308,34 @@ class ContractPartitionValidator:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _normalise_intent_clarity(value: Any) -> str:
+    """Coerce any LLM-emitted value into the three-valued clarity enum.
+
+    The interpreter is instructed to return ``clear`` / ``ambiguous`` /
+    ``missing_goal`` verbatim, but LLMs occasionally paraphrase (``"unclear"``,
+    ``"partial"``, ``"complete"``, etc.). We accept a small synonym set and
+    fall back to ``ambiguous`` for anything unknown — never ``clear``, so
+    the PF gate is on the safe side.
+    """
+    if value is None:
+        return "ambiguous"
+    text = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    if text in {"clear", "fully_clear", "complete", "goal_clear"}:
+        return "clear"
+    if text in {"missing_goal", "no_goal", "goal_missing", "objective_missing"}:
+        return "missing_goal"
+    if text in {"ambiguous", "partial", "unclear", "underdetermined"}:
+        return "ambiguous"
+    return "ambiguous"
+
+
+def _coerce_optional_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _strip_forbidden(

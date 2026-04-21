@@ -497,25 +497,67 @@ def test_closure_gap_merger_review_gaps_after_blocking() -> None:
 
 
 def test_policy_engine_emits_at_most_three_questions() -> None:
+    # Intentionally avoid a problem_formulation blocking axis here — the
+    # policy engine now stages problem_formulation first, and would emit
+    # only PF questions while any PF blocking remains. The ``max_questions``
+    # cap is exercised once PF is closed.
     gaps = MergedGapSet(
         blocking=[
-            MergedGapItem(axis="target_object", layer="problem_formulation", severity="blocking", priority=0),
             MergedGapItem(axis="source_locator", layer="input_closure", severity="blocking", priority=1),
-            MergedGapItem(axis="deliverable_form", layer="output_closure", severity="blocking", priority=2),
             MergedGapItem(axis="source_modality", layer="input_closure", severity="blocking", priority=1),
+            MergedGapItem(axis="acquisition_path", layer="input_closure", severity="blocking", priority=1),
+            MergedGapItem(axis="deliverable_form", layer="output_closure", severity="blocking", priority=2),
             MergedGapItem(axis="output_modality", layer="output_closure", severity="blocking", priority=2),
         ],
         review=[],
         prioritized_decisions=[
-            "target_object",
             "source_locator",
             "source_modality",
+            "acquisition_path",
             "deliverable_form",
             "output_modality",
         ],
     )
     questions = ClarificationPolicyEngine(max_questions=3).select_top_questions(gaps)
     assert len(questions) == 3
+
+
+def test_policy_engine_stages_problem_formulation_first() -> None:
+    # When problem_formulation has any blocking gap, input/output questions
+    # must be deferred to a later turn — otherwise users get asked
+    # "where is the data" before we know what the task even is.
+    gaps = MergedGapSet(
+        blocking=[
+            MergedGapItem(axis="target_object", layer="problem_formulation", severity="blocking", priority=0),
+            MergedGapItem(axis="source_locator", layer="input_closure", severity="blocking", priority=1),
+            MergedGapItem(axis="deliverable_form", layer="output_closure", severity="blocking", priority=2),
+        ],
+        review=[],
+        prioritized_decisions=["target_object", "source_locator", "deliverable_form"],
+    )
+    questions = ClarificationPolicyEngine(max_questions=3).select_top_questions(gaps)
+    assert len(questions) == 1
+    assert questions[0].axis == "target_object"
+    assert questions[0].layer == "problem_formulation"
+
+
+def test_policy_engine_releases_input_output_once_problem_formulation_closed() -> None:
+    # Once problem_formulation has no blocking gap (even if it has review
+    # gaps), input/output questions are free to surface again.
+    gaps = MergedGapSet(
+        blocking=[
+            MergedGapItem(axis="source_locator", layer="input_closure", severity="blocking", priority=1),
+            MergedGapItem(axis="deliverable_form", layer="output_closure", severity="blocking", priority=2),
+        ],
+        review=[
+            MergedGapItem(axis="current_system_fit", layer="problem_formulation", severity="review", priority=100),
+        ],
+        prioritized_decisions=["source_locator", "deliverable_form", "current_system_fit"],
+    )
+    questions = ClarificationPolicyEngine(max_questions=3).select_top_questions(gaps)
+    layers = {q.layer for q in questions}
+    assert "input_closure" in layers
+    assert "output_closure" in layers
 
 
 def test_policy_engine_prefers_blocking_over_review() -> None:
@@ -551,6 +593,119 @@ def test_policy_engine_returns_empty_when_no_gaps() -> None:
     empty = MergedGapSet(blocking=[], review=[], prioritized_decisions=[])
     questions = ClarificationPolicyEngine().select_top_questions(empty)
     assert questions == []
+
+
+# ---------------------------------------------------------------------------
+# T-synthesis — partition validator early-collapses input layer for
+# synthesis / generation tasks when the interpreter already lands on a
+# canonical synthesis problem_kind on turn 1.
+# ---------------------------------------------------------------------------
+
+
+def test_partition_validator_collapses_input_on_synthesis_kind() -> None:
+    """If the interpreter produces a canonical synthesis problem_kind on
+    turn 1, input closure must be marked not_applicable / input_closed
+    immediately — no "where is the data" question should be generated."""
+    raw_output = FrontChainInterpreterLLMOutput(
+        interpreter_version=INTERPRETER_VERSION,
+        problem_formulation_candidate=FrontChainInterpreterProblemCandidate(
+            interpreted_problem_kind="synthesis",
+            target_object="generic_request",
+            problem_status="solvable",
+            current_system_fit="in_scope",
+            blocking_axes=[],
+            review_axes=[],
+            blocking_reasons=[],
+            reasoning_summary="user wants to generate an image",
+        ),
+        input_closure_candidate=FrontChainInterpreterInputClosureCandidate(
+            candidate_sources=[],
+            resolved_source_kind=None,
+            resolved_source_locator=None,
+            resolved_source_modality=None,
+            acquisition_path_kind="unknown",
+            closure_requirements=[],
+            blocking_axes=["source_locator", "source_modality"],
+            review_axes=[],
+            closure_status="input_clarification_required",
+            reasoning_summary=None,
+        ),
+        output_closure_candidate=FrontChainInterpreterOutputClosureCandidate(
+            deliverable_form=None,
+            delivery_target=None,
+            output_modality=None,
+            closure_requirements=[],
+            blocking_axes=["deliverable_form"],
+            review_axes=[],
+            closure_status="output_clarification_required",
+            reasoning_summary=None,
+        ),
+        decision_candidates=[],
+        assumption_candidates=[],
+        llm_trace=FrontChainLLMTraceSummary(
+            call_count=1,
+            interpreter_version=INTERPRETER_VERSION,
+            llm_mode="mock",
+        ),
+    )
+    result = ContractPartitionValidator().validate_and_partition(raw_output)
+
+    assert result.problem_formulation.interpreted_problem_kind == "synthesis"
+    assert result.input_closure.applicability == "not_applicable"
+    assert result.input_closure.blocking_axes == []
+    assert result.input_closure.review_axes == []
+    assert result.input_closure.closure_status == "input_closed"
+    # Output layer must NOT be auto-collapsed — "what format" is still a
+    # valid question for a generation task.
+    assert result.output_closure.blocking_axes == ["deliverable_form"]
+
+
+def test_partition_validator_preserves_input_for_non_synthesis_kind() -> None:
+    """Regression guard: canonical non-synthesis kinds leave input untouched."""
+    raw_output = FrontChainInterpreterLLMOutput(
+        interpreter_version=INTERPRETER_VERSION,
+        problem_formulation_candidate=FrontChainInterpreterProblemCandidate(
+            interpreted_problem_kind="analysis",
+            target_object="repository",
+            problem_status="solvable",
+            current_system_fit="in_scope",
+            blocking_axes=[],
+            review_axes=[],
+            blocking_reasons=[],
+        ),
+        input_closure_candidate=FrontChainInterpreterInputClosureCandidate(
+            candidate_sources=[],
+            acquisition_path_kind="unknown",
+            closure_requirements=[],
+            blocking_axes=["source_locator"],
+            review_axes=[],
+            closure_status="input_clarification_required",
+        ),
+        output_closure_candidate=FrontChainInterpreterOutputClosureCandidate(
+            closure_requirements=[],
+            blocking_axes=["deliverable_form"],
+            review_axes=[],
+            closure_status="output_clarification_required",
+        ),
+        decision_candidates=[],
+        assumption_candidates=[],
+        llm_trace=FrontChainLLMTraceSummary(
+            call_count=1,
+            interpreter_version=INTERPRETER_VERSION,
+            llm_mode="mock",
+        ),
+    )
+    result = ContractPartitionValidator().validate_and_partition(raw_output)
+    assert result.input_closure.applicability == "required"
+    assert result.input_closure.blocking_axes == ["source_locator"]
+
+
+def test_input_closure_applicability_defaults_to_required() -> None:
+    """Schema default guard: a freshly-constructed InputClosureContract
+    with no override must carry ``applicability='required'`` so every
+    legacy path keeps behaving exactly as before."""
+    ic = InputClosureContract()
+    assert ic.applicability == "required"
 
 
 # ---------------------------------------------------------------------------

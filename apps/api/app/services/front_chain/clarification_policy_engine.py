@@ -95,6 +95,40 @@ class ClarificationPolicyEngine:
             raise ValueError("max_questions must be >= 0")
         self._max_questions = max_questions
 
+    def select_pf_clarity_question(
+        self,
+        *,
+        clarification_question: str,
+        interpreted_goal: Optional[str] = None,
+    ) -> FrontChainClarificationQuestion:
+        """Build the single free-form PF clarity question.
+
+        Used by the session service when ``intent_clarity != "clear"``.
+        Unlike axis-based questions this one has no ``suggested_options``
+        — the UI should render a plain text input, because the answer
+        shape is unconstrained ("what do you actually want me to do?").
+        """
+        question_text = (
+            clarification_question.strip()
+            if clarification_question
+            else "你希望我具体做什么？请描述你的目标。"
+        )
+        context_hint = (
+            f"当前理解的任务: {interpreted_goal}"
+            if interpreted_goal
+            else "目标尚未明确；需要先搞清楚你要做什么才能继续。"
+        )
+        return FrontChainClarificationQuestion(
+            question_id="q_problem_formulation_intent_clarity",
+            axis="intent_clarity",
+            layer="problem_formulation",
+            severity="blocking",
+            question_text=question_text,
+            priority=0,
+            context_hint=context_hint,
+            suggested_options=[],
+        )
+
     def select_top_questions(
         self,
         merged_gaps: MergedGapSet,
@@ -107,9 +141,25 @@ class ClarificationPolicyEngine:
         if merged_gaps.total_gap_count == 0:
             return []
 
+        # Staged clarification: problem_formulation is the root of the task
+        # coordinate (what is the target × what kind of problem × does the
+        # system fit?). Until those are locked, asking "where is the data"
+        # or "what format to output" is premature — e.g., a pure generation
+        # task like "draw me a picture" has no data source to ask about.
+        #
+        # Rule: if any blocking gap still sits in the problem_formulation
+        # layer, only emit problem_formulation questions this turn. Input
+        # and output clarifications are deferred until problem_formulation
+        # closes.
+        pf_has_blocking = any(
+            item.layer == "problem_formulation" for item in merged_gaps.blocking
+        )
+
         # blocking is already priority-sorted by the merger (problem > input > output)
         # and review is sorted within its severity bucket. Blocking beats review.
         ordered: list[MergedGapItem] = list(merged_gaps.blocking) + list(merged_gaps.review)
+        if pf_has_blocking:
+            ordered = [item for item in ordered if item.layer == "problem_formulation"]
         seen_axes: set[tuple[str, FrontChainLayerName]] = set()
         questions: list[FrontChainClarificationQuestion] = []
         for priority_index, item in enumerate(ordered, start=1):
