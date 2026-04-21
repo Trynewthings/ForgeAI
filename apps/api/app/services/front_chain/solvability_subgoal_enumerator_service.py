@@ -131,6 +131,21 @@ Rules:
   * Set gap_kind="capability" by default. Only use judgment / approval /
     verification when the subgoal is INHERENTLY human (e.g. "reviewer
     approves before deploy", "judge whether output meets quality bar").
+  * ``input_evidence_kinds`` and ``output_evidence_kinds`` MUST form a
+    producer-consumer chain across adjacent subgoals. If subgoal B needs
+    input X, some earlier subgoal A must declare X in its
+    ``output_evidence_kinds``. Use concise, reusable nouns for kinds
+    (e.g. ``raw_text``, ``parsed_records``, ``analysis_result``) rather
+    than sentence-length descriptions.
+  * When the task naturally splits into multiple independent worklines
+    that re-converge, set ``candidate_shape_hint="dag"``. The downstream
+    planner will then look for two patterns: (a) nodes that share the
+    same upstream and produce disjoint evidence kinds — those are
+    parallelisable branches; (b) a subgoal that consumes evidence kinds
+    produced by two or more earlier subgoals — that is the join point.
+    The enumerator's job is to emit the right evidence-kind graph so
+    the planner can detect both patterns; do NOT emit edges or roles
+    yourself.
 """
 
 

@@ -535,6 +535,28 @@ class FrontChainEvaluationResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class FrontChainPlanResponse(BaseModel):
+    """Response returned by ``POST /front-chain/sessions/{id}/plan``.
+
+    The planner stage is idempotent: the output is persisted back onto the
+    compilable state row it was derived from, so re-calling the endpoint
+    returns the same envelope shape whether or not the planner was actually
+    re-run.
+    """
+
+    session_id: str
+    state_id: str
+    project_id: str
+    requirement_id: Optional[str] = None
+    planner_version: str = "workflow_planner_v1"
+    compile_context_version: Optional[str] = None
+    # Keep the payload serialized-dict shaped rather than strictly typed on
+    # the wire so older clients that don't know about every new planner
+    # field still parse cleanly. The authoritative schema is
+    # ``WorkflowPlannerOutput`` in ``app.schemas.workflow_planner``.
+    planner_output: dict[str, Any]
+
+
 class FrontChainCompileResponse(BaseModel):
     """Response returned by /front-chain/states/{state_id}/compile.
 

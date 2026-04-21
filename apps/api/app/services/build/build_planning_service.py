@@ -1,29 +1,62 @@
-"""Phase 2 stub: the old ``ExecutableBuildPlanningService`` depended on the
-legacy ``requirement.compiler`` subpackage, which was deleted when the
-front-chain v2 pipeline took over the session main path.
+"""Build-planning service: thin mount point for the workflow planner.
 
-Blueprint / Build / Run downstream migration is out of scope for Phase 2.
-Until those flows are rewritten to consume ``CompileContextResponse``
-directly (or via a new v2 planning service), the build-planning step is a
-clear NotImplementedError — the surrounding build code still imports this
-module, but any attempt to plan raises.
+After the front-chain v2 migration, the build-planning stage is no longer
+coupled to the legacy ``requirement.compiler`` subpackage. The planner
+directly consumes the ``CompileContextResponse`` stored on the latest
+compilable ``FrontChainState`` for a session. This module is the API
+surface the REST route (and the old build pipeline, if it re-enters this
+path) calls into; it delegates to ``WorkflowPlannerService.plan_for_session``.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
+
+from sqlalchemy.orm import Session
+
+from app.db.models import FrontChainState
+from app.schemas.workflow_planner import WorkflowPlannerOutput
+from app.services.workflow_planner_service import (
+    WorkflowPlannerCompileContextMissingError,
+    WorkflowPlannerService,
+    WorkflowPlannerSessionNotFoundError,
+)
 
 
 class ExecutableBuildPlanningService:
-    """Stub. The v1 implementation was deleted in Phase 2."""
+    """Build-planning stage: mounts ``WorkflowPlannerService.plan_for_session``.
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
-        self._args = args
-        self._kwargs = kwargs
+    Callers pass the front-chain ``session_id``. The service fetches the
+    latest state whose ``compile_context_json`` is populated and runs the
+    planner against it. The underlying planner persists its output onto
+    that same state row so repeat calls are idempotent.
+    """
 
-    def plan(self, *args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError(
-            "ExecutableBuildPlanningService was removed in Phase 2 of the "
-            "front-chain migration. The Build pipeline needs to be rewritten "
-            "to consume CompileContextResponse directly. See the Phase 2 "
-            "plan in .claude/plans for scope notes."
+    def __init__(
+        self,
+        db: Session,
+        *,
+        project_id: Optional[str] = None,
+        planner: Optional[WorkflowPlannerService] = None,
+    ) -> None:
+        self._db = db
+        self._project_id = project_id
+        self._planner = planner or WorkflowPlannerService()
+
+    def plan(
+        self,
+        session_id: str,
+        *,
+        persist: bool = True,
+    ) -> tuple[WorkflowPlannerOutput, FrontChainState]:
+        return self._planner.plan_for_session(
+            session_id,
+            db=self._db,
+            persist=persist,
         )
+
+
+__all__ = [
+    "ExecutableBuildPlanningService",
+    "WorkflowPlannerCompileContextMissingError",
+    "WorkflowPlannerSessionNotFoundError",
+]

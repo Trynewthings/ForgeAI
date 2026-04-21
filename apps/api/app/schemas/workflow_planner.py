@@ -147,6 +147,16 @@ class WorkflowPlannerNodeDraft(BaseModel):
         description="Planner confidence 0-100 for this node. None means not assessed.",
     )
     planner_notes: list[str] = Field(default_factory=list)
+    planner_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "First-class machine-readable metadata bag consumed by downstream "
+            "stages (materialization resolver, scheduler, manifest builder). "
+            "Keys are documented by the Literal constants in "
+            "``app.services.workflow_planner.runtime_field_enricher`` — "
+            "consumers MUST reference those constants, not raw strings."
+        ),
+    )
 
 
 class WorkflowPlannerEdgeDraft(BaseModel):
@@ -161,6 +171,10 @@ class WorkflowPlannerEdgeDraft(BaseModel):
         description="Why this edge exists: 'primary_data_flow', 'evidence_dependency', 'control_sequence', etc.",
     )
     payload_mapping: dict[str, str] = Field(default_factory=dict)
+    planner_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Companion metadata bag; same contract as node.planner_metadata.",
+    )
 
 
 # ---------------------------------------------------------------------------

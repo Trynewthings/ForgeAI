@@ -26,6 +26,7 @@ from app.schemas.front_chain import (
     FrontChainEvaluationResponse,
     FrontChainInterpretationRequest,
     FrontChainInterpretationResponse,
+    FrontChainPlanResponse,
     FrontChainSessionCreateRequest,
     FrontChainSessionResponse,
     FrontChainSessionSummary,
@@ -33,6 +34,7 @@ from app.schemas.front_chain import (
     FrontChainSessionTurnResponse,
     FrontChainStateResponse,
 )
+from app.services.build.build_planning_service import ExecutableBuildPlanningService
 from app.services.front_chain.front_chain_session_service import (
     FrontChainSessionNotFoundError,
     FrontChainSessionService,
@@ -42,6 +44,11 @@ from app.services.front_chain.front_chain_state_service import (
     FrontChainStateNotEvaluatedError,
     FrontChainStateNotFoundError,
     FrontChainStateService,
+)
+from app.services.workflow_planner_service import (
+    PLANNER_VERSION,
+    WorkflowPlannerCompileContextMissingError,
+    WorkflowPlannerSessionNotFoundError,
 )
 
 router = APIRouter(prefix="/front-chain", tags=["front-chain"])
@@ -171,6 +178,52 @@ def compile_front_chain_state(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+
+@router.post(
+    "/sessions/{session_id}/plan",
+    response_model=FrontChainPlanResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def plan_front_chain_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+) -> FrontChainPlanResponse:
+    """Planning stage: run the workflow planner against the session's latest
+    compiled authority.
+
+    Mounts ``WorkflowPlannerService.plan_for_session`` via
+    ``ExecutableBuildPlanningService``. The planner consumes the
+    ``CompileContextResponse`` stored on the most recent compilable
+    ``FrontChainState`` for this session — no Blueprint required. The
+    resulting ``WorkflowPlannerOutput`` is persisted back onto the same
+    state row so subsequent calls are idempotent.
+    """
+    try:
+        output, row = ExecutableBuildPlanningService(db).plan(session_id)
+    except WorkflowPlannerSessionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"front_chain session not found: {exc}",
+        ) from exc
+    except WorkflowPlannerCompileContextMissingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "session has no compiled state yet — finish the compile "
+                f"stage before planning (session_id={exc})"
+            ),
+        ) from exc
+    db.commit()
+    return FrontChainPlanResponse(
+        session_id=session_id,
+        state_id=row.id,
+        project_id=row.project_id,
+        requirement_id=row.requirement_id,
+        planner_version=row.planner_version or PLANNER_VERSION,
+        compile_context_version=row.compile_version,
+        planner_output=output.model_dump(mode="json"),
+    )
 
 
 @router.get("/states/{state_id}", response_model=FrontChainStateResponse)

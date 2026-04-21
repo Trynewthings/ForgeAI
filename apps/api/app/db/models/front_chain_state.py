@@ -87,6 +87,12 @@ class FrontChainState(Base):
     compile_context_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     compile_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
+    # Planning stage — populated when the build-planning endpoint mounts
+    # ``WorkflowPlannerService.plan_for_session`` against the latest
+    # compilable state for a session. NULL on all earlier stages.
+    planner_output_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    planner_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     interpreter_version: Mapped[str] = mapped_column(String(64), nullable=False)
     validator_version: Mapped[str] = mapped_column(String(64), nullable=False)
 
