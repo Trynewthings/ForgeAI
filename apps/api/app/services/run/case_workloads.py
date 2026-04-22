@@ -2889,3 +2889,80 @@ def _coding_agent_workspace(*, run_id: str, step_name: str) -> Path:
     """Return a deterministic per-run / per-step workspace path under ROOT_DIR."""
     safe_step = re.sub(r"[^a-zA-Z0-9_.-]+", "_", step_name or "step") or "step"
     return (ROOT_DIR / ".generated" / "coding_agent" / str(run_id) / safe_step).resolve()
+
+
+def execute_verify_workload(
+    *,
+    step_name: str,
+    previous_outputs_by_step: dict[str, dict[str, Any]],
+    args: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run a deterministic verifier obligation and return a structured outcome.
+
+    Dispatches the obligation's ``checks`` list through the verifier
+    family and returns the aggregated ``VerifierResult`` under
+    ``structured_output.verifier_result``. The workload signals failure
+    via the ``status`` field (``completed`` on pass, ``failed`` otherwise)
+    — the runtime layer turns that into a scheduler-consumable failure.
+    """
+    from app.schemas.verification_obligation import VerificationObligation
+    from app.services.run.verifiers import VerifierContext, run_verifier
+
+    args = args or {}
+    raw_obligation = args.get("obligation")
+    if not isinstance(raw_obligation, dict):
+        return {
+            "step_name": step_name,
+            "summary": "verify: missing obligation",
+            "structured_output": {
+                "verifier_result": {
+                    "status": "verifier_error",
+                    "summary": "No obligation payload in verify step args.",
+                    "check_results": [],
+                    "blocking_issues": ["missing_obligation"],
+                }
+            },
+            "content": "verify: missing obligation payload",
+            "adapter": "deterministic_verifier",
+            "capability_family": "verify",
+            "status": "failed",
+        }
+
+    obligation = VerificationObligation.model_validate(raw_obligation)
+    workspace_dir = args.get("workspace_dir")
+    declared = args.get("declared_artifact_locators") or []
+    target_step = args.get("target_step")
+    target_step_output = (
+        previous_outputs_by_step.get(target_step) if target_step else None
+    )
+    target_artifact_locator = obligation.target_artifact_locator
+    if not target_artifact_locator and isinstance(target_step_output, dict):
+        structured = target_step_output.get("structured_output") or {}
+        candidate = structured.get("primary_output_path") or structured.get("path")
+        if isinstance(candidate, str) and candidate:
+            target_artifact_locator = candidate
+
+    context = VerifierContext(
+        obligation=obligation,
+        workspace_dir=Path(str(workspace_dir)) if workspace_dir else None,
+        declared_artifact_locators=[str(loc) for loc in declared if loc],
+        target_step_output=target_step_output if isinstance(target_step_output, dict) else None,
+        target_artifact_locator=target_artifact_locator,
+    )
+    result = run_verifier(obligation, context)
+    completed = result.status in {"passed"}
+    status_flag = "completed" if completed else "failed"
+    summary = result.summary or f"verifier status={result.status}"
+    return {
+        "step_name": step_name,
+        "summary": summary,
+        "structured_output": {
+            "verifier_result": result.model_dump(mode="python"),
+            "obligation_id": obligation.obligation_id,
+            "obligation_type": obligation.obligation_type,
+        },
+        "content": summary,
+        "adapter": "deterministic_verifier",
+        "capability_family": "verify",
+        "status": status_flag,
+    }

@@ -41,6 +41,7 @@ from app.services.run.case_workloads import (
     execute_python_workload,
     execute_terminal_workload,
     execute_template_runtime_workload,
+    execute_verify_workload,
     execute_web_search_workload,
 )
 from app.services.run.scheduler import (
@@ -880,6 +881,49 @@ class RunExecutionService:
                 raise RuntimeError(
                     f"coding_agent step '{step.step_name}' failed: "
                     f"{output_payload.get('structured_output', {}).get('failure_kind')}"
+                )
+            return output_payload, None, []
+
+        if step_type == "verify":
+            output_payload = execute_verify_workload(
+                step_name=step.step_name,
+                previous_outputs_by_step=previous_outputs_by_step,
+                args=step_definition.get("args") if isinstance(step_definition.get("args"), dict) else {},
+            )
+            verifier_status = (
+                (output_payload.get("structured_output") or {})
+                .get("verifier_result", {})
+                .get("status")
+            )
+            output_payload.update(
+                {
+                    "step_type": step_type,
+                    "selected_capability_id": step_definition.get("selected_capability_id"),
+                    "runtime_adapter": step_definition.get("runtime_adapter") or "deterministic_verifier",
+                    "handler_ref": step_definition.get("handler_ref") or "session_anchored_verify",
+                    "provider": "deterministic_verifier",
+                    "model_name": "deterministic_verifier",
+                    "mode": "deterministic",
+                    "fallback_used": False,
+                    "failure_class": (
+                        None
+                        if output_payload.get("status") == "completed"
+                        else f"verifier_{verifier_status or 'failed'}"
+                    ),
+                    "retry_attempts": 0,
+                    **semantic_fields,
+                }
+            )
+            if output_payload.get("status") == "failed":
+                # Raising routes the step through the scheduler's
+                # failure path (RunStepStatus.FAILED + intervention
+                # escalation), which is how every other deterministic
+                # workload signals a hard failure. The structured
+                # ``verifier_result`` remains in the output payload so
+                # post-mortem / UI can explain *why* we failed.
+                raise RuntimeError(
+                    f"verify step '{step.step_name}' failed: "
+                    f"{output_payload.get('summary') or verifier_status}"
                 )
             return output_payload, None, []
 

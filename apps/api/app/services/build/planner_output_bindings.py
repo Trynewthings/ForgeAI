@@ -32,6 +32,11 @@ from typing import Any, Optional
 
 from app.schemas.executable_manifest import ExecutionPackageBinding
 from app.schemas.requirement_compiler import CompileContextResponse
+from app.schemas.verification_obligation import (
+    META_VERIFICATION_OBLIGATION,
+    VerificationCheckSpec,
+    VerificationObligation,
+)
 from app.schemas.workflow_planner import (
     WorkflowPlannerNodeDraft,
     WorkflowPlannerOutput,
@@ -48,6 +53,7 @@ from app.services.workflow_planner.runtime_field_enricher import (
 CODING_AGENT_CAPABILITY_ID = "coding_agent"
 FILESYSTEM_READ_CAPABILITY_ID = "filesystem_read"
 FILESYSTEM_WRITE_CAPABILITY_ID = "filesystem_write"
+VALIDATE_SCHEMA_CAPABILITY_ID = "validate_schema"
 
 _SESSION_RUNNABLE_IDS = {
     CODING_AGENT_CAPABILITY_ID,
@@ -55,18 +61,20 @@ _SESSION_RUNNABLE_IDS = {
     FILESYSTEM_WRITE_CAPABILITY_ID,
 }
 
-# Capabilities that the planner's constraint_enforcer auto-inserts
-# around side-effect nodes (a ``human_review_gate`` before any persist
-# step, a ``validate_schema`` after it). The session-anchored slice is
-# an automated data-chain runtime — no interactive reviewer — so these
-# nodes are filtered OUT of the executable entirely. Keeping them
-# would sink preflight (blocked bindings → execution_package_blocked)
-# AND block the natural transformation spine from executing. The
-# planner's surface still records that they existed; the session-
-# anchored executable just doesn't schedule them.
+# The ``verify_after_<target>`` node id prefix that the planner's
+# constraint_enforcer uses. Used to parse the target node id when
+# deriving a verification obligation at adapter time.
+_VERIFY_NODE_ID_PREFIX = "verify_after_"
+
+# Capabilities that the planner's constraint_enforcer auto-inserts but
+# which the session-anchored slice still doesn't execute. Today this is
+# only the human review gate — the session-anchored slice is an
+# automated data-chain runtime with no interactive reviewer. The
+# auto-inserted ``validate_schema`` (verify) nodes used to live here
+# too, but the slice now binds them to a deterministic verifier workload
+# and executes them as first-class runnable nodes.
 _AUTO_INSERTED_SKIPPABLE_IDS = {
     "human_review_gate",
-    "validate_schema",
 }
 
 
@@ -323,6 +331,159 @@ def _filesystem_write_binding(
     )
 
 
+def _is_verify_node(node: WorkflowPlannerNodeDraft) -> bool:
+    """Planner auto-inserted verify nodes carry ``semantic_type='verify'``.
+
+    We match on semantic_type (not capability id) so any verifier
+    capability the planner picks still routes through this path — the
+    semantic contract is "check the upstream node's output", not a
+    specific implementation.
+    """
+    if node.node_semantic_type == "verify":
+        return True
+    # Fallback: the auto-inserted id prefix is stable and used as a
+    # second signal when semantic_type was overridden.
+    return node.draft_node_id.startswith(_VERIFY_NODE_ID_PREFIX)
+
+
+def _target_draft_id_for_verify(node: WorkflowPlannerNodeDraft) -> Optional[str]:
+    if node.draft_node_id.startswith(_VERIFY_NODE_ID_PREFIX):
+        return node.draft_node_id[len(_VERIFY_NODE_ID_PREFIX) :]
+    # A future planner may set upstream_dependencies for verify nodes
+    # directly; honour that as a secondary signal.
+    if node.upstream_dependencies:
+        return str(node.upstream_dependencies[0])
+    return None
+
+
+def _derive_obligation(
+    *,
+    verify_node: WorkflowPlannerNodeDraft,
+    target_locator: Optional[str],
+    target_is_fs_write: bool,
+) -> VerificationObligation:
+    """Default obligation for an auto-inserted verify node.
+
+    The planner today only signals *that* verification is required; it
+    doesn't yet describe *what* to check. The build layer fills in a
+    conservative deterministic obligation: the target's declared output
+    must exist at the declared locator, side-effect compliance must
+    hold against the workspace, and if the locator is CSV we also
+    assert a tabular contract with at least one row.
+
+    A custom obligation can override this by being stamped on
+    ``planner_metadata[META_VERIFICATION_OBLIGATION]``; the adapter
+    passes it through verbatim.
+    """
+    override = verify_node.planner_metadata.get(META_VERIFICATION_OBLIGATION)
+    if isinstance(override, dict) and override:
+        try:
+            return VerificationObligation.model_validate(override)
+        except Exception:
+            # Fall through to default on malformed override.
+            pass
+
+    checks: list[VerificationCheckSpec] = []
+    obligation_id = f"obligation_{verify_node.draft_node_id}"
+
+    if target_locator:
+        checks.append(
+            VerificationCheckSpec(
+                check_id=f"{obligation_id}_locator",
+                check_type="output_locator",
+                params={"expected_locator": target_locator},
+            )
+        )
+        checks.append(
+            VerificationCheckSpec(
+                check_id=f"{obligation_id}_exists",
+                check_type="output_exists",
+                params={"path": target_locator, "allow_empty": False},
+            )
+        )
+        if target_locator.lower().endswith(".csv"):
+            checks.append(
+                VerificationCheckSpec(
+                    check_id=f"{obligation_id}_tabular",
+                    check_type="tabular_contract",
+                    params={
+                        "path": target_locator,
+                        "min_rows": 1,
+                        "require_header": True,
+                    },
+                )
+            )
+
+    checks.append(
+        VerificationCheckSpec(
+            check_id=f"{obligation_id}_side_effect",
+            check_type="side_effect_compliance",
+            params={},
+        )
+    )
+
+    return VerificationObligation(
+        obligation_id=obligation_id,
+        obligation_type="output_contract" if target_is_fs_write else "output_contract",
+        target_node_id=_target_draft_id_for_verify(verify_node),
+        target_artifact_locator=target_locator,
+        checks=checks,
+        failure_policy="fail",
+        deterministic_required=True,
+        description=verify_node.semantic_goal or "Verify upstream output contract.",
+    )
+
+
+def _verify_binding(
+    *,
+    node: WorkflowPlannerNodeDraft,
+    step_name: str,
+    obligation: VerificationObligation,
+    target_step_name: Optional[str],
+    workspace: Optional[str],
+    declared_artifact_locators: Optional[list[str]] = None,
+) -> ExecutionPackageBinding:
+    """Emit a runnable verify binding backed by the deterministic verifier.
+
+    Execution kind ``"verify"`` is the dispatch hook the resolver and
+    the runtime both key off. Config hints carry the serialized
+    obligation + upstream target pointers so the runtime can pull the
+    artifact without re-walking the planner output.
+    """
+    config_hints: dict[str, Any] = {
+        "obligation": obligation.model_dump(mode="python"),
+    }
+    if target_step_name:
+        config_hints["target_step"] = target_step_name
+    if workspace:
+        config_hints["workspace_dir"] = workspace
+    if declared_artifact_locators:
+        config_hints["declared_artifact_locators"] = list(declared_artifact_locators)
+
+    return ExecutionPackageBinding(
+        step_name=step_name,
+        logical_step_kind=node.node_semantic_type,
+        selected_capability_id=VALIDATE_SCHEMA_CAPABILITY_ID,
+        source_kind="static_registry",
+        source_ref=VALIDATE_SCHEMA_CAPABILITY_ID,
+        execution_kind="verify",
+        runtime_adapter="deterministic_verifier",
+        handler_ref="session_anchored_verify",
+        action_kind="verify",
+        config_contract_summary=(
+            "Run deterministic verifier checks against the upstream "
+            "target's declared output contract. Returns a structured "
+            "VerifierResult that the runtime uses for pass/fail routing."
+        ),
+        config_hints=config_hints,
+        requires_confirmation=False,
+        policy_scope="workspace",
+        review_status="recommended",
+        binding_status="runnable",
+        runnable=True,
+    )
+
+
 def _passthrough_unbound_binding(
     *,
     node: WorkflowPlannerNodeDraft,
@@ -411,6 +572,10 @@ def bindings_from_planner_output(
     }
     last_coding_agent_step_name: str | None = None
     last_coding_agent_step_name_trace: str | None = None
+    # draft_node_id → {"step_name", "capability_id", "output_locator"}
+    # populated as upstream bindings are emitted so a downstream verify
+    # node can look up its target's declared output locator.
+    target_binding_info: dict[str, dict[str, Any]] = {}
 
     for node in scheduled_nodes:
         step = build_step_dict(node)
@@ -459,6 +624,11 @@ def bindings_from_planner_output(
             )
             last_coding_agent_step_name = step_name
             last_coding_agent_step_name_trace = step_name
+            target_binding_info[node.draft_node_id] = {
+                "step_name": step_name,
+                "capability_id": CODING_AGENT_CAPABILITY_ID,
+                "output_locator": ca_output,
+            }
         elif capability_id == FILESYSTEM_READ_CAPABILITY_ID and source_locator:
             bindings.append(
                 _filesystem_read_binding(
@@ -468,6 +638,11 @@ def bindings_from_planner_output(
                     workspace=workspace,
                 )
             )
+            target_binding_info[node.draft_node_id] = {
+                "step_name": step_name,
+                "capability_id": FILESYSTEM_READ_CAPABILITY_ID,
+                "output_locator": source_locator,
+            }
         elif capability_id == FILESYSTEM_WRITE_CAPABILITY_ID and output_locator:
             bindings.append(
                 _filesystem_write_binding(
@@ -476,6 +651,40 @@ def bindings_from_planner_output(
                     path=output_locator,
                     source_step_name=last_coding_agent_step_name_trace,
                     workspace=workspace,
+                )
+            )
+            target_binding_info[node.draft_node_id] = {
+                "step_name": step_name,
+                "capability_id": FILESYSTEM_WRITE_CAPABILITY_ID,
+                "output_locator": output_locator,
+            }
+        elif _is_verify_node(node):
+            target_draft_id = _target_draft_id_for_verify(node)
+            target_info = target_binding_info.get(target_draft_id) if target_draft_id else None
+            target_step_name = target_info["step_name"] if target_info else None
+            target_locator = target_info["output_locator"] if target_info else None
+            target_is_fs_write = bool(
+                target_info and target_info["capability_id"] == FILESYSTEM_WRITE_CAPABILITY_ID
+            )
+            obligation = _derive_obligation(
+                verify_node=node,
+                target_locator=target_locator,
+                target_is_fs_write=target_is_fs_write,
+            )
+            bindings.append(
+                _verify_binding(
+                    node=node,
+                    step_name=step_name,
+                    obligation=obligation,
+                    target_step_name=target_step_name,
+                    workspace=workspace,
+                    declared_artifact_locators=sorted(
+                        {
+                            loc
+                            for info in target_binding_info.values()
+                            for loc in ([info["output_locator"]] if info["output_locator"] else [])
+                        }
+                    ),
                 )
             )
         else:

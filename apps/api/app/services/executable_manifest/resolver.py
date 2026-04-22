@@ -424,6 +424,18 @@ class ExecutableManifestResolver:
                 "args": dict(binding.config_hints or {}),
                 "selected_capability_id": binding.selected_capability_id,
             }
+        if binding.execution_kind == "verify":
+            return {
+                **base,
+                "step_type": "verify",
+                "handler_ref": binding.handler_ref or "session_anchored_verify",
+                "runtime_adapter": binding.runtime_adapter or "deterministic_verifier",
+                "args": dict(binding.config_hints or {}),
+                "selected_capability_id": binding.selected_capability_id,
+                "action_kind": binding.action_kind or "verify",
+                "policy_scope": binding.policy_scope,
+                "timeout_seconds": binding.timeout_seconds,
+            }
         if binding.execution_kind in {"web_search", "network_fetch", "filesystem", "terminal_command", "browser_interaction", "template_runtime"}:
             return {
                 **base,

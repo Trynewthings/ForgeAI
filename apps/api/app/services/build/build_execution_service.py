@@ -475,7 +475,7 @@ class BuildExecutionService:
                 bindings_source="bindings.json",
                 package_metadata_source="package_metadata.json",
                 asset_index_source=None,
-                supported_execution_kinds=["sandboxed_script", "filesystem", "blocked"],
+                supported_execution_kinds=["sandboxed_script", "filesystem", "verify", "blocked"],
                 runnable_step_names=runnable_binding_names,
                 blocked_step_names=blocked_binding_names,
                 review_required_step_names=[

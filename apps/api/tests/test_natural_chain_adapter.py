@@ -42,12 +42,13 @@ def _node(
     step_slug: str,
     capability_id: str,
     goal: str = "",
+    node_semantic_type: str = "transform",
 ) -> WorkflowPlannerNodeDraft:
     return WorkflowPlannerNodeDraft(
         draft_node_id=draft_id,
         step_name=step_slug,
         node_name=step_slug,
-        node_semantic_type="transform",
+        node_semantic_type=node_semantic_type,
         semantic_goal=goal,
         preferred_capability_ids=[capability_id],
         candidate_capability_ids=[capability_id],
@@ -173,11 +174,23 @@ def test_filesystem_nodes_without_compile_context_stay_blocked() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_auto_inserted_gate_and_verify_nodes_are_filtered_from_bindings(tmp_path: Path) -> None:
+def test_human_gate_still_filtered_but_verify_survives(tmp_path: Path) -> None:
+    """Slice contract after verify enablement:
+    * ``human_review_gate`` stays filtered (session-anchored slice has
+      no interactive reviewer).
+    * A real verify node (``semantic_type='verify'`` with the
+      ``verify_after_`` id prefix) survives as a runnable verify
+      binding — no longer silently dropped.
+    """
     nodes = [
         _node(draft_id="n1", step_slug="transform_step", capability_id="coding_agent"),
         _node(draft_id="n2", step_slug="human_gate_before", capability_id="human_review_gate"),
-        _node(draft_id="n3", step_slug="verify_after", capability_id="validate_schema"),
+        _node(
+            draft_id="verify_after_n1",
+            step_slug="verify_after_n1",
+            capability_id="validate_schema",
+            node_semantic_type="verify",
+        ),
     ]
     ctx = _compile_context(
         source_locator=str(tmp_path / "in.csv"),
@@ -186,11 +199,22 @@ def test_auto_inserted_gate_and_verify_nodes_are_filtered_from_bindings(tmp_path
     steps, bindings = bindings_from_planner_output(
         _planner_output(nodes), compile_context=ctx
     )
-    # Only the coding_agent step should survive — the auto-inserted
-    # gate / verify nodes are filtered so preflight doesn't halt on them.
-    assert len(bindings) == 1
-    assert len(steps) == 1
-    assert bindings[0].selected_capability_id == CODING_AGENT_CAPABILITY_ID
+    # human_review_gate still filtered; coding_agent + verify survive.
+    assert len(bindings) == 2
+    assert len(steps) == 2
+    assert [b.selected_capability_id for b in bindings] == [
+        CODING_AGENT_CAPABILITY_ID,
+        "validate_schema",
+    ]
+    verify_binding = bindings[1]
+    assert verify_binding.execution_kind == "verify"
+    assert verify_binding.runnable is True
+    # Obligation gets embedded in config_hints for the runtime workload.
+    assert "obligation" in verify_binding.config_hints
+    obligation = verify_binding.config_hints["obligation"]
+    assert obligation["target_node_id"] == "n1"
+    assert any(c["check_type"] == "output_locator" for c in obligation["checks"])
+    assert any(c["check_type"] == "side_effect_compliance" for c in obligation["checks"])
 
 
 # ---------------------------------------------------------------------------
