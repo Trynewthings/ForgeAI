@@ -64,6 +64,13 @@ class ShapeProposal:
     parallel_candidates: list[list[str]] = field(default_factory=list)
     # subgoal_id → index into that subgoal's binder pool
     capability_choice: dict[str, int] = field(default_factory=dict)
+    # Conditional branches the LLM detected in the task but that the
+    # planner does NOT currently represent. Each entry is a free-form
+    # dict: {"condition": "...", "then_subgoal_ids": [...],
+    # "else_subgoal_ids": [...], "reason": "..."}. Surfaced as
+    # unresolved_items so the user knows the if/else semantics was
+    # linearised away.
+    detected_conditional_branches: list[dict[str, Any]] = field(default_factory=list)
     reasoning_summary: str = ""
     failed: bool = False
     fallback_reason: Optional[str] = None
@@ -88,8 +95,16 @@ Hard rules:
 5. NEVER emit edges, payload_mapping, semantic_role, node ids, or \
    entry/exit sets — those are produced downstream. Only output \
    node_order / dependency_hints / inserted_node_suggestions / \
-   parallel_candidates / capability_choice / reasoning_summary.
-6. Respond with raw JSON only — no markdown fence, no prose.
+   parallel_candidates / capability_choice / reasoning_summary / \
+   detected_conditional_branches.
+6. IF the user's task has explicit if/then/else branching (e.g. "如果 X \
+   则 Y 否则 Z" / "when condition X branch to Y"), you MUST record it in \
+   ``detected_conditional_branches`` even though the planner will \
+   linearise it. The downstream service uses this to surface an \
+   ``unresolved_items`` warning to the user. Never silently drop \
+   conditional semantics. Each entry must reference only the \
+   subgoal_ids from the input list.
+7. Respond with raw JSON only — no markdown fence, no prose.
 """
 
 
@@ -123,6 +138,9 @@ Produce JSON matching this schema:
   ],
   "parallel_candidates": [["<sg_id>", "<sg_id>"]],
   "capability_choice": {{"<sg_id>": 0}},
+  "detected_conditional_branches": [
+    {{"condition": "row count > 10000", "then_subgoal_ids": ["sg_2"], "else_subgoal_ids": ["sg_3"], "reason": "..."}}
+  ],
   "reasoning_summary": "..."
 }}
 """
@@ -414,6 +432,34 @@ def _parse_and_normalize(
         if 0 <= int_idx < len(pool.candidate_pool):
             capability_choice[sg_id] = int_idx
 
+    # Whitelisted conditional branch detection. Keep entries that
+    # reference only real subgoal_ids; drop malformed ones silently.
+    detected_conditionals: list[dict[str, Any]] = []
+    for entry in payload.get("detected_conditional_branches") or []:
+        if not isinstance(entry, dict):
+            continue
+        condition = str(entry.get("condition") or "").strip()
+        then_ids = [
+            str(x).strip()
+            for x in (entry.get("then_subgoal_ids") or [])
+            if isinstance(x, (str, int)) and str(x).strip() in valid_sg_ids
+        ]
+        else_ids = [
+            str(x).strip()
+            for x in (entry.get("else_subgoal_ids") or [])
+            if isinstance(x, (str, int)) and str(x).strip() in valid_sg_ids
+        ]
+        if not condition or (not then_ids and not else_ids):
+            continue
+        detected_conditionals.append(
+            {
+                "condition": condition,
+                "then_subgoal_ids": then_ids,
+                "else_subgoal_ids": else_ids,
+                "reason": str(entry.get("reason") or "") or None,
+            }
+        )
+
     # Stash the original inserted_suggestions_sg form on the proposal so
     # the service can resolve subgoal_id → draft_node_id after the
     # subgoal→node id mapping is computed.
@@ -422,6 +468,7 @@ def _parse_and_normalize(
         inserted_node_suggestions=[],  # filled by service once IDs exist
         parallel_candidates=parallel_candidates,
         capability_choice=capability_choice,
+        detected_conditional_branches=detected_conditionals,
         reasoning_summary=str(payload.get("reasoning_summary") or ""),
     )
     proposal.trace = {"raw_inserted_suggestions_sg": inserted_suggestions_sg}
@@ -473,6 +520,7 @@ def _mock_raw_response(
             "inserted_node_suggestions": inserted,
             "parallel_candidates": [],
             "capability_choice": capability_choice,
+            "detected_conditional_branches": [],
             "reasoning_summary": "Mock deterministic shape (linear + write-gating).",
         }
     )

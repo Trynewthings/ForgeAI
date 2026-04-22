@@ -199,6 +199,24 @@ class ContractUpdateEngine:
             if "output_closure" not in changed_layers:
                 changed_layers.append("output_closure")
 
+        # Always reconcile input/output closure_status against the
+        # current axes + resolved canonical field, even when the per-
+        # layer patcher wasn't invoked for this turn. The interpreter
+        # can leave a contract stamped ``input_proposable_with_review``
+        # on turn 1 while never re-asking; without this sweep the
+        # session-orchestrator gate never sees ``input_closed`` and the
+        # pipeline stalls in ``open but no questions``.
+        ic_final = _reconcile_input_closure_status(new_input)
+        if ic_final is not new_input:
+            new_input = ic_final
+            if "input_closure" not in changed_layers:
+                changed_layers.append("input_closure")
+        oc_final = _reconcile_output_closure_status(new_output)
+        if oc_final is not new_output:
+            new_output = oc_final
+            if "output_closure" not in changed_layers:
+                changed_layers.append("output_closure")
+
         return ContractUpdateResult(
             problem_formulation=new_problem,
             input_closure=new_input,
@@ -263,7 +281,14 @@ def _patch_problem_formulation(
             if idx < len(blocking_reasons):
                 blocking_reasons.pop(idx)
             mutated = True
-        review_axes = [a for a in review_axes if a != axis]
+        # When the LLM inferred a value and flagged it as review, the user
+        # confirming the same value must still drop the review gap. Without
+        # marking ``mutated`` here, the function would short-circuit to the
+        # unchanged contract and the review axis would loop indefinitely.
+        new_review_axes = [a for a in review_axes if a != axis]
+        if len(new_review_axes) != len(review_axes):
+            review_axes = new_review_axes
+            mutated = True
         new_required_decisions = [d for d in required_decisions if d.get("axis") != axis]
         if len(new_required_decisions) != len(required_decisions):
             required_decisions = new_required_decisions
@@ -328,12 +353,33 @@ def _patch_input_closure(
         if axis in blocking_axes:
             blocking_axes = [a for a in blocking_axes if a != axis]
             mutated = True
-        review_axes = [a for a in review_axes if a != axis]
+        # Same review-axis confirmation bug as PF: stripping review_axes must
+        # flip ``mutated`` so the rebuilt contract actually reaches the caller.
+        new_review_axes = [a for a in review_axes if a != axis]
+        if len(new_review_axes) != len(review_axes):
+            review_axes = new_review_axes
+            mutated = True
         new_requirements = [r for r in closure_requirements if r.get("axis") != axis]
         if len(new_requirements) != len(closure_requirements):
             closure_requirements = new_requirements
             mutated = True
         applied.append(resolution)
+
+    # Even when no axis field changed, the closure_status may be stale
+    # (e.g. parent state was marked ``input_proposable_with_review`` by
+    # the interpreter LLM and review axes have since been stripped, or
+    # fields got filled in earlier turns but the status was never
+    # recomputed). Always derive the correct status from the current
+    # axes so the downstream session-orchestrator gate can actually
+    # progress to evaluate/compile.
+    desired_status = _recompute_input_closure_status(
+        original_status=contract.closure_status,
+        blocking_axes=blocking_axes,
+        review_axes=review_axes,
+        has_resolved_locator=bool(payload.get("resolved_source_locator")),
+    )
+    if desired_status != payload.get("closure_status"):
+        mutated = True
 
     if not mutated:
         return contract, applied
@@ -384,12 +430,29 @@ def _patch_output_closure(
         if axis in blocking_axes:
             blocking_axes = [a for a in blocking_axes if a != axis]
             mutated = True
-        review_axes = [a for a in review_axes if a != axis]
+        # Output-side mirror of the same review-axis confirmation bug.
+        new_review_axes = [a for a in review_axes if a != axis]
+        if len(new_review_axes) != len(review_axes):
+            review_axes = new_review_axes
+            mutated = True
         new_requirements = [r for r in closure_requirements if r.get("axis") != axis]
         if len(new_requirements) != len(closure_requirements):
             closure_requirements = new_requirements
             mutated = True
         applied.append(resolution)
+
+    # Same rationale as input closure: always reconcile closure_status
+    # against the current axes + deliverable state so stale
+    # "output_proposable_with_review" from the interpreter cannot
+    # outlive its review gaps.
+    desired_status = _recompute_output_closure_status(
+        original_status=contract.closure_status,
+        blocking_axes=blocking_axes,
+        review_axes=review_axes,
+        has_deliverable=bool(payload.get("deliverable_form")),
+    )
+    if desired_status != payload.get("closure_status"):
+        mutated = True
 
     if not mutated:
         return contract, applied
@@ -595,6 +658,38 @@ def _recompute_output_closure_status(
     if has_deliverable:
         return "output_closed"
     return original_status
+
+
+def _reconcile_input_closure_status(
+    contract: InputClosureContract,
+) -> InputClosureContract:
+    desired = _recompute_input_closure_status(
+        original_status=contract.closure_status,
+        blocking_axes=list(contract.blocking_axes or []),
+        review_axes=list(contract.review_axes or []),
+        has_resolved_locator=bool(contract.resolved_source_locator),
+    )
+    if desired == contract.closure_status:
+        return contract
+    payload = contract.model_dump(mode="python")
+    payload["closure_status"] = desired
+    return InputClosureContract.model_validate(payload)
+
+
+def _reconcile_output_closure_status(
+    contract: OutputClosureContract,
+) -> OutputClosureContract:
+    desired = _recompute_output_closure_status(
+        original_status=contract.closure_status,
+        blocking_axes=list(contract.blocking_axes or []),
+        review_axes=list(contract.review_axes or []),
+        has_deliverable=bool(contract.deliverable_form),
+    )
+    if desired == contract.closure_status:
+        return contract
+    payload = contract.model_dump(mode="python")
+    payload["closure_status"] = desired
+    return OutputClosureContract.model_validate(payload)
 
 
 # ---------------------------------------------------------------------------

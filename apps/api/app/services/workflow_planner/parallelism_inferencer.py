@@ -79,7 +79,13 @@ class ParallelismInferencer:
                 subgoal_by_node_id=subgoal_by_node_id,
             ):
                 continue
-            if not _shared_or_empty_downstream(
+            # Siblings are parallel when their downstream subtrees don't
+            # intersect (independent branches all the way to their exits)
+            # OR they share a join downstream. The legacy rule "shared or
+            # empty downstream" was too strict — it missed the common
+            # "three independent terminal writes" pattern (S1 write-heavy
+            # scenario) where each branch has its own gate/verify tail.
+            if not _siblings_run_independently(
                 siblings=siblings, downstream_map=downstream_map
             ):
                 continue
@@ -153,10 +159,78 @@ def _evidence_non_overlap(
 def _shared_or_empty_downstream(
     *, siblings: list[str], downstream_map: dict[str, list[str]]
 ) -> bool:
+    """Legacy rule: siblings share a join OR all are terminal.
+
+    Kept for reference / potential debugging; the authoritative check is
+    ``_siblings_run_independently`` which supersedes it.
+    """
     downstreams = [set(downstream_map.get(nid, [])) for nid in siblings]
     if not any(downstreams):
-        return True  # all terminal — parallel to exit
+        return True
     non_empty = [d for d in downstreams if d]
+    if not non_empty:
+        return True
+    shared = set.intersection(*non_empty)
+    return bool(shared)
+
+
+def _siblings_run_independently(
+    *, siblings: list[str], downstream_map: dict[str, list[str]]
+) -> bool:
+    """Return True when the siblings' downstream subtrees either all
+    converge at a shared join OR run as fully disjoint subtrees.
+
+    Two siblings whose subtrees never intersect are safe to execute in
+    parallel; the scheduler only needs to wait on each subtree's exit
+    independently. The legacy rule rejected this case by requiring a
+    shared join, which mis-classified independent-write scenarios (e.g.
+    "write CSV" + "send email" + "write markdown" from the same
+    upstream) as sequential.
+
+    Rule:
+        1. All siblings terminal → parallel (no further work).
+        2. Compute transitive descendants for each sibling. If every
+           pair of descendant sets is disjoint → parallel.
+        3. If all non-empty descendant sets share at least one node
+           (a join point) → parallel.
+        4. Otherwise (partial overlap without full convergence) →
+           reject; mixing subtrees makes scheduling fragile.
+    """
+    if not siblings:
+        return False
+    if len(siblings) < 2:
+        return False
+
+    descendants: list[set[str]] = []
+    for nid in siblings:
+        seen: set[str] = set()
+        stack = list(downstream_map.get(nid, []))
+        while stack:
+            node = stack.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            stack.extend(downstream_map.get(node, []))
+        descendants.append(seen)
+
+    if not any(descendants):
+        return True  # All terminal.
+
+    # Pairwise disjoint?
+    disjoint = True
+    for i in range(len(descendants)):
+        for j in range(i + 1, len(descendants)):
+            if descendants[i] & descendants[j]:
+                disjoint = False
+                break
+        if not disjoint:
+            break
+    if disjoint:
+        return True
+
+    # Fallback to legacy "shared join" check: all non-empty descendant
+    # sets must share at least one node.
+    non_empty = [d for d in descendants if d]
     if not non_empty:
         return True
     shared = set.intersection(*non_empty)

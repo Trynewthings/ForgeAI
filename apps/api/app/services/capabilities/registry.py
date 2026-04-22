@@ -380,6 +380,18 @@ CAPABILITIES: list[CapabilityDefinition] = [
         semantic_purpose="Read bounded local source material into the workflow evidence chain.",
         semantic_role="evidence_source",
         produces_evidence_types=["local.content", "data.table.raw"],
+        # Declare the modality family so the planner's source-aware
+        # capability binder can pick filesystem_read for local CSV / JSON
+        # / text reads instead of falling through to fetch_url.
+        source_modalities_supported=[
+            "local_path",
+            "local_file",
+            "file",
+            "csv",
+            "tsv",
+            "json_file",
+            "workspace_root",
+        ],
         coverage_semantics="Reads only explicitly addressed workspace files.",
         confidence_semantics="High confidence for the returned file content preview within byte or line limits.",
         tags=["filesystem", "workspace", "read"],

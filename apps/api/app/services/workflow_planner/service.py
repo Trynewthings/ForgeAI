@@ -384,6 +384,42 @@ class WorkflowPlannerService:
         )
         unresolved_items.extend(unresolved_items_from_report(legality_report))
 
+        # --- Surface Shape-LLM-detected conditional branches as warnings.
+        # The planner v1 linear/DAG model cannot represent if/then/else
+        # branching — we linearise it to the happy path. Without this
+        # warning the user never sees that the conditional semantics was
+        # dropped. Each entry lives under ``planner_trace`` too so a
+        # future conditional-aware planner can re-hydrate it.
+        detected_conditionals: list[dict] = []
+        if not shape_proposal.failed and shape_proposal.detected_conditional_branches:
+            detected_conditionals = list(shape_proposal.detected_conditional_branches)
+            for i, entry in enumerate(detected_conditionals, start=1):
+                then_ids = entry.get("then_subgoal_ids") or []
+                else_ids = entry.get("else_subgoal_ids") or []
+                affected_nodes = [
+                    node_id_by_sg[sid]
+                    for sid in [*then_ids, *else_ids]
+                    if sid in node_id_by_sg
+                ]
+                unresolved_items.append(
+                    WorkflowPlannerUnresolvedItem(
+                        item_id=f"conditional_semantics_linearized_{i}",
+                        item_kind="semantic_ambiguity",
+                        severity="warning",
+                        related_node_ids=affected_nodes,
+                        description=(
+                            f"Task contains conditional semantics ({entry.get('condition')}) "
+                            f"that the planner cannot represent today; the graph was "
+                            f"linearised to the happy path. then={then_ids} "
+                            f"else={else_ids}. Reason: {entry.get('reason') or 'n/a'}"
+                        ),
+                        suggested_resolution=(
+                            "Either split the task into separate runs per branch, or "
+                            "wait for conditional-branch support in the planner (P3)."
+                        ),
+                    )
+                )
+
         # --- Sync legacy ``upstream_dependencies`` to the authoritative edges.
         # Phase C's evidence-flow + constraint-enforcer may have rewritten
         # edges (e.g. gate insertion rewiring), so the value stamped at
@@ -468,6 +504,7 @@ class WorkflowPlannerService:
                 "phase_b_shape_trace": shape_proposal.trace,
                 "phase_b_shape_fallback_reason": shape_proposal.fallback_reason,
                 "shape_llm_version": SHAPE_PLANNER_VERSION,
+                "phase_b_detected_conditionals": detected_conditionals,
                 "phase_c_trace": {
                     "evidence_flow": {
                         "accepted_hint_count": evidence_report.accepted_hint_count,

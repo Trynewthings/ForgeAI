@@ -97,6 +97,36 @@ class PlannerCapabilityBinder:
                     continue
                 filtered_pool.append(cid)
 
+            # Source-aware rescoring: step-kind alone is too coarse —
+            # ``fetch_url`` and ``filesystem_read`` both claim ``ingest``
+            # but only one matches a local CSV path. Reorder so that
+            # candidates whose ``source_modalities_supported`` overlap
+            # the compile context's resolved source modality win, and
+            # candidates whose modality clearly conflicts fall to the
+            # back. Ties fall back to the narrower's original ordering.
+            #
+            # Also: the narrower's top-k cut may have excluded an
+            # otherwise-best source match (it scores only by step-kind
+            # specialisation). Pull such capabilities in from the full
+            # envelope before rescoring.
+            filtered_pool = _inject_source_match_from_envelope(
+                pool=filtered_pool,
+                step_kinds=cp.step_kinds,
+                subgoal=subgoal,
+                ctx=ctx,
+                envelope=envelope,
+                side_effect_per=side_effect_per,
+                agentic_per=agentic_per,
+                tools_per=tools_per,
+                forbidden=forbidden,
+            )
+            filtered_pool = _rescore_by_source_match(
+                pool=filtered_pool,
+                subgoal=subgoal,
+                ctx=ctx,
+                by_id=by_id,
+            )
+
             coverage = _coverage_from_narrower(
                 uncovered=cp.uncovered_step_kinds,
                 step_kinds=cp.step_kinds,
@@ -185,6 +215,195 @@ def _envelope_available_tools(entry: dict[str, Any]) -> list[str]:
     if isinstance(tools, list):
         return [str(t) for t in tools if t]
     return []
+
+
+# ---------------------------------------------------------------------------
+# Source-aware rescoring
+# ---------------------------------------------------------------------------
+
+
+# Inputs the compile_context can resolve to ``input_source_modality``. We
+# group them into coarse families so the matcher doesn't explode on minor
+# string variations (e.g. ``csv`` vs ``local_path``).
+_LOCAL_MODALITY_FAMILY = {
+    "local_path",
+    "local",
+    "local_file",
+    "local_workspace",
+    "filesystem",
+    "file",
+    # NOTE: ``file_url`` belongs to the remote/URL family semantically.
+    # Even though file:// URLs can point at local files, the adapter that
+    # resolves ``file_url`` typically runs through ``fetch_url``'s network
+    # path. Treat path-style inputs (``/tmp/...``) separately from URL
+    # inputs so a local CSV path doesn't accidentally match ``fetch_url``
+    # via the ``file_url`` modality declaration.
+    "csv",
+    "tsv",
+    "json_file",
+    "workspace_root",
+    "local_workspace_repo",
+    "local_dataset",
+}
+_REMOTE_HTTP_FAMILY = {
+    "remote_api",
+    "http_url",
+    "https_url",
+    "web_source",
+    "github_repo_url",
+    "git_remote",
+    "archive_url",
+}
+_DATABASE_FAMILY = {"database", "sql", "postgres", "mysql", "remote_db"}
+
+
+def _modality_family(value: str | None) -> str:
+    if not value:
+        return "unknown"
+    lowered = value.strip().lower()
+    if lowered in _LOCAL_MODALITY_FAMILY:
+        return "local"
+    if lowered in _REMOTE_HTTP_FAMILY:
+        return "remote_http"
+    if lowered in _DATABASE_FAMILY:
+        return "database"
+    return lowered  # Preserve unusual values so unknowns don't collide.
+
+
+def _inject_source_match_from_envelope(
+    *,
+    pool: list[str],
+    step_kinds: list[str],
+    subgoal: SolvabilitySubgoal,
+    ctx: "PlannerContext",
+    envelope: list[dict[str, Any]],
+    side_effect_per: dict[str, str],
+    agentic_per: dict[str, bool],
+    tools_per: dict[str, list[str]],
+    forbidden: set[str],
+) -> list[str]:
+    """When the narrower cut a source-matching capability, pull it back in.
+
+    Only applies to acquire-family subgoals where source modality matters.
+    A capability is "source-matching" when it (a) advertises at least one
+    step_kind the subgoal needs AND (b) declares
+    ``source_modalities_supported`` that includes the target family AND
+    (c) isn't forbidden by the side-effect filter. We append matches to
+    the end of the pool so the downstream rescorer can then promote them.
+    """
+    if (subgoal.subgoal_kind or "").strip().lower() != "acquire":
+        return pool
+    target_family = _modality_family(ctx.input_source_modality)
+    if target_family == "unknown":
+        locator = (ctx.input_locator_hint or "").strip().lower()
+        if locator.startswith(("http://", "https://")):
+            target_family = "remote_http"
+        elif locator.startswith("/") or locator.startswith("./") or ".csv" in locator or ".json" in locator:
+            target_family = "local"
+    if target_family == "unknown":
+        return pool
+
+    step_kind_set = {str(k) for k in step_kinds if k}
+    in_pool = set(pool)
+    additions: list[str] = []
+    for entry in envelope:
+        if not isinstance(entry, dict):
+            continue
+        cid = str(entry.get("capability_id") or entry.get("id") or "").strip()
+        if not cid or cid in in_pool:
+            continue
+        supported_kinds = {
+            str(k)
+            for k in (
+                entry.get("supported_step_kinds") or entry.get("logical_step_kinds") or []
+            )
+            if k
+        }
+        if step_kind_set and not (supported_kinds & step_kind_set):
+            continue
+        declared = [
+            _modality_family(m)
+            for m in (entry.get("source_modalities_supported") or [])
+        ]
+        if not declared or target_family not in declared:
+            continue
+        # Respect the forbidden filter at injection time too.
+        side_effect = str(entry.get("side_effect_class") or "none")
+        if side_effect in forbidden:
+            continue
+        additions.append(cid)
+        side_effect_per[cid] = side_effect
+        agentic_per[cid] = _envelope_agentic(entry)
+        tools_per[cid] = _envelope_available_tools(entry)
+
+    if not additions:
+        return pool
+    return pool + additions
+
+
+def _rescore_by_source_match(
+    *,
+    pool: list[str],
+    subgoal: SolvabilitySubgoal,
+    ctx: "PlannerContext",
+    by_id: dict[str, Any],
+) -> list[str]:
+    """Rescore ``pool`` based on source-modality / source-kind alignment.
+
+    Only the acquire-family subgoal (the entry node) is rescored; downstream
+    transform/act nodes don't consume the input source directly so modality
+    alignment isn't meaningful there. The family guard keeps the policy
+    narrow and explainable.
+    """
+    if len(pool) <= 1:
+        return pool
+    source_kind = (subgoal.subgoal_kind or "").strip().lower()
+    if source_kind != "acquire":
+        return pool
+
+    target_family = _modality_family(ctx.input_source_modality)
+    if target_family == "unknown":
+        # Fall back: infer from locator string if present.
+        locator = (ctx.input_locator_hint or "").strip().lower()
+        if locator.startswith(("http://", "https://")):
+            target_family = "remote_http"
+        elif locator.startswith("/") or locator.startswith("./") or ".csv" in locator or ".json" in locator:
+            target_family = "local"
+    if target_family == "unknown":
+        return pool  # No signal — leave ordering untouched.
+
+    def cap_score(cid: str) -> tuple[float, str]:
+        entry = by_id.get(cid, {}) or {}
+        supported = [
+            _modality_family(m)
+            for m in (entry.get("source_modalities_supported") or [])
+        ]
+        # Hard negative: candidate advertises at least one modality family
+        # and none of them is the target — this is a miss.
+        if supported:
+            if target_family in supported:
+                return (2.0, cid)
+            # If the ONLY supported family is remote_http and target is
+            # local (or vice versa), that's a definite mismatch.
+            if all(fam != target_family for fam in supported):
+                return (-1.0, cid)
+        # Neutral: candidate doesn't advertise modalities — assume it's
+        # modality-agnostic and leave it where the narrower put it.
+        return (0.0, cid)
+
+    scored = sorted(
+        enumerate(pool),
+        key=lambda pair: (-cap_score(pair[1])[0], pair[0]),
+    )
+    reordered = [pool[idx] for idx, _ in scored]
+    # Drop hard-negatives from the pool altogether when a positive-match
+    # alternative exists, so they can't be accidentally picked by a
+    # Shape-LLM index fallback.
+    positives = [cid for cid in reordered if cap_score(cid)[0] > 0]
+    if positives:
+        kept = [cid for cid in reordered if cap_score(cid)[0] >= 0]
+        return kept
+    return reordered
 
 
 __all__ = [
