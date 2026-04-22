@@ -9,7 +9,10 @@ from app.core.enums import JobStatus, RunStatus, RunStepStatus
 
 class RunCreateRequest(BaseModel):
     project_id: str
-    blueprint_id: str
+    # blueprint_id is optional to accommodate session-anchored
+    # executables (C-slice). When omitted, executable_id must be
+    # supplied so the run is uniquely anchored.
+    blueprint_id: Optional[str] = None
     executable_id: Optional[str] = None
     runtime_profile_id: Optional[str] = None
     reuse_latest_successful_input: bool = False
@@ -207,7 +210,7 @@ class RunStepResponse(BaseModel):
 class RunResponse(BaseModel):
     id: str
     project_id: str
-    blueprint_id: str
+    blueprint_id: Optional[str] = None
     executable_id: Optional[str] = None
     runtime_profile_id: Optional[str] = None
     active_job_id: Optional[str] = None

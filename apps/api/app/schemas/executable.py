@@ -9,7 +9,7 @@ from app.core.enums import ExecutableStatus, ExecutableType
 
 class ExecutableCreateRequest(BaseModel):
     project_id: str
-    blueprint_id: str
+    blueprint_id: Optional[str] = None
     executable_type: ExecutableType = ExecutableType.REPO
     source_path: Optional[str] = None
     manifest_json: dict[str, Any] = Field(default_factory=dict)
@@ -21,7 +21,7 @@ class ExecutableCreateRequest(BaseModel):
 class ExecutableResponse(BaseModel):
     id: str
     project_id: str
-    blueprint_id: str
+    blueprint_id: Optional[str] = None
     executable_type: ExecutableType
     source_path: Optional[str] = None
     manifest_json: dict[str, Any] = Field(default_factory=dict)
@@ -34,7 +34,7 @@ class ExecutableResponse(BaseModel):
 
 class ExecutableListItem(BaseModel):
     id: str
-    blueprint_id: str
+    blueprint_id: Optional[str] = None
     executable_type: ExecutableType
     build_version: Optional[str] = None
     status: ExecutableStatus

@@ -17,7 +17,9 @@ class Run(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    blueprint_id: Mapped[str] = mapped_column(ForeignKey("blueprints.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Session-anchored C-slice: blueprint_id is optional. When the run
+    # originates from a session-anchored executable, there's no Blueprint.
+    blueprint_id: Mapped[Optional[str]] = mapped_column(ForeignKey("blueprints.id", ondelete="CASCADE"), nullable=True, index=True)
     executable_id: Mapped[Optional[str]] = mapped_column(ForeignKey("executables.id", ondelete="SET NULL"), nullable=True)
     runtime_profile_id: Mapped[Optional[str]] = mapped_column(ForeignKey("runtime_profiles.id", ondelete="SET NULL"), nullable=True)
     active_job_id: Mapped[Optional[str]] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)

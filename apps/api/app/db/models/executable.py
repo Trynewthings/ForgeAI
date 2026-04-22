@@ -17,7 +17,8 @@ class Executable(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    blueprint_id: Mapped[str] = mapped_column(ForeignKey("blueprints.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Session-anchored C-slice executables have no Blueprint.
+    blueprint_id: Mapped[Optional[str]] = mapped_column(ForeignKey("blueprints.id", ondelete="CASCADE"), nullable=True, index=True)
     executable_type: Mapped[str] = mapped_column(String(50), default=ExecutableType.REPO.value, nullable=False)
     source_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     manifest_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)

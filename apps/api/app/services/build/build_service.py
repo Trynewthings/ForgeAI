@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.enums import BuildStatus, BuildStepStatus
 from app.core.exceptions import AppException
-from app.db.models import Build, BuildStepV2
+from app.db.models import Build, BuildStepV2, FrontChainSession
 from app.db.repositories.blueprint_repository import BlueprintRepository
 from app.db.repositories.build_repository import BuildRepository
 from app.db.repositories.build_step_repository import BuildStepRepository
@@ -36,14 +36,40 @@ class BuildService:
     def create_build(self, payload: BuildCreateRequest) -> BuildResponse:
         if self.project_repository.get_by_id(payload.project_id) is None:
             raise AppException("Project not found", status_code=404)
-        blueprint = self.blueprint_repository.get_by_id(payload.blueprint_id)
-        if blueprint is None or blueprint.project_id != payload.project_id:
-            raise AppException("Blueprint not found for this project", status_code=404)
 
-        build_version = self._next_build_version(payload.blueprint_id)
+        # Parallel entry: exactly one of (blueprint_id, session_id) must
+        # be provided. The two anchors lead to different execute_build
+        # branches — we don't try to shoehorn session into blueprint or
+        # vice versa.
+        has_blueprint = bool(payload.blueprint_id)
+        has_session = bool(payload.session_id)
+        if has_blueprint == has_session:
+            raise AppException(
+                "Build requires exactly one of blueprint_id or session_id",
+                status_code=400,
+            )
+
+        session_id: str | None = None
+        if has_blueprint:
+            blueprint = self.blueprint_repository.get_by_id(payload.blueprint_id)
+            if blueprint is None or blueprint.project_id != payload.project_id:
+                raise AppException("Blueprint not found for this project", status_code=404)
+            build_version = self._next_build_version(payload.blueprint_id)
+        else:
+            session = (
+                self.db.query(FrontChainSession)
+                .filter(FrontChainSession.id == payload.session_id)
+                .one_or_none()
+            )
+            if session is None or session.project_id != payload.project_id:
+                raise AppException("Front-chain session not found for this project", status_code=404)
+            session_id = session.id
+            build_version = self._next_build_version_for_session(session_id)
+
         build = Build(
             project_id=payload.project_id,
-            blueprint_id=payload.blueprint_id,
+            blueprint_id=payload.blueprint_id if has_blueprint else None,
+            session_id=session_id,
             build_version=build_version,
             status=BuildStatus.PENDING.value,
             build_options_json=payload.build_options_json or {},
@@ -51,7 +77,7 @@ class BuildService:
         self.build_repository.create(build)
         self.build_step_repository.create_many(
             [
-                BuildStepV2(build_id=build.id, step_name="analyze_blueprint", step_order=1, status=BuildStepStatus.PENDING.value),
+                BuildStepV2(build_id=build.id, step_name="analyze_source", step_order=1, status=BuildStepStatus.PENDING.value),
                 BuildStepV2(build_id=build.id, step_name="generate_manifest", step_order=2, status=BuildStepStatus.PENDING.value),
                 BuildStepV2(build_id=build.id, step_name="materialize_executable", step_order=3, status=BuildStepStatus.PENDING.value),
                 BuildStepV2(build_id=build.id, step_name="finalize_executable", step_order=4, status=BuildStepStatus.PENDING.value),
@@ -138,6 +164,7 @@ class BuildService:
             id=build.id,
             project_id=build.project_id,
             blueprint_id=build.blueprint_id,
+            session_id=build.session_id,
             executable_id=build.executable_id,
             active_job_id=build.active_job_id,
             active_job_status=build.active_job.status if build.active_job is not None else None,
@@ -173,4 +200,13 @@ class BuildService:
 
     def _next_build_version(self, blueprint_id: str) -> str:
         count = self.build_repository.count_by_blueprint(blueprint_id) + 1
+        return f"build-{count:04d}"
+
+    def _next_build_version_for_session(self, session_id: str) -> str:
+        count = (
+            self.db.query(Build)
+            .filter(Build.session_id == session_id)
+            .count()
+            + 1
+        )
         return f"build-{count:04d}"

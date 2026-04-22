@@ -55,27 +55,51 @@ class RunService:
     def create_run(self, payload: RunCreateRequest) -> RunResponse:
         if self.project_repository.get_by_id(payload.project_id) is None:
             raise AppException("Project not found", status_code=404)
-        blueprint = self.blueprint_repository.get_by_id(payload.blueprint_id)
-        if blueprint is None or blueprint.project_id != payload.project_id:
-            raise AppException("Blueprint not found for this project", status_code=404)
         if payload.executable_id is None:
             raise AppException(
-                "Executable is required before starting a run. Build the blueprint first, then run from the executable.",
+                "Executable is required before starting a run. Build first, then run from the executable.",
                 status_code=400,
             )
+        executable = self.executable_repository.get_by_id(payload.executable_id)
+        if executable is None or executable.project_id != payload.project_id:
+            raise AppException("Executable not found for this project", status_code=404)
+
+        # Session-anchored executables have no blueprint_id; runs for
+        # them also omit blueprint_id. For legacy executables, verify
+        # the blueprint lineage as before.
+        blueprint = None
+        session_anchored = executable.blueprint_id is None
+        if session_anchored:
+            if payload.blueprint_id is not None:
+                raise AppException(
+                    "Session-anchored executables do not accept blueprint_id",
+                    status_code=400,
+                )
+        else:
+            if payload.blueprint_id is None:
+                raise AppException(
+                    "blueprint_id is required for blueprint-anchored executables",
+                    status_code=400,
+                )
+            blueprint = self.blueprint_repository.get_by_id(payload.blueprint_id)
+            if blueprint is None or blueprint.project_id != payload.project_id:
+                raise AppException("Blueprint not found for this project", status_code=404)
+            if executable.blueprint_id != payload.blueprint_id:
+                raise AppException(
+                    "Executable does not belong to the selected blueprint",
+                    status_code=400,
+                )
         executable_id = payload.executable_id
         runtime_profile_id = payload.runtime_profile_id
-        if payload.executable_id is not None:
-            executable = self.executable_repository.get_by_id(payload.executable_id)
-            if executable is None or executable.project_id != payload.project_id:
-                raise AppException("Executable not found for this project", status_code=404)
-            if executable.blueprint_id != payload.blueprint_id:
-                raise AppException("Executable does not belong to the selected blueprint", status_code=400)
         if payload.runtime_profile_id is not None:
             runtime_profile = self.runtime_profile_repository.get_by_id(payload.runtime_profile_id)
             if runtime_profile is None or runtime_profile.project_id != payload.project_id:
                 raise AppException("Runtime profile not found for this project", status_code=404)
-            if runtime_profile.blueprint_id and runtime_profile.blueprint_id != payload.blueprint_id:
+            if (
+                not session_anchored
+                and runtime_profile.blueprint_id
+                and runtime_profile.blueprint_id != payload.blueprint_id
+            ):
                 raise AppException("Runtime profile does not belong to the selected blueprint", status_code=400)
 
         run_payload = self._normalized_payload(payload.model_dump(mode="python", exclude_none=True))
@@ -96,7 +120,16 @@ class RunService:
         if run.status == RunStatus.RUNNING.value and run.started_at is None:
             run.started_at = datetime.now(timezone.utc)
         self.run_repository.create(run)
-        self.run_step_repository.create_many(self._build_run_steps(run.id, blueprint.execution_steps_json))
+        if session_anchored:
+            # Pull step list from the executable's manifest (the
+            # session-anchored build wrote steps.json as part of the
+            # generated file set).
+            steps_json = self._load_session_executable_steps(executable)
+            self.run_step_repository.create_many(self._build_run_steps(run.id, steps_json))
+        else:
+            self.run_step_repository.create_many(
+                self._build_run_steps(run.id, blueprint.execution_steps_json)
+            )
         self.db.commit()
         runtime_snapshot = self._runtime_operation_snapshot(run_id=run.id, operation_state="idle")
         resolved_snapshot = dict(run.resolved_config_snapshot_json or {})
@@ -387,6 +420,37 @@ class RunService:
             created_at=_iso(step.created_at),
             updated_at=_iso(step.updated_at),
         )
+
+    def _load_session_executable_steps(self, executable) -> dict[str, Any]:
+        """Load ``steps.json`` from a session-anchored executable bundle."""
+        import json
+        from pathlib import Path
+
+        if executable.source_path:
+            steps_path = Path(executable.source_path) / "steps.json"
+            if steps_path.exists():
+                try:
+                    return json.loads(steps_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    pass
+        # Fallback: pull from the executable's inline manifest_json if
+        # the file isn't on disk (e.g. the manifest_snapshot path).
+        manifest = executable.manifest_json or {}
+        if isinstance(manifest, dict):
+            meta = manifest.get("metadata", {}) or {}
+            summary = meta.get("session_anchored_binding_summary") or {}
+            # If we only have names, fabricate minimal step dicts so
+            # RunStep rows get created with the right step_name.
+            runnable = list(summary.get("runnable_steps") or [])
+            blocked = list(summary.get("blocked_steps") or [])
+            if runnable or blocked:
+                return {
+                    "steps": [
+                        {"step_name": name, "node_name": name}
+                        for name in runnable + blocked
+                    ]
+                }
+        return {}
 
     def _build_run_steps(self, run_id: str, execution_steps_json: dict[str, Any] | None) -> list[RunStep]:
         raw_steps = []

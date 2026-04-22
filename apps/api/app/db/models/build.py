@@ -17,7 +17,11 @@ class Build(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    blueprint_id: Mapped[str] = mapped_column(ForeignKey("blueprints.id", ondelete="CASCADE"), nullable=False, index=True)
+    blueprint_id: Mapped[Optional[str]] = mapped_column(ForeignKey("blueprints.id", ondelete="CASCADE"), nullable=True, index=True)
+    # Session-anchored build entry (C-slice). Exactly one of
+    # (blueprint_id, session_id) must be set at create time. The build
+    # executor branches on whichever is populated.
+    session_id: Mapped[Optional[str]] = mapped_column(ForeignKey("front_chain_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
     executable_id: Mapped[Optional[str]] = mapped_column(ForeignKey("executables.id", ondelete="SET NULL"), nullable=True)
     active_job_id: Mapped[Optional[str]] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
     build_version: Mapped[str] = mapped_column(String(50), nullable=False)
