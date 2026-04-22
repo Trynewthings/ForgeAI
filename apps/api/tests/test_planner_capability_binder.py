@@ -195,6 +195,65 @@ def test_domain_affinity_demotes_mismatched_scope() -> None:
     )
 
 
+def test_rank_in_tabular_context_routes_to_transform_pool() -> None:
+    """P2.2-b follow-up invariant: when a subgoal emits ``rank`` but
+    the task context is tabular (CSV / aggregated / sort-by), the
+    binder rewrites to ``transform`` and narrows into the transform
+    pool — not the single-capability ``rank`` pool."""
+    envelope = [
+        {
+            "capability_id": "rank_candidates",
+            "logical_step_kinds": ["rank"],
+            "supported_step_kinds": ["rank"],
+            "side_effect_class": "none",
+            "tags": ["ranking"],
+        },
+        {
+            "capability_id": "transform_tool",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": [],
+        },
+    ]
+    subgoal = _subgoal(
+        required_capability_classes=["rank"],
+        description="Sort the aggregated CSV records by total revenue descending.",
+        input_evidence_kinds=["aggregated_data"],
+        output_evidence_kinds=["sorted_aggregated_data"],
+    )
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx(envelope)
+    )["sg_1"]
+    assert pool.canonical_step_kinds == ["transform"]
+    assert "transform_tool" in pool.candidate_pool
+    assert "rank_candidates" not in pool.candidate_pool
+
+
+def test_rank_candidates_task_still_goes_to_rank_pool() -> None:
+    """Non-tabular candidate-ranking tasks are NOT rewritten."""
+    envelope = [
+        {
+            "capability_id": "rank_candidates",
+            "logical_step_kinds": ["rank"],
+            "supported_step_kinds": ["rank"],
+            "side_effect_class": "none",
+            "tags": ["ranking"],
+        },
+    ]
+    subgoal = _subgoal(
+        required_capability_classes=["rank"],
+        description="Rank candidate search results by relevance score.",
+        input_evidence_kinds=["candidate_results"],
+        output_evidence_kinds=["ranked_candidates"],
+    )
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx(envelope)
+    )["sg_1"]
+    assert pool.canonical_step_kinds == ["rank"]
+    assert "rank_candidates" in pool.candidate_pool
+
+
 def test_domain_affinity_preserves_order_when_no_domain_detected() -> None:
     """When the haystack has no tabular / repository / architecture
     keywords, the rescorer is a no-op — we don't demote on uncertainty."""

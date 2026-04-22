@@ -26,6 +26,9 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 from app.schemas.solvability import SolvabilitySubgoal, SubgoalDraft
+from app.services.front_chain.solvability_step_kind_canonicalizer import (
+    refine_canonical_step_kinds_for_context,
+)
 from app.services.front_chain.solvability_tool_binder_v2 import (
     SolvabilityCandidateNarrower,
 )
@@ -77,6 +80,39 @@ class PlannerCapabilityBinder:
             cp = self._narrower.narrow(
                 subgoal=draft, capability_envelope=envelope
             )
+
+            # Context-aware step_kind refinement. After the narrower has
+            # turned the subgoal's raw classes into canonical step_kinds,
+            # rewrite entries whose canonical form is ambiguous for the
+            # subgoal's task context. Today's one rule: ``rank`` in a
+            # tabular context (CSV / aggregated / sort-by keywords) is
+            # rewritten to ``transform`` — ``rank_candidates`` is a
+            # relevance-ranker, not a tabular row sorter, and the single-
+            # capability rank pool starves Shape-LLM of any option that
+            # actually fits the work.
+            #
+            # If refinement changed the step_kinds, re-run the narrower
+            # against the refined list. ``unresolved_oov`` from the
+            # original narrow is preserved so OOV diagnostics survive.
+            refined_kinds, _refinement_notes = refine_canonical_step_kinds_for_context(
+                canonical_step_kinds=list(cp.step_kinds),
+                description=subgoal.description or "",
+                input_evidence_kinds=list(subgoal.input_evidence_kinds),
+                output_evidence_kinds=list(subgoal.output_evidence_kinds),
+            )
+            if refined_kinds != list(cp.step_kinds):
+                original_oov = list(cp.unresolved_oov)
+                refined_draft = draft.model_copy(
+                    update={
+                        "required_step_kinds": refined_kinds,
+                        "raw_step_kinds": refined_kinds,
+                    }
+                )
+                cp = self._narrower.narrow(
+                    subgoal=refined_draft, capability_envelope=envelope
+                )
+                if original_oov:
+                    cp.unresolved_oov = [*original_oov, *cp.unresolved_oov]
 
             # Attach per-candidate metadata from the raw envelope.
             side_effect_per: dict[str, str] = {}

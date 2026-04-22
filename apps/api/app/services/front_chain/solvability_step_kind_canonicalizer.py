@@ -229,9 +229,140 @@ def canonicalize_step_kinds(raw_values: list[str]) -> CanonicalizationResult:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Context-aware refinement (post-canonicalization)
+# ---------------------------------------------------------------------------
+#
+# Canonicalization gets paraphrases into the 8-element vocabulary, but the
+# vocabulary itself is blunt — ``rank`` covers "rank candidates by
+# relevance", but LLMs also emit ``rank`` for "sort tabular rows by a
+# numeric column", which semantically belongs in ``transform``. The
+# difference matters at the binder: the ``rank`` step_kind indexes into a
+# tiny pool (typically just ``rank_candidates``, which is designed for
+# candidate-reranking), while ``transform`` indexes into the full tabular-
+# capable pool (parse_json, deduplicate_items, coding_agent, ...).
+#
+# This helper runs after ``canonicalize_step_kinds`` and rewrites
+# canonical step_kinds based on subgoal context. It does NOT touch the
+# canonical vocabulary itself — that's still the 8-element set. It only
+# picks the right MEMBER of that set for the given subgoal.
+
+
+_TABULAR_CONTEXT_KEYWORDS: tuple[str, ...] = (
+    "csv",
+    "tsv",
+    "tabular",
+    "dataframe",
+    "dataset",
+    " row",  # padded to avoid matching "narrow", "arrow", etc.
+    " rows",
+    "record",
+    "records",
+    " column",
+    "columns",
+    "aggregat",  # matches aggregate, aggregated, aggregation
+    "group_by",
+    "group by",
+    "sort by",
+    "order by",
+    "descending",
+    "ascending",
+    "parquet",
+)
+
+
+@dataclass
+class StepKindRefinement:
+    """Diagnostic record for one context-driven rewrite.
+
+    ``original`` and ``refined`` are canonical step_kinds. ``reason`` is
+    a short human-readable explanation kept for audit traces.
+    """
+
+    original: str
+    refined: str
+    reason: str
+
+
+def _has_tabular_context(
+    *,
+    description: str,
+    input_evidence_kinds: list[str],
+    output_evidence_kinds: list[str],
+) -> bool:
+    """Conservative detector — true when any tabular keyword appears in
+    the subgoal's description or evidence kinds."""
+    bag = " ".join(
+        [
+            description or "",
+            *(input_evidence_kinds or []),
+            *(output_evidence_kinds or []),
+        ]
+    ).lower()
+    return any(kw in bag for kw in _TABULAR_CONTEXT_KEYWORDS)
+
+
+def refine_canonical_step_kinds_for_context(
+    *,
+    canonical_step_kinds: list[str],
+    description: str = "",
+    input_evidence_kinds: list[str] | None = None,
+    output_evidence_kinds: list[str] | None = None,
+) -> tuple[list[str], list[StepKindRefinement]]:
+    """Apply context-aware rewrites to a list of canonical step_kinds.
+
+    Rules (kept narrow — add more only when a concrete audit justifies
+    the added complexity):
+
+        1. ``rank`` in canonical_step_kinds AND subgoal context is
+           tabular (CSV / dataset / rows / columns / aggregat* / sort-by
+           / order-by keywords) → rewrite to ``transform``.
+           Rationale: ``rank_candidates`` is for relevance/score-based
+           candidate rerank, not row sorting. Leaving ``rank`` here
+           traps the subgoal in a single-capability pool that won't do
+           the actual work.
+
+    Returns ``(refined_list, refinement_notes)``. The refined list
+    preserves order and drops duplicates that arise from rewrites
+    (e.g. ``["rank", "transform"]`` with a rank→transform rewrite
+    collapses to ``["transform"]``).
+    """
+    inputs = list(canonical_step_kinds or [])
+    notes: list[StepKindRefinement] = []
+    tabular = _has_tabular_context(
+        description=description,
+        input_evidence_kinds=input_evidence_kinds or [],
+        output_evidence_kinds=output_evidence_kinds or [],
+    )
+
+    refined: list[str] = []
+    seen: set[str] = set()
+    for sk in inputs:
+        out = sk
+        if sk == "rank" and tabular:
+            out = "transform"
+            notes.append(
+                StepKindRefinement(
+                    original="rank",
+                    refined="transform",
+                    reason=(
+                        "tabular context detected (csv/dataset/rows/"
+                        "aggregate/sort-by keywords) — sorting tabular "
+                        "records is a transform, not candidate ranking"
+                    ),
+                )
+            )
+        if out not in seen:
+            refined.append(out)
+            seen.add(out)
+    return refined, notes
+
+
 __all__ = [
     "CANONICAL_STEP_KINDS",
     "CanonicalizationOutcome",
     "CanonicalizationResult",
+    "StepKindRefinement",
     "canonicalize_step_kinds",
+    "refine_canonical_step_kinds_for_context",
 ]
