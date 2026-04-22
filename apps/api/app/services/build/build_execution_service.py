@@ -2679,6 +2679,33 @@ class BuildExecutionService:
                 ),
                 assets,
             )
+        if capability_id == "coding_agent":
+            # Generalist escape hatch: author + run a bounded script in a
+            # sandboxed workspace. Config_hints carry the planner's
+            # enricher metadata (args / system_prompt / task_prompt);
+            # the resolver folds these into the runtime task_contract.
+            timeout_seconds = max(1, min(int(config_hints.get("timeout_seconds") or 120), 600))
+            return (
+                ExecutionPackageBinding(
+                    **base_kwargs,
+                    execution_kind="sandboxed_script",
+                    runtime_adapter="bounded_code_runner",
+                    handler_ref="coding_agent",
+                    config_contract_summary=(
+                        "Authors and runs a sandboxed python/bash script against "
+                        "the declared workspace with bounded timeout, memory, and "
+                        "network — the planner's generalist escape hatch."
+                    ),
+                    requires_confirmation=manual_review_required,
+                    network_access_required=bool(config_hints.get("allow_network")),
+                    policy_scope="workspace",
+                    timeout_seconds=timeout_seconds,
+                    review_status="required" if manual_review_required else "recommended",
+                    binding_status="runnable",
+                    runnable=True,
+                ),
+                assets,
+            )
         if capability_id == "summarize_text_llm":
             return (
                 ExecutionPackageBinding(
