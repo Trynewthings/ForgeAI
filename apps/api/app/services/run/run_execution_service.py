@@ -35,6 +35,7 @@ from app.services.executable_manifest.validator import ExecutableManifestValidat
 from app.services.run.case_workloads import (
     build_artifact_outputs,
     execute_browser_workload,
+    execute_coding_agent_workload,
     execute_fetch_url_workload,
     execute_filesystem_workload,
     execute_python_workload,
@@ -809,6 +810,43 @@ class RunExecutionService:
                     **semantic_fields,
                 }
             )
+            return output_payload, None, []
+
+        if step_type == "coding_agent":
+            # Generalist escape hatch: planner bound ``coding_agent``
+            # because no specialised capability matched the subgoal.
+            # The workload owns the sandbox + LLM script-author loop.
+            output_payload = execute_coding_agent_workload(
+                step_name=step.step_name,
+                run_id=str(run.id),
+                run_input=run.input_snapshot_json or {},
+                previous_outputs_by_step=previous_outputs_by_step,
+                task_contract=step_definition.get("task_contract") or {},
+                args=step_definition.get("args") if isinstance(step_definition.get("args"), dict) else {},
+            )
+            output_payload.update(
+                {
+                    "step_type": step_type,
+                    "selected_capability_id": step_definition.get("selected_capability_id") or "coding_agent",
+                    "runtime_adapter": step_definition.get("runtime_adapter") or "bounded_code_runner",
+                    "handler_ref": step_definition.get("handler_ref") or "coding_agent",
+                    "provider": "bounded_code_runner",
+                    "model_name": "coding_agent",
+                    "mode": "llm_assisted",
+                    "fallback_used": False,
+                    "failure_class": None if output_payload.get("status") == "completed" else "coding_agent_failure",
+                    "retry_attempts": 0,
+                    **semantic_fields,
+                }
+            )
+            if output_payload.get("status") == "failed":
+                # Surface a RuntimeError so the scheduler marks the step
+                # failed rather than silently succeeding. The structured
+                # output is still in output_payload for audit.
+                raise RuntimeError(
+                    f"coding_agent step '{step.step_name}' failed: "
+                    f"{output_payload.get('structured_output', {}).get('failure_kind')}"
+                )
             return output_payload, None, []
 
         if step_type == "blocked":

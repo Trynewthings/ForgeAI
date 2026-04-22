@@ -74,6 +74,7 @@ ExecutionPackageExecutionKind = Literal[
     "terminal_command",
     "browser_interaction",
     "template_runtime",
+    "sandboxed_script",
     "blocked",
 ]
 

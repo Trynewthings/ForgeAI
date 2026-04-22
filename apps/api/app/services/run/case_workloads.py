@@ -2728,3 +2728,134 @@ def build_artifact_outputs(
         ]
 
     raise ValueError(f"Unsupported artifact_writer workload: {writer_kind}")
+
+
+# ---------------------------------------------------------------------------
+# coding_agent — generalist escape hatch
+# ---------------------------------------------------------------------------
+
+
+def execute_coding_agent_workload(
+    *,
+    step_name: str,
+    run_id: str,
+    run_input: dict[str, Any],
+    previous_outputs_by_step: dict[str, dict[str, Any]],
+    task_contract: dict[str, Any] | None = None,
+    args: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Runtime workload for the ``coding_agent`` capability.
+
+    The resolver produces a step_definition with a partially-filled
+    ``task_contract``. This workload:
+        1. Allocates a per-step sandbox workspace (``ROOT_DIR/.generated/
+           coding_agent/<run_id>/<step_name>``).
+        2. Hydrates workspace_dir, defaults, and any fields the resolver
+           left unset.
+        3. Drops in input files from upstream steps' produced artifacts
+           (when available) so the script has something to read.
+        4. Runs ``CodingAgentService`` and returns its structured
+           result.
+
+    Kept defensive: if CodingAgentService isn't importable at runtime
+    (tests running without the full app), raise a clean ValueError so
+    the run logs it explicitly rather than a cryptic ImportError.
+    """
+    # Lazy import so this module stays importable in contexts that
+    # don't have the whole app stack loaded.
+    from app.schemas.coding_agent import TaskContract
+    from app.services.coding_agent.service import CodingAgentService
+
+    args = args or {}
+    contract_dict = dict(task_contract or args.get("task_contract") or {})
+
+    workspace_dir = contract_dict.get("workspace_dir") or _coding_agent_workspace(
+        run_id=run_id, step_name=step_name
+    )
+    workspace = Path(workspace_dir)
+    workspace.mkdir(parents=True, exist_ok=True)
+    contract_dict["workspace_dir"] = str(workspace)
+
+    # Ensure required fields exist at the right shape before pydantic validation.
+    contract_dict.setdefault("objective", args.get("objective") or f"Execute step {step_name}.")
+    contract_dict.setdefault("input_evidence", [])
+    contract_dict.setdefault("expected_outputs", [])
+    contract_dict.setdefault("constraints", {})
+    contract_dict.setdefault("failure_mode", {})
+    contract_dict.setdefault("runtime", {})
+    contract_dict.setdefault("input_policy", {})
+    contract_dict.setdefault("output_policy", {})
+
+    try:
+        contract = TaskContract.model_validate(contract_dict)
+    except Exception as exc:
+        raise ValueError(f"coding_agent task_contract invalid: {exc}") from exc
+
+    result = CodingAgentService().execute(contract)
+
+    # Structured output for downstream steps + the run's evidence chain.
+    structured_output = {
+        "ok": result.ok,
+        "failure_kind": result.failure_kind,
+        "iterations_used": len(result.iterations),
+        "total_wall_time_ms": result.total_wall_time_ms,
+        "final_language": result.final_language,
+        "produced_files": [
+            {"path": pf["path"], "size_bytes": pf.get("size_bytes"), "change": pf.get("change")}
+            for pf in (result.produced_files or [])
+        ],
+        "reasoning_summary": result.reasoning_summary,
+        "per_iteration": [
+            {
+                "index": it.iteration_index,
+                "exit_code": it.exit_code,
+                "timed_out": it.timed_out,
+                "wall_time_ms": it.wall_time_ms,
+                "missing_outputs": it.output_policy_violation.missing_outputs,
+                "unexpected_outputs": it.output_policy_violation.unexpected_outputs,
+                "stdout_tail": _truncate_text(it.stdout_tail or "", 2000),
+                "stderr_tail": _truncate_text(it.stderr_tail or "", 2000),
+            }
+            for it in result.iterations
+        ],
+    }
+
+    # The "content" field mirrors what other workloads return — a short
+    # human-readable summary that the run's state view can display.
+    if result.ok:
+        content_bits = [
+            f"coding_agent completed in {len(result.iterations)} iteration(s)."
+        ]
+        if result.produced_files:
+            names = ", ".join(Path(pf["path"]).name for pf in result.produced_files[:5])
+            extra = "" if len(result.produced_files) <= 5 else f" (+{len(result.produced_files) - 5} more)"
+            content_bits.append(f"Produced: {names}{extra}.")
+        content = " ".join(content_bits)
+    else:
+        content = (
+            f"coding_agent failed with {result.failure_kind} after "
+            f"{len(result.iterations)} iteration(s)."
+        )
+
+    # Surface the script source from the last iteration (success or not)
+    # so the run is auditable end-to-end.
+    if result.iterations:
+        structured_output["final_script_source"] = result.final_script_source or result.iterations[-1].script_source
+
+    return {
+        "step_name": step_name,
+        "summary": content,
+        "content": content,
+        "structured_output": structured_output,
+        "adapter": "bounded_code_runner",
+        "capability_family": "coding_agent",
+        # Fail the step loudly on policy / runtime failure so the
+        # scheduler marks it failed and the user sees it.
+        "status": "completed" if result.ok else "failed",
+    }
+
+
+def _coding_agent_workspace(*, run_id: str, step_name: str) -> Path:
+    """Return a deterministic per-run / per-step workspace path under ROOT_DIR."""
+    safe_step = re.sub(r"[^a-zA-Z0-9_.-]+", "_", step_name or "step") or "step"
+    return (ROOT_DIR / ".generated" / "coding_agent" / str(run_id) / safe_step).resolve()

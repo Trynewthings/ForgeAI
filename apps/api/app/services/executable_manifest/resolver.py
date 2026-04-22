@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.db.models import Executable, RuntimeProfile
 from app.schemas.executable_manifest import (
     ExecutionPackageBinding,
@@ -13,6 +15,67 @@ from app.schemas.executable_manifest import (
     RuntimePreflightResult,
 )
 from app.services.executable_manifest.validator import ExecutableManifestValidator
+
+
+def _task_contract_from_step(
+    *,
+    raw_step: dict,
+    binding: ExecutionPackageBinding,
+) -> dict[str, Any]:
+    """Build a skeletal ``task_contract`` dict for a ``coding_agent`` step.
+
+    We fill in what's known at build time (objective, constraints,
+    runtime caps pulled from the capability's policy hints, and any
+    expected outputs the blueprint already declared). The runtime
+    workload populates the remaining fields (``workspace_dir`` and
+    ``input_evidence`` previews) at execution time once the run's
+    sandbox directory is allocated.
+    """
+    config_hints = dict(binding.config_hints or {})
+    runtime_cfg = {
+        "timeout_seconds": int(
+            binding.timeout_seconds
+            or config_hints.get("timeout_seconds")
+            or 120
+        ),
+        "memory_mb": int(config_hints.get("memory_mb") or 512),
+        "allow_network": bool(
+            config_hints.get("allow_network")
+            or binding.network_access_required
+            or False
+        ),
+        "max_iterations": int(config_hints.get("max_iterations") or 3),
+    }
+    constraints = {
+        "language": str(config_hints.get("language") or "python"),
+    }
+    if isinstance(config_hints.get("packages_allowed"), list):
+        constraints["packages_allowed"] = list(config_hints["packages_allowed"])
+    if isinstance(config_hints.get("packages_forbidden"), list):
+        constraints["packages_forbidden"] = list(config_hints["packages_forbidden"])
+
+    # Expected outputs: prefer an explicit ``expected_outputs`` list on
+    # the raw_step (planner-emitted), otherwise leave empty and let the
+    # runtime default. Keeping this loose at build time avoids baking
+    # in guesses the blueprint didn't actually declare.
+    expected_outputs = []
+    raw_expected = raw_step.get("expected_outputs")
+    if isinstance(raw_expected, list):
+        expected_outputs = [dict(item) for item in raw_expected if isinstance(item, dict)]
+
+    return {
+        "objective": (
+            str(raw_step.get("purpose") or raw_step.get("description") or "")
+            or f"Execute step {raw_step.get('step_name')} via the coding agent."
+        ),
+        # workspace_dir is intentionally absent here; the workload fills
+        # it in at runtime with a deterministic per-run / per-step path.
+        "input_evidence": [],
+        "expected_outputs": expected_outputs,
+        "constraints": constraints,
+        "runtime": runtime_cfg,
+        "source_node_id": raw_step.get("node_id") or raw_step.get("draft_node_id"),
+    }
 
 
 class ExecutableManifestResolver:
@@ -354,6 +417,24 @@ class ExecutableManifestResolver:
                 "source_mode": binding.source_mode,
                 "policy_scope": binding.policy_scope,
                 "timeout_seconds": binding.timeout_seconds,
+            }
+        if binding.execution_kind == "sandboxed_script":
+            # coding_agent capability — the workload will author + run
+            # a python/bash script in a bounded sandbox. Build-time we
+            # only stitch together what's already on the raw step +
+            # binding; the rest of the task_contract (workspace_dir,
+            # missing previews) is populated at runtime.
+            return {
+                **base,
+                "step_type": "coding_agent",
+                "handler_ref": binding.handler_ref or binding.selected_capability_id or "coding_agent",
+                "runtime_adapter": binding.runtime_adapter or "bounded_code_runner",
+                "args": dict(binding.config_hints or {}),
+                "selected_capability_id": binding.selected_capability_id or "coding_agent",
+                "timeout_seconds": binding.timeout_seconds,
+                "task_contract": _task_contract_from_step(
+                    raw_step=raw_step, binding=binding
+                ),
             }
         if binding.execution_kind == "blocked":
             return {
