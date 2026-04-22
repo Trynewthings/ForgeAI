@@ -170,7 +170,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         source_modalities_supported=["local_workspace_repo", "git_remote", "github_repo_url", "archive_url", "unsupported_source", "ambiguous_source"],
         coverage_semantics="Classifies only the explicit repository locator in scope.",
         confidence_semantics="High confidence when locator syntax is explicit; otherwise falls back to review-needed ambiguity.",
-        tags=["repository", "source", "planning"],
+        tags=["repository", "source", "planning", "repository_scoped"],
     ),
     CapabilityDefinition(
         capability_id="repository_checkout",
@@ -197,7 +197,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         source_modalities_supported=["git_remote", "github_repo_url", "archive_url", "local_workspace_repo"],
         coverage_semantics="Materializes one explicit repository source into one bounded workspace root.",
         confidence_semantics="High confidence for local/archive/file checkout; remote checkout remains bounded and policy-gated.",
-        tags=["repository", "checkout", "workspace"],
+        tags=["repository", "checkout", "workspace", "repository_scoped"],
     ),
     CapabilityDefinition(
         capability_id="repository_inventory",
@@ -221,7 +221,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         source_modalities_supported=["workspace_root"],
         coverage_semantics="Reports partial coverage honestly when file-count or byte limits are reached.",
         confidence_semantics="High confidence for enumerated files and configs; partial coverage is explicit.",
-        tags=["repository", "inventory", "codebase"],
+        tags=["repository", "inventory", "codebase", "repository_scoped"],
     ),
     CapabilityDefinition(
         capability_id="rss_fetch",
@@ -270,7 +270,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         deliverable_intents=["architecture_report", "repository_onboarding_brief", "repository_audit_summary"],
         preferred_upstream_capability_ids=["repository_inventory"],
         preferred_downstream_capability_ids=["repository_relationship_map", "repository_execution_surface_inspect", "repository_evidence_bundle"],
-        tags=["repository", "structure", "source"],
+        tags=["repository", "structure", "source", "repository_scoped"],
     ),
     CapabilityDefinition(
         capability_id="repository_relationship_map",
@@ -290,7 +290,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         deliverable_intents=["architecture_report", "repository_audit_summary"],
         preferred_upstream_capability_ids=["source_structure_extract"],
         preferred_downstream_capability_ids=["repository_evidence_bundle"],
-        tags=["repository", "dependencies", "architecture"],
+        tags=["repository", "dependencies", "architecture", "repository_scoped"],
     ),
     CapabilityDefinition(
         capability_id="repository_execution_surface_inspect",
@@ -311,7 +311,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         deliverable_intents=["architecture_report", "repository_onboarding_brief", "repository_audit_summary"],
         preferred_upstream_capability_ids=["repository_inventory", "source_structure_extract"],
         preferred_downstream_capability_ids=["repository_evidence_bundle"],
-        tags=["repository", "runtime", "build-surface"],
+        tags=["repository", "runtime", "build-surface", "repository_scoped"],
     ),
     CapabilityDefinition(
         capability_id="deduplicate_items",
@@ -625,7 +625,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
             "architecture_report_synthesis",
             "architecture_report_synthesis_llm",
         ],
-        tags=["repository", "evidence", "artifact"],
+        tags=["repository", "evidence", "artifact", "repository_scoped"],
     ),
     CapabilityDefinition(
         capability_id="architecture_report_brief",
@@ -645,7 +645,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         deliverable_intents=["architecture_report"],
         preferred_upstream_capability_ids=["repository_evidence_bundle"],
         preferred_downstream_capability_ids=["architecture_report_synthesis_llm", "architecture_report_synthesis"],
-        tags=["repository", "architecture-report", "brief"],
+        tags=["repository", "architecture-report", "brief", "repository_scoped", "architecture_scoped"],
     ),
     CapabilityDefinition(
         capability_id="architecture_report_synthesis_llm",
@@ -667,7 +667,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         deliverable_intents=["architecture_report"],
         preferred_upstream_capability_ids=["architecture_report_brief"],
         preferred_downstream_capability_ids=["architecture_report_render", "architecture_report_quality_gate"],
-        tags=["repository", "architecture-report", "llm"],
+        tags=["repository", "architecture-report", "llm", "repository_scoped", "architecture_scoped"],
     ),
     CapabilityDefinition(
         capability_id="architecture_report_synthesis",
@@ -687,7 +687,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         deliverable_intents=["architecture_report"],
         preferred_upstream_capability_ids=["repository_evidence_bundle"],
         preferred_downstream_capability_ids=["architecture_report_render", "architecture_report_quality_gate"],
-        tags=["repository", "architecture-report", "summary"],
+        tags=["repository", "architecture-report", "summary", "repository_scoped", "architecture_scoped"],
     ),
     CapabilityDefinition(
         capability_id="architecture_report_render",
@@ -707,7 +707,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         deliverable_intents=["architecture_report"],
         preferred_upstream_capability_ids=["architecture_report_synthesis_llm", "architecture_report_synthesis"],
         preferred_downstream_capability_ids=["architecture_report_quality_gate", "write_artifact"],
-        tags=["repository", "architecture-report", "render"],
+        tags=["repository", "architecture-report", "render", "repository_scoped", "architecture_scoped"],
     ),
     CapabilityDefinition(
         capability_id="architecture_report_quality_gate",
@@ -728,7 +728,7 @@ CAPABILITIES: list[CapabilityDefinition] = [
         preferred_upstream_capability_ids=["architecture_report_render", "architecture_report_brief"],
         preferred_downstream_capability_ids=["write_artifact"],
         quality_gate_relevance="required",
-        tags=["repository", "architecture-report", "quality"],
+        tags=["repository", "architecture-report", "quality", "repository_scoped", "architecture_scoped"],
     ),
     CapabilityDefinition(
         capability_id="human_review_gate",

@@ -120,3 +120,106 @@ def test_fallback_pool_dataclass_is_importable() -> None:
     empty = CandidatePoolForPlanner(subgoal_id="sg_empty")
     assert empty.coverage == "unmatched"
     assert empty.preferred_capability_id is None
+
+
+def test_generalist_fallback_preserve_slot_appends_at_back() -> None:
+    """P2.2-a invariant: when top-k cuts the generalist, it gets
+    appended via the preserve slot — at the BACK of the pool, so
+    specialists still win the top slot."""
+    envelope = [
+        {
+            "capability_id": "specialist_a",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": ["transform"],
+        },
+        {
+            "capability_id": "specialist_b",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": ["transform"],
+        },
+        {
+            "capability_id": "generic_fallback",
+            "logical_step_kinds": ["transform", "persist"],
+            "supported_step_kinds": ["transform", "persist"],
+            "side_effect_class": "none",
+            "tags": ["generalist_fallback"],
+        },
+    ]
+    subgoal = _subgoal(required_capability_classes=["transform"])
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx(envelope)
+    )["sg_1"]
+    # Specialist wins the front, generalist is kept but at the back.
+    assert pool.preferred_capability_id == "specialist_a"
+    assert "generic_fallback" in pool.candidate_pool
+    assert pool.candidate_pool[-1] == "generic_fallback"
+
+
+def test_domain_affinity_demotes_mismatched_scope() -> None:
+    """P2.2-b invariant: a capability whose registry scope tag doesn't
+    match the detected task domain drops to the back of the pool, even
+    if the narrower scored it on top of ordering."""
+    envelope = [
+        {
+            "capability_id": "repo_only_tool",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": ["repository_scoped"],
+        },
+        {
+            "capability_id": "domain_neutral_tool",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": ["parser"],
+        },
+    ]
+    # Task clearly tabular — the subgoal description names CSV columns.
+    subgoal = _subgoal(
+        required_capability_classes=["transform"],
+        input_evidence_kinds=["raw_csv_data"],
+        output_evidence_kinds=["aggregated_data"],
+        description="Parse CSV rows and aggregate by column",
+    )
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx(envelope)
+    )["sg_1"]
+    # Neutral tool wins over repo-scoped tool for a tabular task.
+    assert pool.candidate_pool.index("domain_neutral_tool") < pool.candidate_pool.index(
+        "repo_only_tool"
+    )
+
+
+def test_domain_affinity_preserves_order_when_no_domain_detected() -> None:
+    """When the haystack has no tabular / repository / architecture
+    keywords, the rescorer is a no-op — we don't demote on uncertainty."""
+    envelope = [
+        {
+            "capability_id": "repo_tool",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": ["repository_scoped"],
+        },
+        {
+            "capability_id": "other_tool",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": [],
+        },
+    ]
+    subgoal = _subgoal(
+        required_capability_classes=["transform"],
+        description="Do the thing",
+    )
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx(envelope)
+    )["sg_1"]
+    # No domain keywords in haystack → no demotion, narrower order kept.
+    assert pool.candidate_pool.index("repo_tool") < pool.candidate_pool.index("other_tool")

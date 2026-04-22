@@ -127,6 +127,28 @@ class PlannerCapabilityBinder:
                 by_id=by_id,
             )
 
+            # Domain-affinity rescoring — soft demote, not hard filter.
+            #
+            # Many capabilities are tied to a specific upstream/downstream
+            # domain (``repository_*`` only make sense against a git
+            # repository; ``architecture_*`` only against codebase-level
+            # analysis). When the task's detected domain doesn't match
+            # the candidate's scope tag, pushing the candidate to the
+            # back keeps Shape-LLM from picking it just because the
+            # specialisation score happened to tie.
+            #
+            # First version is soft — we reorder within the existing
+            # pool, we don't drop candidates. If the heuristic is wrong
+            # (domain mis-detected), the candidate is still present.
+            # Once audit confirms the detector is accurate, hard filter
+            # can be considered.
+            filtered_pool = _rescore_by_domain_affinity(
+                pool=filtered_pool,
+                subgoal=subgoal,
+                ctx=ctx,
+                by_id=by_id,
+            )
+
             # Generalist-preserve slot.
             #
             # The narrower's top-k cut ranks by step_kind specialisation
@@ -530,6 +552,155 @@ def _rescore_by_source_match(
         kept = [cid for cid in reordered if cap_score(cid)[0] >= 0]
         return kept
     return reordered
+
+
+# ---------------------------------------------------------------------------
+# Domain-affinity rescoring
+# ---------------------------------------------------------------------------
+
+
+# Registry tags that mark a capability as scoped to a specific task
+# domain. A capability with one of these tags only makes sense against
+# matching task context; mismatched tasks (e.g. tabular CSV aggregation)
+# should see the candidate demoted, not removed.
+_DOMAIN_SCOPE_TAGS: dict[str, str] = {
+    "repository_scoped": "repository",
+    "architecture_scoped": "architecture",
+    # Future: "dataset_scoped", "time_series_scoped", "sql_scoped", ...
+}
+
+# Keyword fragments that signal the task is tabular / numeric-dataset
+# shaped. Matched case-insensitively against subgoal evidence kinds,
+# descriptions, and the compile context's source modality. Chosen to be
+# conservative — we'd rather miss a true positive than mis-classify a
+# repo task as tabular.
+_TABULAR_DOMAIN_KEYWORDS = (
+    "csv",
+    "tsv",
+    "tabular",
+    "dataset",
+    "column",
+    "row",
+    "aggregat",  # matches aggregate, aggregated, aggregation
+    "group_by",
+    "group by",
+    "summary_table",
+    "parquet",
+    "spreadsheet",
+)
+
+# Keyword fragments that signal the task is repository / codebase
+# shaped. These push things in the opposite direction — if the task
+# IS repo-shaped, a repository_scoped capability is exactly right and
+# we don't want to demote it.
+_REPOSITORY_DOMAIN_KEYWORDS = (
+    "repository",
+    "codebase",
+    "source_tree",
+    "source tree",
+    "git_repo",
+    "pull_request",
+    "commit_history",
+)
+
+_ARCHITECTURE_DOMAIN_KEYWORDS = (
+    "architecture",
+    "system_design",
+    "component_diagram",
+    "service_boundaries",
+)
+
+
+def _detect_task_domains(
+    *, subgoal: SolvabilitySubgoal, ctx: "PlannerContext"
+) -> set[str]:
+    """Infer the task's domains from the subgoal + compile context.
+
+    Returns a set of domain labels. A task can be in multiple domains
+    at once (e.g. a task that derives metrics from a git repo is both
+    ``repository`` and ``tabular``). A capability scoped to *any* of
+    the task's domains is a match; a capability scoped to none is a
+    mismatch.
+    """
+    bag: list[str] = [
+        str(subgoal.label or ""),
+        str(subgoal.description or ""),
+        *[str(k) for k in (subgoal.input_evidence_kinds or [])],
+        *[str(k) for k in (subgoal.output_evidence_kinds or [])],
+        str(ctx.input_source_modality or ""),
+        str(ctx.input_source_kind or ""),
+        str(ctx.input_locator_hint or ""),
+    ]
+    haystack = " ".join(bag).lower()
+    domains: set[str] = set()
+    if any(kw in haystack for kw in _TABULAR_DOMAIN_KEYWORDS):
+        domains.add("tabular")
+    if any(kw in haystack for kw in _REPOSITORY_DOMAIN_KEYWORDS):
+        domains.add("repository")
+    if any(kw in haystack for kw in _ARCHITECTURE_DOMAIN_KEYWORDS):
+        domains.add("architecture")
+    return domains
+
+
+def _capability_scope_domains(entry: dict[str, Any] | None) -> set[str]:
+    """Extract scope domain(s) from capability tags."""
+    if not isinstance(entry, dict):
+        return set()
+    tags = entry.get("tags") or []
+    if not isinstance(tags, list):
+        return set()
+    return {
+        _DOMAIN_SCOPE_TAGS[t]
+        for t in (str(x) for x in tags)
+        if t in _DOMAIN_SCOPE_TAGS
+    }
+
+
+def _rescore_by_domain_affinity(
+    *,
+    pool: list[str],
+    subgoal: SolvabilitySubgoal,
+    ctx: "PlannerContext",
+    by_id: dict[str, Any],
+) -> list[str]:
+    """Demote domain-scoped capabilities when the task doesn't fit
+    their scope.
+
+    Soft policy (v1):
+        * Candidate has no scope tags → neutral, keep position.
+        * Candidate's scope overlaps at least one detected task domain
+          → neutral, keep position.
+        * Candidate has scope tags but NONE overlap detected task
+          domains → push to back of pool.
+        * If NO task domain can be detected (haystack has no keyword
+          hits), skip this rescorer entirely — we don't demote on
+          uncertainty.
+    """
+    if len(pool) <= 1:
+        return pool
+    task_domains = _detect_task_domains(subgoal=subgoal, ctx=ctx)
+    if not task_domains:
+        return pool
+
+    def affinity_rank(cid: str) -> int:
+        """Lower = earlier in the final pool."""
+        entry = by_id.get(cid, {}) or {}
+        scope = _capability_scope_domains(entry)
+        if not scope:
+            return 1  # neutral
+        if scope & task_domains:
+            return 0  # matching scope wins
+        return 2  # mismatched scope — push to back
+
+    # Stable sort on (affinity_rank, original_index) — equal-affinity
+    # candidates keep their upstream ordering.
+    return [
+        cid
+        for _, cid in sorted(
+            enumerate(pool),
+            key=lambda pair: (affinity_rank(pair[1]), pair[0]),
+        )
+    ]
 
 
 __all__ = [
