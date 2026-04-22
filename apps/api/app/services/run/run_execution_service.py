@@ -852,9 +852,31 @@ class RunExecutionService:
                 }
             )
             if output_payload.get("status") == "failed":
-                # Surface a RuntimeError so the scheduler marks the step
-                # failed rather than silently succeeding. The structured
-                # output is still in output_payload for audit.
+                # Persist the rich structured_output (script source,
+                # iterations, produced_files, stdout/stderr tail) as a
+                # sidecar file so it survives the outer rollback+overwrite
+                # that the scheduler's failure path performs on
+                # ``step.output_payload_json``. Demo / post-mortem code
+                # reads this sidecar to reconstruct the coding_agent
+                # diagnostics.
+                try:
+                    sidecar_dir = ROOT_DIR / ".generated" / "coding_agent_failures"
+                    sidecar_dir.mkdir(parents=True, exist_ok=True)
+                    sidecar_path = sidecar_dir / f"run-{run.id}-step-{step.id}.json"
+                    sidecar_path.write_text(
+                        json.dumps(output_payload, ensure_ascii=False, indent=2, default=str),
+                        encoding="utf-8",
+                    )
+                    logger.error(
+                        "coding_agent.failure_sidecar path=%s failure_kind=%s iterations=%s",
+                        sidecar_path,
+                        output_payload.get("structured_output", {}).get("failure_kind"),
+                        output_payload.get("structured_output", {}).get("iterations_used"),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "coding_agent failure sidecar write failed", exc_info=True
+                    )
                 raise RuntimeError(
                     f"coding_agent step '{step.step_name}' failed: "
                     f"{output_payload.get('structured_output', {}).get('failure_kind')}"

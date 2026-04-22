@@ -63,19 +63,27 @@ def _task_contract_from_step(
     if isinstance(raw_expected, list):
         expected_outputs = [dict(item) for item in raw_expected if isinstance(item, dict)]
 
-    return {
+    contract: dict[str, Any] = {
         "objective": (
             str(raw_step.get("purpose") or raw_step.get("description") or "")
             or f"Execute step {raw_step.get('step_name')} via the coding agent."
         ),
-        # workspace_dir is intentionally absent here; the workload fills
-        # it in at runtime with a deterministic per-run / per-step path.
         "input_evidence": [],
         "expected_outputs": expected_outputs,
         "constraints": constraints,
         "runtime": runtime_cfg,
         "source_node_id": raw_step.get("node_id") or raw_step.get("draft_node_id"),
     }
+    # Optional workspace_dir override — when the planner (or the caller)
+    # wants the coding_agent to read / write against an existing
+    # directory instead of the workload's default per-run path. Useful
+    # when declared expected_outputs reference absolute paths outside
+    # the default sandbox. Absence here means the workload picks a
+    # deterministic per-run / per-step path at execution time.
+    workspace_dir = config_hints.get("workspace_dir")
+    if isinstance(workspace_dir, str) and workspace_dir:
+        contract["workspace_dir"] = workspace_dir
+    return contract
 
 
 class ExecutableManifestResolver:
