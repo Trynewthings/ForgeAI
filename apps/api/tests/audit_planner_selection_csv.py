@@ -267,23 +267,77 @@ def main() -> int:
             )
             selection_source = "bind_fallback_pool0" if selected_id else "none"
 
-        # Bind-vs-Shape fault isolation.
+        # --- right_pick / wrong_pick classification ---
+        # Rules (in order):
+        #   1. wrong_pick — the selected capability's scope tags don't
+        #      overlap the detected task domain(s). This is the only
+        #      case that's unambiguously bad: we picked a capability
+        #      that the registry itself says is for a different domain.
+        #   2. right_pick — everything else. Either the selected cap
+        #      has no scope declared (neutral, generally safe), its
+        #      scope matches the task domain, or it's the generalist
+        #      fallback (always a legitimate option).
+        #   3. uncertain — we couldn't detect ANY task domain AND the
+        #      selected cap has scope. In that case we don't want to
+        #      penalise a pick on pure uncertainty.
+        #
+        # Regressions on scoped-mismatch picks are the actionable
+        # signal. Existing fault_class is kept in the row as a
+        # diagnostic breadcrumb but the classifier is what we sum on.
+        from app.services.workflow_planner.capability_binder import (
+            _capability_scope_domains,
+            _detect_task_domains,
+        )
+
+        selected_entry = ctx.capability_envelope_by_id.get(selected_id or "", {}) or {}
+        selected_scope = _capability_scope_domains(selected_entry)
+        task_domains = _detect_task_domains(subgoal=sg, ctx=ctx)
+        selected_is_generalist = (
+            "generalist_fallback" in (selected_entry.get("tags") or [])
+        )
+
+        if selected_id is None:
+            pick_classification = "no_selection"
+            pick_reason = "pool empty or no shape pick available"
+        elif selected_is_generalist:
+            pick_classification = "right_pick"
+            pick_reason = "generalist fallback is always a legitimate option"
+        elif not selected_scope:
+            pick_classification = "right_pick"
+            pick_reason = "selected capability has no domain scope — neutral fit"
+        elif not task_domains:
+            pick_classification = "uncertain"
+            pick_reason = (
+                "task domain could not be detected from subgoal text; "
+                "cannot judge scoped pick"
+            )
+        elif selected_scope & task_domains:
+            pick_classification = "right_pick"
+            pick_reason = (
+                f"selected scope {sorted(selected_scope)} overlaps task domain "
+                f"{sorted(task_domains)}"
+            )
+        else:
+            pick_classification = "wrong_pick"
+            pick_reason = (
+                f"selected capability is scoped to {sorted(selected_scope)} but task "
+                f"domain is {sorted(task_domains)} — scope mismatch"
+            )
+
+        # Keep the old fault_class as a diagnostic breadcrumb — it
+        # explains which subsystem (bind / shape / frontchain) would
+        # need to move to change the outcome. Classification above is
+        # what gets summed for regression monitoring.
         fault_class: str
         if selected_id == "coding_agent":
             fault_class = "selected_coding_agent"
         elif coding_agent_in_pool and shape_pick_idx is not None and shape_pick_idx != coding_agent_rank - 1:
-            # coding_agent existed in pool, shape-LLM picked something else.
             fault_class = "shape_chose_other_over_coding_agent"
         elif coding_agent_in_pool and coding_agent_rank != 1:
-            # coding_agent was in pool but not at top; shape had no reason to
-            # pick a lower-ranked candidate.
             fault_class = "bind_ranked_coding_agent_below_top"
         elif not coding_agent_in_pool and coding_agent_in_trace is not None:
-            # coding_agent was scored but was cut by top-k / rescoring / forbid filter.
             fault_class = "bind_cut_coding_agent_from_pool"
         elif not coding_agent_in_pool and coding_agent_in_trace is None:
-            # coding_agent never even entered the step_kind index → upstream
-            # semantic typing never asked for a step_kind coding_agent advertises.
             fault_class = "frontchain_semantics_no_step_kind_match"
         else:
             fault_class = "other"
@@ -313,6 +367,10 @@ def main() -> int:
             "selected_capability_id": selected_id,
             "selection_source": selection_source,
             "fault_class": fault_class,
+            "pick_classification": pick_classification,
+            "pick_reason": pick_reason,
+            "detected_task_domains": sorted(task_domains),
+            "selected_scope_domains": sorted(selected_scope),
         }
         report_rows.append(row)
 
@@ -372,14 +430,35 @@ def main() -> int:
             f"selected={row['selected_capability_id']}  "
             f"source={row['selection_source']}"
         )
-        print(f"   >>> fault_class: {row['fault_class']}")
+        verdict_marker = {
+            "right_pick": "✔",
+            "wrong_pick": "✘",
+            "uncertain": "·",
+            "no_selection": "?",
+        }.get(row["pick_classification"], "?")
+        print(
+            f"   >>> verdict: {verdict_marker} {row['pick_classification']}  "
+            f"(task_domains={row['detected_task_domains']} "
+            f"selected_scope={row['selected_scope_domains']})"
+        )
+        print(f"       reason: {row['pick_reason']}")
+        print(f"       [fault-class breadcrumb: {row['fault_class']}]")
 
-    # --- Fault class summary ---
+    # --- Classifier summary ---
     from collections import Counter
 
+    verdicts = Counter(r["pick_classification"] for r in report_rows)
     faults = Counter(r["fault_class"] for r in report_rows)
     print("\n" + "=" * 78)
-    print("  Fault-class histogram (per subgoal)")
+    print("  Classification histogram (actionable)")
+    print("=" * 78)
+    verdict_order = ["right_pick", "wrong_pick", "uncertain", "no_selection"]
+    for cls in verdict_order:
+        if cls in verdicts:
+            marker = {"right_pick": "✔", "wrong_pick": "✘", "uncertain": "·"}.get(cls, "?")
+            print(f"   {marker} {verdicts[cls]:>3}  {cls}")
+    print("\n" + "=" * 78)
+    print("  Fault-class breadcrumbs (diagnostic — which layer would move)")
     print("=" * 78)
     for cls, n in faults.most_common():
         print(f"   {n}  {cls}")
@@ -402,7 +481,7 @@ def main() -> int:
                 f"{row['coding_agent_narrower_entry']['raw_rank_total']}"
             )
     if cut_after_indexed:
-        print("\nREGRESSION GUARD FAILED — coding_agent was indexed but cut:")
+        print("\nREGRESSION GUARD A FAILED — coding_agent was indexed but cut:")
         for line in cut_after_indexed:
             print(f"  - {line}")
         print(
@@ -410,6 +489,24 @@ def main() -> int:
             "design issue (coding_agent penalised for being generalist)."
         )
         return 1
+
+    # --- Regression guard B: no wrong_pick subgoals.
+    # A ``wrong_pick`` means shape-LLM picked a capability whose registry
+    # scope tag contradicts the task's detected domain — a recognisable
+    # failure mode. If this count climbs on a new run, we regressed.
+    wrong_picks = [r for r in report_rows if r["pick_classification"] == "wrong_pick"]
+    if wrong_picks:
+        print("\nREGRESSION GUARD B FAILED — wrong_pick subgoals:")
+        for r in wrong_picks:
+            print(
+                f"  - {r['subgoal_id']} ({r['label']}): "
+                f"selected={r['selected_capability_id']} "
+                f"scope={r['selected_scope_domains']} "
+                f"task_domains={r['detected_task_domains']}"
+            )
+            print(f"    {r['pick_reason']}")
+        return 1
+
     return 0
 
 
