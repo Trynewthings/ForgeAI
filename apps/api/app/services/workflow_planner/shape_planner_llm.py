@@ -87,6 +87,10 @@ Hard rules:
 1. Only reference subgoal_id values that appear in the ``subgoals`` list below.
 2. For capability_choice, the value MUST be an integer index INTO each \
    subgoal's candidate_pool (0-based). If nothing is clearly better, use 0.
+   If you see ``coding_agent`` in a candidate_pool, it is the generalist \
+   fallback — prefer it ONLY when no specialised capability in the pool \
+   actually matches the subgoal's data type or side-effect profile. Do \
+   NOT default to coding_agent when a specialised capability is available.
 3. Prefer linear ordering when the task is a pipeline; propose parallel \
    branches only when the subgoals share an upstream and produce \
    disjoint evidence kinds.

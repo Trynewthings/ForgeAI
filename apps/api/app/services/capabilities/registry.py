@@ -804,6 +804,116 @@ CAPABILITIES: list[CapabilityDefinition] = [
         planning_visibility="reusable_allowed",
         tags=["llm", "agentic", "reasoning", "universal"],
     ),
+    # -----------------------------------------------------------------
+    # Coding Agent — the "escape hatch" for everything the registry
+    # doesn't model. Authors and executes a fresh python/bash script
+    # inside a bounded sandbox. Picked as LAST-RESORT by the planner
+    # only when the per-step-kind pool is otherwise empty (or when the
+    # Shape-LLM explicitly escalates). Every invocation is
+    # review-required by default; the execution sandbox enforces
+    # workspace scope, timeout, memory, and optional network bounds.
+    # -----------------------------------------------------------------
+    CapabilityDefinition(
+        capability_id="coding_agent",
+        name="Coding Agent",
+        description=(
+            "Author and execute a fresh python or bash script to solve a "
+            "bounded data/compute/transform task inside a sandboxed "
+            "workspace. Chosen when no specialised capability covers the "
+            "subgoal — the planner's generalist escape hatch."
+        ),
+        # Broad step-kind support so the planner can reach for it
+        # whenever the specialised pool is unmatched. The fallback
+        # ordering in capability_binder keeps it out of the preferred
+        # list until all concrete alternatives fail.
+        supported_step_kinds=["ingest", "transform", "validate", "persist", "summarize"],
+        capability_type="llm_assisted",
+        input_contract_summary=(
+            "Natural-language task description, input_evidence_kinds, "
+            "output_evidence_kinds, language preference (python|bash), "
+            "workspace scope, allow_network bool, timeout_seconds, "
+            "memory_mb_cap, optional seed files."
+        ),
+        output_contract_summary=(
+            "Script source, stdout/stderr preview, exit code, produced "
+            "files list, structured evidence emission."
+        ),
+        execution_kind="sandboxed_script",
+        runtime_adapter="bounded_code_runner",
+        runtime_requirements=[
+            "workspace_access",
+            "sandboxed_execution",
+            "llm_provider",
+        ],
+        provider_requirements=["chat_completion"],
+        allowed_contexts=["blueprint_planning", "build_planning", "runtime"],
+        requires_review=True,
+        policy_summary=(
+            "Scripts run in a fresh sandbox with workspace-scoped "
+            "filesystem, optional bounded network, and hard time / "
+            "memory caps. No persistent side effects outside the "
+            "declared workspace. Requires explicit reviewer approval "
+            "for any persist-family invocation."
+        ),
+        supported_actions=[
+            "write_python",
+            "run_python",
+            "write_bash",
+            "run_bash",
+            "iterate_on_error",
+        ],
+        policy_hints={
+            "requires_sandbox": True,
+            "default_language": "python",
+            "network_default": "deny",
+            "timeout_default_seconds": 120,
+            "memory_default_mb": 512,
+            "max_iterations_default": 3,
+            "persist_requires_review": True,
+        },
+        semantic_purpose=(
+            "Escape hatch for tasks whose transform / ingest / validate "
+            "/ persist isn't covered by a dedicated capability. "
+            "Converts 'registry gap' into 'on-the-fly script' without "
+            "regressing to an unbounded autonomous agent."
+        ),
+        # No first-class enum value for "generalist_executor"; the closest
+        # honest fit is ``evidence_transform`` since the script always
+        # consumes and produces evidence.
+        semantic_role="evidence_transform",
+        consumes_evidence_types=[
+            "text.content",
+            "local.content",
+            "data.table.raw",
+            "text.analysis",
+        ],
+        produces_evidence_types=[
+            "script.output",
+            "data.derived",
+            "local.content",
+        ],
+        source_modalities_supported=[
+            "local_path",
+            "local_file",
+            "file",
+            "csv",
+            "tsv",
+            "json_file",
+            "workspace_root",
+            "mixed",
+        ],
+        coverage_semantics=(
+            "Covers the specific script the planner asks it to author; "
+            "not an open-ended autonomous agent."
+        ),
+        confidence_semantics=(
+            "High confidence for narrow deterministic transforms; "
+            "medium for heuristic cleanup; low (review-required) for "
+            "anything that rewrites business-critical schemas."
+        ),
+        planning_visibility="reusable_allowed",
+        tags=["coding", "script", "generalist", "sandbox", "fallback"],
+    ),
 ]
 
 
@@ -820,6 +930,7 @@ CAPABILITY_BINDINGS: list[CapabilityBindingDefinition] = [
             "repository_source_resolve",
             "repository_checkout",
             "repository_inventory",
+            "coding_agent",  # last-resort fallback
         ],
         preferred_capability_ids=[
             "repository_source_resolve",
@@ -834,13 +945,13 @@ CAPABILITY_BINDINGS: list[CapabilityBindingDefinition] = [
     ),
     CapabilityBindingDefinition(
         step_kind="transform",
-        capability_ids=["parse_json", "deduplicate_items", "run_python_template", "filesystem_read", "terminal_command", "browser_interaction", "source_structure_extract", "repository_relationship_map", "repository_execution_surface_inspect", "architecture_report_brief", "general_agentic_reasoning"],
+        capability_ids=["parse_json", "deduplicate_items", "run_python_template", "filesystem_read", "terminal_command", "browser_interaction", "source_structure_extract", "repository_relationship_map", "repository_execution_surface_inspect", "architecture_report_brief", "general_agentic_reasoning", "coding_agent"],
         preferred_capability_ids=["parse_json", "deduplicate_items", "filesystem_read", "terminal_command", "source_structure_extract", "architecture_report_brief"],
         allowed_contexts=["authoring", "blueprint_planning", "build_planning", "runtime"],
     ),
     CapabilityBindingDefinition(
         step_kind="summarize",
-        capability_ids=["summarize_text_llm", "architecture_report_synthesis", "architecture_report_synthesis_llm", "architecture_report_brief", "general_agentic_reasoning"],
+        capability_ids=["summarize_text_llm", "architecture_report_synthesis", "architecture_report_synthesis_llm", "architecture_report_brief", "general_agentic_reasoning", "coding_agent"],
         preferred_capability_ids=["summarize_text_llm", "architecture_report_brief", "architecture_report_synthesis", "architecture_report_synthesis_llm"],
         allowed_contexts=["authoring", "blueprint_planning", "build_planning", "runtime"],
     ),
@@ -852,7 +963,7 @@ CAPABILITY_BINDINGS: list[CapabilityBindingDefinition] = [
     ),
     CapabilityBindingDefinition(
         step_kind="validate",
-        capability_ids=["validate_schema", "human_review_gate", "terminal_command", "repository_execution_surface_inspect", "architecture_report_quality_gate", "general_agentic_reasoning"],
+        capability_ids=["validate_schema", "human_review_gate", "terminal_command", "repository_execution_surface_inspect", "architecture_report_quality_gate", "general_agentic_reasoning", "coding_agent"],
         preferred_capability_ids=["architecture_report_quality_gate", "validate_schema", "terminal_command", "repository_execution_surface_inspect"],
         allowed_contexts=["authoring", "blueprint_planning", "build_planning", "runtime"],
     ),
@@ -864,7 +975,7 @@ CAPABILITY_BINDINGS: list[CapabilityBindingDefinition] = [
     ),
     CapabilityBindingDefinition(
         step_kind="persist",
-        capability_ids=["write_artifact", "run_python_template", "filesystem_write", "browser_interaction", "repository_evidence_bundle", "architecture_report_render", "research_briefing_render"],
+        capability_ids=["write_artifact", "run_python_template", "filesystem_write", "browser_interaction", "repository_evidence_bundle", "architecture_report_render", "research_briefing_render", "coding_agent"],
         preferred_capability_ids=["repository_evidence_bundle", "architecture_report_render", "research_briefing_render", "write_artifact", "filesystem_write", "browser_interaction"],
         allowed_contexts=["blueprint_planning", "build_planning", "runtime"],
     ),
