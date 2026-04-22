@@ -20,8 +20,10 @@ from app.services.coding_agent.bounded_code_runner import (
     detect_sandbox_mode,
     execute,
 )
+from app.services.coding_agent.service import CodingAgentService
 
 __all__ = [
+    "CodingAgentService",
     "ExecutionResult",
     "ProducedFile",
     "SandboxConfig",
