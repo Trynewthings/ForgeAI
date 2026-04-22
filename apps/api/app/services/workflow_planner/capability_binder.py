@@ -127,39 +127,60 @@ class PlannerCapabilityBinder:
                 by_id=by_id,
             )
 
-            # Last-resort coding_agent fallback: if the pool is still
-            # empty after narrowing + rescoring, and the envelope carries
-            # a registered coding_agent capability, drop it in as a
-            # fallback candidate. The fallback is intentionally AT THE
-            # BACK of the pool (lowest priority) and only surfaces in
-            # the preferred slot when nothing else matches — that keeps
-            # specialised caps winning the happy path.
-            if not filtered_pool:
-                fallback = _coding_agent_fallback(
+            # Generalist-preserve slot.
+            #
+            # The narrower's top-k cut ranks by step_kind specialisation
+            # — a generalist (a capability that advertises many
+            # step_kinds, e.g. coding_agent with 5) is structurally
+            # penalised and tends to fall below the top-k threshold
+            # wherever there are ≥k specialised capabilities competing.
+            # That's the *right* ordering for the happy path, but it
+            # means Shape-LLM never gets to see a generalist escape
+            # hatch when the specialists are domain-wrong (observed in
+            # the P2.1 CSV audit: every transform/persist/summarize
+            # subgoal cut coding_agent, then shape-LLM picked a
+            # domain-mismatched specialist because the pool offered
+            # nothing else).
+            #
+            # Fix: after the normal top-k, if no capability currently in
+            # the pool is tagged ``generalist_fallback``, look for one
+            # in the envelope that (a) supports at least one of this
+            # subgoal's canonical step_kinds and (b) isn't filtered by
+            # forbidden_side_effect. If found, append it at the back of
+            # the pool — position preserves "specialists first".
+            #
+            # This keeps the fix structural: ANY capability the registry
+            # marks ``generalist_fallback`` gets a preserve slot. We do
+            # NOT hardcode coding_agent.
+            if not _pool_has_generalist_fallback(filtered_pool, by_id):
+                preserved = _find_generalist_fallback_in_envelope(
                     envelope=envelope,
                     step_kinds=cp.step_kinds,
                     forbidden=forbidden,
                     side_effect_per=side_effect_per,
                     agentic_per=agentic_per,
                     tools_per=tools_per,
+                    already_in_pool=set(filtered_pool),
                 )
-                if fallback is not None:
-                    filtered_pool.append(fallback)
+                if preserved is not None:
+                    filtered_pool.append(preserved)
 
             coverage = _coverage_from_narrower(
                 uncovered=cp.uncovered_step_kinds,
                 step_kinds=cp.step_kinds,
                 candidate_count=len(filtered_pool),
             )
-            # Coverage honesty: when the only surviving candidate is the
-            # coding_agent fallback, mark coverage as ``partial`` (not
-            # ``full``) even if the narrower would otherwise report
-            # full. Running a scripted escape hatch is not the same as
-            # having a specialised capability — downstream UX / review
-            # gates should see this honestly.
-            if filtered_pool == ["coding_agent"] and coverage == "full":
-                coverage = "partial"
-            elif filtered_pool == ["coding_agent"] and coverage == "unmatched":
+            # Coverage honesty: when the ONLY surviving candidate is a
+            # generalist fallback, mark coverage as ``partial`` even if
+            # the narrower would otherwise report full. Running a
+            # scripted escape hatch is not the same as having a
+            # specialised capability — downstream UX / review gates
+            # should see this honestly.
+            if (
+                len(filtered_pool) == 1
+                and _pool_has_generalist_fallback(filtered_pool, by_id)
+                and coverage in {"full", "unmatched"}
+            ):
                 coverage = "partial"
 
             pools[subgoal.subgoal_id] = CandidatePoolForPlanner(
@@ -210,7 +231,32 @@ def _subgoal_to_draft(subgoal: SolvabilitySubgoal) -> SubgoalDraft:
     )
 
 
-def _coding_agent_fallback(
+_GENERALIST_FALLBACK_TAG = "generalist_fallback"
+
+
+def _is_generalist_fallback_entry(entry: dict[str, Any] | None) -> bool:
+    """Structural detector: the envelope entry is tagged
+    ``generalist_fallback`` in the registry.
+
+    This is the single source of truth. Any capability the registry
+    tags with it earns preserve-slot treatment — no capability id is
+    special-cased in binder code.
+    """
+    if not isinstance(entry, dict):
+        return False
+    tags = entry.get("tags") or []
+    if not isinstance(tags, list):
+        return False
+    return any(str(t) == _GENERALIST_FALLBACK_TAG for t in tags)
+
+
+def _pool_has_generalist_fallback(
+    pool: list[str], by_id: dict[str, dict[str, Any]]
+) -> bool:
+    return any(_is_generalist_fallback_entry(by_id.get(cid)) for cid in pool)
+
+
+def _find_generalist_fallback_in_envelope(
     *,
     envelope: list[dict[str, Any]],
     step_kinds: list[str],
@@ -218,41 +264,46 @@ def _coding_agent_fallback(
     side_effect_per: dict[str, str],
     agentic_per: dict[str, bool],
     tools_per: dict[str, list[str]],
+    already_in_pool: set[str],
 ) -> Optional[str]:
-    """Return ``"coding_agent"`` if it's reachable for this subgoal.
+    """Return the capability_id of the first eligible generalist
+    fallback in the envelope — i.e. a capability that:
 
-    Guards:
-        * The envelope must actually contain ``coding_agent`` (i.e. the
-          registry enrichment in ``planner_context_builder`` folded it
-          in).
-        * The capability must advertise at least one of the subgoal's
-          required step_kinds.
-        * Forbidden side-effect filter still applies.
+        * carries the ``generalist_fallback`` tag,
+        * advertises at least one of the subgoal's canonical step_kinds,
+        * isn't in the forbidden_side_effect set,
+        * isn't already in the current pool.
 
-    Returns ``None`` when any guard fails — we never fabricate fallback
-    bindings that the registry can't honour at runtime.
+    Populates ``side_effect_per`` / ``agentic_per`` / ``tools_per`` for
+    the chosen candidate so the caller can build binder output dicts
+    uniformly. Returns ``None`` when no eligible candidate exists — we
+    never fabricate bindings the registry can't honour at runtime.
     """
+    step_kind_set = set(step_kinds)
     for entry in envelope:
-        if not isinstance(entry, dict):
+        if not _is_generalist_fallback_entry(entry):
             continue
-        if str(entry.get("capability_id") or "") != "coding_agent":
+        cid = str(entry.get("capability_id") or "")
+        if not cid or cid in already_in_pool:
             continue
         supported = {
             str(k)
             for k in (entry.get("supported_step_kinds") or entry.get("logical_step_kinds") or [])
             if k
         }
-        if step_kinds and not (supported & set(step_kinds)):
-            return None
+        if step_kind_set and not (supported & step_kind_set):
+            continue
         side_effect = str(entry.get("side_effect_class") or "none")
         if side_effect in forbidden:
-            return None
-        side_effect_per["coding_agent"] = side_effect
-        agentic_per["coding_agent"] = True  # coding_agent is agentic by construction
-        tools_per["coding_agent"] = list(
-            entry.get("supported_actions") or ["write_python", "run_python"]
+            continue
+        side_effect_per[cid] = side_effect
+        # Generalists are agentic by construction (they author and
+        # execute a script). Respect the envelope signal when set.
+        agentic_per[cid] = _envelope_agentic(entry) or True
+        tools_per[cid] = _envelope_available_tools(entry) or list(
+            entry.get("supported_actions") or []
         )
-        return "coding_agent"
+        return cid
     return None
 
 

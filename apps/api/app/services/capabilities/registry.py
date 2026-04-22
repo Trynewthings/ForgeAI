@@ -912,7 +912,12 @@ CAPABILITIES: list[CapabilityDefinition] = [
             "anything that rewrites business-critical schemas."
         ),
         planning_visibility="reusable_allowed",
-        tags=["coding", "script", "generalist", "sandbox", "fallback"],
+        # ``generalist_fallback`` is the structural marker the planner's
+        # binder reads. Any capability with this tag is preserved in the
+        # pool alongside the top-k specialists (one preserve slot per
+        # subgoal) so Shape-LLM always has a generalist option when the
+        # specialists look domain-wrong.
+        tags=["coding", "script", "generalist", "generalist_fallback", "sandbox", "fallback"],
     ),
 ]
 
