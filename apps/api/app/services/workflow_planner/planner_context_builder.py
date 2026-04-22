@@ -103,6 +103,9 @@ def build_planner_context(compile_context: CompileContextResponse) -> PlannerCon
                 "supported_step_kinds": list(
                     getattr(cap, "supported_step_kinds", []) or []
                 ),
+                "requires_confirmation": bool(
+                    getattr(cap, "requires_confirmation", False)
+                ),
             }
             if cap.capability_id not in envelope_ids:
                 # Build a signature-shaped dict so the binder can consume it
@@ -123,6 +126,15 @@ def build_planner_context(compile_context: CompileContextResponse) -> PlannerCon
                         "graph_support": [],
                         "runtime_adapter_kind": getattr(cap, "runtime_adapter", "unknown")
                         or "unknown",
+                        # Same fields the scorer reads — propagate so registry-
+                        # only capabilities compete on equal terms with
+                        # solvability-envelope entries.
+                        "supported_step_kinds": list(
+                            getattr(cap, "supported_step_kinds", []) or []
+                        ),
+                        "requires_confirmation": bool(
+                            getattr(cap, "requires_confirmation", False)
+                        ),
                     }
                 )
     except Exception:
@@ -148,6 +160,15 @@ def build_planner_context(compile_context: CompileContextResponse) -> PlannerCon
                     "tags": enrichment.get("tags", []),
                     "execution_kind": enrichment.get("execution_kind"),
                     "semantic_role_registry": enrichment.get("semantic_role"),
+                    # P2.1 audit fix: these two were silently missing from
+                    # the envelope entry, so the binder's scorer
+                    # (``_score_candidates``) read them as empty/False and
+                    # the specialisation + persist-confirmation bonuses
+                    # never fired. Pool ordering collapsed to registry
+                    # insertion order, which systematically cut
+                    # late-registered fallbacks like ``coding_agent``.
+                    "supported_step_kinds": enrichment.get("supported_step_kinds", []),
+                    "requires_confirmation": bool(enrichment.get("requires_confirmation", False)),
                 }
             )
         envelope_raw.append(entry)

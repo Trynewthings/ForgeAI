@@ -328,6 +328,10 @@ def main() -> int:
     report_path = Path("/tmp/audit_planner_csv_report.json")
     report_path.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
 
+    # Regression guard moved below the console summary — see the
+    # AssertionError message for the diagnostic (by then we've already
+    # printed the full trace, which is what you actually want to read).
+
     # --- Console summary ---
     print("\n" + "=" * 78)
     print("  Per-subgoal selection trace (CSV aggregation task)")
@@ -381,6 +385,31 @@ def main() -> int:
         print(f"   {n}  {cls}")
     print(f"\nfull json: {report_path}")
     print(f"elapsed: {out['elapsed_seconds']}s")
+
+    # --- Regression guard: coding_agent must survive top-k for any
+    # step_kind it claims to support. If the pool for such a subgoal
+    # drops coding_agent, the envelope / scoring is still broken.
+    # We run the assertion AFTER the summary so a failing audit still
+    # prints the diagnostic trace.
+    cut_after_indexed: list[str] = []
+    for row in report_rows:
+        if row["coding_agent_narrower_entry"] is not None and not row["coding_agent_in_pool"]:
+            cut_after_indexed.append(
+                f"{row['subgoal_id']} ({row['label']}) step_kinds="
+                f"{row['pool_after_all_filters']['canonical_step_kinds']} "
+                f"raw_rank="
+                f"{row['coding_agent_narrower_entry']['raw_rank_among_step_kind']}/"
+                f"{row['coding_agent_narrower_entry']['raw_rank_total']}"
+            )
+    if cut_after_indexed:
+        print("\nREGRESSION GUARD FAILED — coding_agent was indexed but cut:")
+        for line in cut_after_indexed:
+            print(f"  - {line}")
+        print(
+            "  The envelope is now populated, so this is a scorer / top_k "
+            "design issue (coding_agent penalised for being generalist)."
+        )
+        return 1
     return 0
 
 
