@@ -13,7 +13,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
@@ -2841,6 +2841,36 @@ def execute_coding_agent_workload(
     # so the run is auditable end-to-end.
     if result.iterations:
         structured_output["final_script_source"] = result.final_script_source or result.iterations[-1].script_source
+
+    # Session-anchored chain plumbing: expose the content of the
+    # primary produced file (the one that matches the first declared
+    # expected_output, or the newest produced file when no declaration
+    # is present) as ``primary_output_content``. Downstream fs_write
+    # bindings read this via source_step/source_field so the natural
+    # fs_read → coding_agent → ... → fs_write chain can complete.
+    if result.ok:
+        primary_path: Optional[str] = None
+        expected_locators = [str(eo.locator) for eo in contract.expected_outputs if eo.locator]
+        produced_paths = [str(pf["path"]) for pf in (result.produced_files or []) if pf.get("path")]
+        for locator in expected_locators:
+            if locator in produced_paths:
+                primary_path = locator
+                break
+        if primary_path is None and produced_paths:
+            # fallback: first produced file that isn't the helper
+            # ``script.py`` the bounded runner writes.
+            non_script = [p for p in produced_paths if not Path(p).name.startswith("script.")]
+            if non_script:
+                primary_path = non_script[0]
+        if primary_path:
+            try:
+                structured_output["primary_output_path"] = primary_path
+                structured_output["primary_output_content"] = Path(primary_path).read_text(
+                    encoding="utf-8"
+                )
+            except Exception:  # noqa: BLE001
+                # Binary / unreadable — leave content out but keep path.
+                pass
 
     return {
         "step_name": step_name,

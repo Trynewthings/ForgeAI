@@ -55,20 +55,37 @@ def _task_contract_from_step(
         constraints["packages_forbidden"] = list(config_hints["packages_forbidden"])
 
     # Expected outputs: prefer an explicit ``expected_outputs`` list on
-    # the raw_step (planner-emitted), otherwise leave empty and let the
-    # runtime default. Keeping this loose at build time avoids baking
-    # in guesses the blueprint didn't actually declare.
+    # the raw_step (planner-emitted), otherwise try config_hints (the
+    # session-anchored adapter puts them there when chaining nodes),
+    # otherwise leave empty and let the runtime default.
     expected_outputs = []
     raw_expected = raw_step.get("expected_outputs")
     if isinstance(raw_expected, list):
         expected_outputs = [dict(item) for item in raw_expected if isinstance(item, dict)]
+    elif isinstance(config_hints.get("expected_outputs"), list):
+        expected_outputs = [
+            dict(item)
+            for item in config_hints["expected_outputs"]
+            if isinstance(item, dict)
+        ]
+
+    # Input evidence: planner-enriched / session-anchored chain
+    # threading may populate this via config_hints. Empty list is the
+    # safe default — the workload tolerates it.
+    input_evidence: list[dict[str, Any]] = []
+    if isinstance(config_hints.get("input_evidence"), list):
+        input_evidence = [
+            dict(item)
+            for item in config_hints["input_evidence"]
+            if isinstance(item, dict)
+        ]
 
     contract: dict[str, Any] = {
         "objective": (
             str(raw_step.get("purpose") or raw_step.get("description") or "")
             or f"Execute step {raw_step.get('step_name')} via the coding agent."
         ),
-        "input_evidence": [],
+        "input_evidence": input_evidence,
         "expected_outputs": expected_outputs,
         "constraints": constraints,
         "runtime": runtime_cfg,
@@ -76,10 +93,7 @@ def _task_contract_from_step(
     }
     # Optional workspace_dir override — when the planner (or the caller)
     # wants the coding_agent to read / write against an existing
-    # directory instead of the workload's default per-run path. Useful
-    # when declared expected_outputs reference absolute paths outside
-    # the default sandbox. Absence here means the workload picks a
-    # deterministic per-run / per-step path at execution time.
+    # directory instead of the workload's default per-run path.
     workspace_dir = config_hints.get("workspace_dir")
     if isinstance(workspace_dir, str) and workspace_dir:
         contract["workspace_dir"] = workspace_dir

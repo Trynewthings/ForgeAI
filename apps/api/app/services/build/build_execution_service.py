@@ -407,6 +407,21 @@ class BuildExecutionService:
                 state_row.planner_output_json
             )
 
+            # Load the compile_context too — the session-anchored
+            # adapter uses its input/output locators to thread concrete
+            # paths into filesystem_read / filesystem_write bindings
+            # and to compute a shared workspace_dir across coding_agent
+            # nodes. Absence is tolerated (natural chain just can't
+            # execute fs_read/fs_write).
+            compile_context_for_adapter: Any | None = None
+            if state_row.compile_context_json:
+                try:
+                    compile_context_for_adapter = CompileContextResponse.model_validate(
+                        state_row.compile_context_json
+                    )
+                except Exception:  # noqa: BLE001 — defensive
+                    compile_context_for_adapter = None
+
             # 2. Allocate executable + build dir (no blueprint_id here).
             build_dir = (
                 ROOT_DIR / ".generated" / "executables" / build.project_id / build.build_version
@@ -425,7 +440,9 @@ class BuildExecutionService:
             db.commit()
 
             # 3. Planner_output → (steps, bindings) via the step-4 adapter.
-            steps, bindings = bindings_from_planner_output(planner_output)
+            steps, bindings = bindings_from_planner_output(
+                planner_output, compile_context=compile_context_for_adapter
+            )
             runnable_binding_names = [
                 b.step_name for b in bindings if b.runnable
             ]
@@ -458,7 +475,7 @@ class BuildExecutionService:
                 bindings_source="bindings.json",
                 package_metadata_source="package_metadata.json",
                 asset_index_source=None,
-                supported_execution_kinds=["sandboxed_script", "blocked"],
+                supported_execution_kinds=["sandboxed_script", "filesystem", "blocked"],
                 runnable_step_names=runnable_binding_names,
                 blocked_step_names=blocked_binding_names,
                 review_required_step_names=[
