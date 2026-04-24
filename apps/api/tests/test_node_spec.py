@@ -8,10 +8,16 @@ Covers:
     S1  NodeSpecService (mock) produces valid bundle from synthetic planner_output
     S2  NodeSpecService (mock) skips human_gate / verify auto-insertions
     S3  NodeSpecService (mock) threads upstream source_hint by node_id
+    V1  edge validator passes when source_hint + schema_hint align
+    V2  edge validator catches missing_input_reference
+    V3  edge validator catches schema_mismatch
+    V4  edge validator drops edges into verify_after_* terminators
+    V5  edge validator bridges human_gate_* pass-through (5 → gate → 6)
     E1  /specify endpoint returns 404 when session has no states
     E2  /specify endpoint returns 422 when session has states but no planner_output
     E3  /specify endpoint full path: project → session → turn → plan → specify
     E4  /specify endpoint is idempotent — second call overwrites bundle
+    E5  /specify endpoint returns 422 when edge contract fails
 
 All tests run in mock LLM mode via the conftest client fixture.
 """
@@ -25,7 +31,16 @@ import pytest
 from app.core.config import settings
 from app.schemas.node_execution_spec import (
     NODE_EXECUTION_SPEC_VERSION,
+    AcceptanceCriterion,
+    BusinessRule,
+    ExecutionConstraints,
+    FailurePolicy,
+    NodeExecutionSpec,
     NodeExecutionSpecBundle,
+    NodeInputContract,
+    NodeInputSlot,
+    NodeOutputContract,
+    NodeOutputSlot,
 )
 from app.schemas.problem_formulation import (
     InputClosureContract,
@@ -38,6 +53,7 @@ from app.schemas.requirement_compiler import CompileContextResponse
 from app.schemas.solvability import SolvabilityContract
 from app.schemas.workflow_native import ExecutionAdmissibilityContract
 from app.schemas.workflow_planner import (
+    WorkflowPlannerEdgeDraft,
     WorkflowPlannerNodeDraft,
     WorkflowPlannerOutput,
 )
@@ -45,7 +61,11 @@ from app.services.node_spec.data_profiling_service import (
     DataProfilingResult,
     profile_locator,
 )
-from app.services.node_spec.node_spec_service import NodeSpecService
+from app.services.node_spec.edge_contract_validator import validate_edge_contracts
+from app.services.node_spec.node_spec_service import (
+    EdgeContractFailure,
+    NodeSpecService,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -464,6 +484,335 @@ def test_e3_specify_full_path_with_plan(client, tmp_path: Path) -> None:
     # Profiling saw the real CSV.
     profile_paths = [f["path"] for f in bundle.profiling_summary["files"]]
     assert str(input_path) in profile_paths
+
+
+# ---------------------------------------------------------------------------
+# V — edge_contract_validator unit tests
+# ---------------------------------------------------------------------------
+
+
+def _spec(
+    node_id: str,
+    *,
+    out_name: str,
+    out_fields: list[str] | None = None,
+    inputs: list[NodeInputSlot] | None = None,
+) -> NodeExecutionSpec:
+    return NodeExecutionSpec(
+        node_id=node_id,
+        semantic_goal=f"do {node_id}",
+        input_contract=NodeInputContract(required=inputs or [], optional=[]),
+        output_contract=NodeOutputContract(
+            primary_output=NodeOutputSlot(
+                name=out_name,
+                kind="tabular_records",
+                schema_hint=out_fields or [],
+            ),
+            secondary_outputs=[],
+        ),
+        business_rules=[],
+        acceptance_criteria=[],
+        execution_constraints=ExecutionConstraints(),
+        failure_policy=FailurePolicy(),
+    )
+
+
+def _planner_with_edges(
+    nodes: list[WorkflowPlannerNodeDraft],
+    edges: list[tuple[str, str]],
+) -> WorkflowPlannerOutput:
+    return WorkflowPlannerOutput(
+        node_drafts=nodes,
+        edge_drafts=[
+            WorkflowPlannerEdgeDraft(
+                draft_edge_id=f"e_{src}__{dst}",
+                from_node_id=src,
+                to_node_id=dst,
+            )
+            for src, dst in edges
+        ],
+        entry_node_ids=[nodes[0].draft_node_id],
+        exit_node_ids=[nodes[-1].draft_node_id],
+    )
+
+
+def test_v1_validator_passes_on_aligned_specs() -> None:
+    nodes = [
+        _mk_node(draft_node_id="A", semantic_type="acquire", capability_id="filesystem_read"),
+        _mk_node(draft_node_id="B", semantic_type="transform", upstream=["A"], capability_id="coding_agent"),
+    ]
+    planner = _planner_with_edges(nodes, [("A", "B")])
+    specs = [
+        _spec("A", out_name="raw_table", out_fields=["sku", "qty"]),
+        _spec(
+            "B",
+            out_name="result",
+            out_fields=["sku", "score"],
+            inputs=[
+                NodeInputSlot(
+                    name="raw_table",
+                    kind="upstream_output",
+                    schema_hint=["sku", "qty"],
+                    source_hint="A",
+                )
+            ],
+        ),
+    ]
+    report = validate_edge_contracts(planner_output=planner, specs=specs, skipped_node_ids=[])
+    assert report.passed
+    assert report.checked_edges == 1
+
+
+def test_v2_validator_catches_missing_input_reference() -> None:
+    nodes = [
+        _mk_node(draft_node_id="A", semantic_type="acquire", capability_id="filesystem_read"),
+        _mk_node(draft_node_id="B", semantic_type="transform", upstream=["A"], capability_id="coding_agent"),
+    ]
+    planner = _planner_with_edges(nodes, [("A", "B")])
+    specs = [
+        _spec("A", out_name="raw_table", out_fields=["sku"]),
+        # B's input slot does NOT reference A in any way.
+        _spec(
+            "B",
+            out_name="result",
+            inputs=[
+                NodeInputSlot(
+                    name="something_else",
+                    kind="file_path",
+                    schema_hint=[],
+                    source_hint="/tmp/other.csv",
+                )
+            ],
+        ),
+    ]
+    report = validate_edge_contracts(planner_output=planner, specs=specs, skipped_node_ids=[])
+    assert not report.passed
+    assert len(report.issues) == 1
+    issue = report.issues[0]
+    assert issue.kind == "missing_input_reference"
+    assert issue.from_node_id == "A"
+    assert issue.to_node_id == "B"
+
+
+def test_v3_validator_catches_schema_mismatch() -> None:
+    nodes = [
+        _mk_node(draft_node_id="A", semantic_type="acquire", capability_id="filesystem_read"),
+        _mk_node(draft_node_id="B", semantic_type="transform", upstream=["A"], capability_id="coding_agent"),
+    ]
+    planner = _planner_with_edges(nodes, [("A", "B")])
+    specs = [
+        _spec("A", out_name="raw_table", out_fields=["sku", "qty"]),
+        # B requires fields that A does NOT emit.
+        _spec(
+            "B",
+            out_name="result",
+            inputs=[
+                NodeInputSlot(
+                    name="raw_table",
+                    kind="upstream_output",
+                    schema_hint=["sku", "warehouse", "lead_time"],
+                    source_hint="A",
+                )
+            ],
+        ),
+    ]
+    report = validate_edge_contracts(planner_output=planner, specs=specs, skipped_node_ids=[])
+    assert not report.passed
+    issue = report.issues[0]
+    assert issue.kind == "schema_mismatch"
+    assert set(issue.missing_fields) == {"warehouse", "lead_time"}
+
+
+def test_v4_validator_drops_edges_into_verify_terminator() -> None:
+    nodes = [
+        _mk_node(draft_node_id="A", semantic_type="transform", capability_id="coding_agent"),
+        _mk_node(
+            draft_node_id="verify_after_A",
+            semantic_type="verify",
+            upstream=["A"],
+            capability_id="validate_schema",
+        ),
+    ]
+    planner = _planner_with_edges(nodes, [("A", "verify_after_A")])
+    specs = [_spec("A", out_name="result", out_fields=["sku"])]
+    report = validate_edge_contracts(
+        planner_output=planner, specs=specs, skipped_node_ids=["verify_after_A"]
+    )
+    # Edge into a verify terminator is observed-only, not validated.
+    assert report.checked_edges == 0
+    assert report.passed
+
+
+def test_v5_validator_bridges_human_gate_passthrough() -> None:
+    nodes = [
+        _mk_node(draft_node_id="A", semantic_type="transform", capability_id="coding_agent"),
+        _mk_node(
+            draft_node_id="human_gate_before_B",
+            semantic_type="human_gate",
+            upstream=["A"],
+            capability_id="human_review_gate",
+        ),
+        _mk_node(
+            draft_node_id="B",
+            semantic_type="act",
+            upstream=["human_gate_before_B"],
+            capability_id="filesystem_write",
+        ),
+    ]
+    planner = _planner_with_edges(
+        nodes, [("A", "human_gate_before_B"), ("human_gate_before_B", "B")]
+    )
+    # B's source_hint points at the gate (the LLM's likely choice). The
+    # bridging logic should still resolve the edge as A → B and detect
+    # the schema mismatch between A's output and B's expected input.
+    specs = [
+        _spec("A", out_name="result", out_fields=["sku", "qty", "extra"]),
+        _spec(
+            "B",
+            out_name="written",
+            inputs=[
+                NodeInputSlot(
+                    name="result",
+                    kind="upstream_output",
+                    schema_hint=["sku", "qty", "missing_field"],
+                    source_hint="human_gate_before_B",
+                )
+            ],
+        ),
+    ]
+    report = validate_edge_contracts(
+        planner_output=planner,
+        specs=specs,
+        skipped_node_ids=["human_gate_before_B"],
+    )
+    # Effective edge A → B was computed across the gate. Because B asks
+    # for `missing_field` which A does not emit, schema_mismatch fires.
+    assert not report.passed
+    assert report.checked_edges >= 1
+    issue = next(i for i in report.issues if i.from_node_id == "A" and i.to_node_id == "B")
+    assert issue.kind == "schema_mismatch"
+    assert "missing_field" in issue.missing_fields
+
+
+def test_e5_specify_endpoint_returns_422_on_edge_contract_failure(
+    client, tmp_path: Path, monkeypatch
+) -> None:
+    """End-to-end: stub NodeSpecService so it returns mismatched specs,
+    then check that /specify surfaces the issues with HTTP 422.
+    """
+    monkeypatch.setattr(settings, "llm_mode", "mock", raising=False)
+    input_path = tmp_path / "in.csv"
+    _write_csv(input_path, ["sku"], [["P-001"]])
+    output_path = tmp_path / "out.csv"
+
+    project_id, session_id = _seed_state_with_planner_output(
+        client, tmp_path, input_locator=str(input_path), output_locator=str(output_path)
+    )
+
+    # Override the stored planner_output to one with edges + monkeypatch
+    # the spec service so it returns specs we control. We do this by
+    # injecting a custom NodeSpecService that returns specs that violate
+    # the contract.
+    from app.services.node_spec import session_orchestration as orch
+
+    class _BrokenSpecService:
+        def specify_bundle(self, *, planner_output, compile_context):
+            from app.schemas.node_execution_spec import (
+                EdgeContractReport,
+                NodeExecutionSpecBundle,
+            )
+
+            specs = [
+                _spec("n_ingest", out_name="raw_table", out_fields=["sku"]),
+                _spec(
+                    "n_analyze",
+                    out_name="analysis",
+                    out_fields=["sku", "score"],
+                    inputs=[
+                        # Wrong source_hint — claims a non-existent upstream.
+                        NodeInputSlot(
+                            name="something",
+                            kind="upstream_output",
+                            schema_hint=[],
+                            source_hint="nowhere",
+                        )
+                    ],
+                ),
+                _spec("n_persist", out_name="written", inputs=[]),
+            ]
+            from app.services.node_spec.edge_contract_validator import (
+                validate_edge_contracts,
+            )
+
+            report = validate_edge_contracts(
+                planner_output=planner_output,
+                specs=specs,
+                skipped_node_ids=[
+                    "human_gate_before_n_persist",
+                    "verify_after_n_persist",
+                ],
+            )
+            return NodeExecutionSpecBundle(
+                spec_version=NODE_EXECUTION_SPEC_VERSION,
+                specs=specs,
+                skipped_node_ids=[
+                    "human_gate_before_n_persist",
+                    "verify_after_n_persist",
+                ],
+                profiling_summary={},
+                edge_contract_report=report,
+                llm_trace={"call_count": 0, "llm_mode": "mock"},
+            )
+
+    # Patch the FastAPI dependency: the route resolves the service via
+    # a fresh NodeSpecService() inside specify_for_session. Replace the
+    # function with a wrapper that injects the broken service.
+    original = orch.specify_for_session
+
+    def _patched(session_id, *, db, persist=True, service=None):
+        return original(
+            session_id, db=db, persist=persist, service=_BrokenSpecService()
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.front_chain.specify_for_session", _patched
+    )
+
+    # Patch the planner_output stored on the seeded state so it has
+    # edges that link n_ingest → n_analyze.
+    from app.core.database import get_db
+    from app.db.models import FrontChainState
+    from app.main import app
+
+    db_dep = app.dependency_overrides[get_db]
+    gen = db_dep()
+    db = next(gen)
+    row = (
+        db.query(FrontChainState)
+        .filter(FrontChainState.session_id == session_id)
+        .first()
+    )
+    po = WorkflowPlannerOutput.model_validate(row.planner_output_json)
+    po.edge_drafts = [
+        WorkflowPlannerEdgeDraft(
+            draft_edge_id="e1", from_node_id="n_ingest", to_node_id="n_analyze"
+        )
+    ]
+    row.planner_output_json = po.model_dump(mode="json")
+    db.add(row)
+    db.commit()
+    try:
+        next(gen)
+    except StopIteration:
+        pass
+
+    resp = client.post(f"/api/v1/front-chain/sessions/{session_id}/specify")
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["error"] == "edge_contract_failed"
+    assert detail["checked_edges"] >= 1
+    assert detail["issues"]
+    assert detail["issues"][0]["kind"] == "missing_input_reference"
 
 
 def test_e4_specify_is_idempotent(client, tmp_path: Path) -> None:

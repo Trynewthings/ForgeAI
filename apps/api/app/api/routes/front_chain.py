@@ -35,7 +35,10 @@ from app.schemas.front_chain import (
     FrontChainSpecifyResponse,
     FrontChainStateResponse,
 )
-from app.services.node_spec.node_spec_service import NodeSpecFailure
+from app.services.node_spec.node_spec_service import (
+    EdgeContractFailure,
+    NodeSpecFailure,
+)
 from app.services.node_spec.session_orchestration import (
     NodeSpecPlannerOutputMissingError,
     NodeSpecSessionNotFoundError,
@@ -268,6 +271,18 @@ def specify_front_chain_session(
                 "session has no planner_output yet — finish the plan "
                 f"stage before specifying (session_id={exc})"
             ),
+        ) from exc
+    except EdgeContractFailure as exc:
+        report = exc.bundle.edge_contract_report
+        issues = [i.model_dump(mode="json") for i in (report.issues if report else [])]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "edge_contract_failed",
+                "checked_edges": report.checked_edges if report else 0,
+                "skipped_edges": report.skipped_edges if report else 0,
+                "issues": issues,
+            },
         ) from exc
     except NodeSpecFailure as exc:
         raise HTTPException(

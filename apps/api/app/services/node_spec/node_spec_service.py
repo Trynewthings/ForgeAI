@@ -49,6 +49,7 @@ from app.services.node_spec.data_profiling_service import (
     DataProfilingResult,
     profile_locator,
 )
+from app.services.node_spec.edge_contract_validator import validate_edge_contracts
 from app.services.provider_runtime import (
     BaseProviderAdapter,
     ProviderCallError,
@@ -70,6 +71,21 @@ class NodeSpecFailure(RuntimeError):
     def __init__(self, message: str, *, node_id: Optional[str] = None) -> None:
         super().__init__(message)
         self.node_id = node_id
+
+
+class EdgeContractFailure(RuntimeError):
+    """Raised when the spec pass produced per-node specs that are
+    individually valid but collectively violate the edge contract
+    (e.g. downstream expects fields upstream doesn't emit, or dst has no
+    input slot pointing at src). The offending bundle is carried so the
+    endpoint can surface it in the error detail without re-running.
+    """
+
+    def __init__(self, bundle: "NodeExecutionSpecBundle") -> None:
+        report = bundle.edge_contract_report
+        count = len(report.issues) if report else 0
+        super().__init__(f"edge_contract_failed: {count} issue(s)")
+        self.bundle = bundle
 
 
 @dataclass
@@ -98,10 +114,18 @@ Hard rules:
    Each slot has: name, kind, schema_hint (list of field names), source_hint.
    * When an upstream node produces the data, source_hint = that
      upstream node_id (not a file path).
+   * source_hint MUST point to a REAL producer node, never to an
+     auto-inserted ``human_gate_*`` or ``verify_after_*`` node — those
+     are not data producers, they're gates or observers. If the edge
+     goes through such a node, use the real producer that sits before
+     the gate as source_hint.
    * When a raw input file is consumed directly, source_hint = the file
      path from the profiling summary (copy verbatim).
    * schema_hint MUST come from profiling samples when available — do
      NOT invent columns that don't appear in profiling.
+   * Do NOT duplicate upstream inputs: if an upstream node already
+     produces a dataset, consume it via source_hint=<upstream_node_id>
+     rather than re-declaring a file-path input for the same data.
 2. output_contract.primary_output is the SINGLE downstream-consumable
    output of this node. schema_hint lists the fields it will emit.
 3. business_rules is for "how this node must decide / transform" rules,
@@ -224,11 +248,18 @@ class NodeSpecService:
             specs.append(spec)
             call_traces.append(trace)
 
+        edge_report = validate_edge_contracts(
+            planner_output=planner_output,
+            specs=specs,
+            skipped_node_ids=skipped,
+        )
+
         return NodeExecutionSpecBundle(
             spec_version=NODE_EXECUTION_SPEC_VERSION,
             specs=specs,
             skipped_node_ids=skipped,
             profiling_summary=profiling_summary,
+            edge_contract_report=edge_report,
             llm_trace={
                 "call_count": len(call_traces),
                 "llm_mode": getattr(settings, "llm_mode", "mock"),
@@ -290,6 +321,7 @@ class NodeSpecService:
 
         payload.setdefault("node_id", ctx.node.draft_node_id)
         payload.setdefault("semantic_goal", ctx.node.semantic_goal or "")
+        _normalize_enum_fields(payload)
 
         try:
             spec = NodeExecutionSpec.model_validate(payload)
@@ -365,6 +397,58 @@ def _call_adapter(
 
 
 _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
+
+# Allowed enum values for business_rules.category and acceptance_criteria.kind.
+# When the LLM emits something outside the set, we downgrade rather than
+# fail the whole spec — the rule TEXT carries the meaningful content; the
+# category is a coarse triage label that downstream doesn't currently
+# branch on. Emitting "other" with an audit note keeps the bundle usable.
+_BUSINESS_RULE_CATEGORIES = {
+    "data_integrity",
+    "domain_policy",
+    "value_mapping",
+    "completeness",
+    "other",
+}
+_ACCEPTANCE_CRITERION_KINDS = {
+    "presence",
+    "tabular_contract",
+    "uniqueness",
+    "enum_membership",
+    "value_range",
+    "non_null",
+    "row_count",
+    "relational_integrity",
+    "content_quality_grade",
+    "other",
+}
+
+
+def _normalize_enum_fields(payload: dict[str, Any]) -> None:
+    """Snap LLM-emitted enum values to the allowed set in place.
+
+    The LLM occasionally cross-pollinates between ``business_rules.category``
+    and ``acceptance_criteria.kind`` (they look thematically similar). Rather
+    than fail the whole spec for what is a labelling slip, downgrade unknown
+    values to ``other`` so the spec body survives and the rule text — the
+    actual signal — is preserved.
+    """
+    rules = payload.get("business_rules")
+    if isinstance(rules, list):
+        for entry in rules:
+            if not isinstance(entry, dict):
+                continue
+            cat = entry.get("category")
+            if isinstance(cat, str) and cat not in _BUSINESS_RULE_CATEGORIES:
+                entry["category"] = "other"
+    criteria = payload.get("acceptance_criteria")
+    if isinstance(criteria, list):
+        for entry in criteria:
+            if not isinstance(entry, dict):
+                continue
+            kind = entry.get("kind")
+            if isinstance(kind, str) and kind not in _ACCEPTANCE_CRITERION_KINDS:
+                entry["kind"] = "other"
 
 
 def _extract_json_object(raw: str) -> dict[str, Any]:

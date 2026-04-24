@@ -16,6 +16,7 @@ import sys as _sys
 _sys.path.insert(0, "/Users/llk/agentsFactory/apps/api")
 
 from app.core.database import SessionLocal  # noqa: E402
+from app.services.node_spec.node_spec_service import EdgeContractFailure  # noqa: E402
 from app.services.node_spec.session_orchestration import specify_for_session  # noqa: E402
 
 ROOT = Path("/Users/llk/agentsFactory/scenario_data/spare_parts")
@@ -28,8 +29,25 @@ SESSION_ID = "eb2105c0-caa6-4a66-b42a-f888baeca2f5"
 def main() -> int:
     db = SessionLocal()
     try:
-        serialized, row = specify_for_session(SESSION_ID, db=db)
-        db.commit()
+        try:
+            serialized, row = specify_for_session(SESSION_ID, db=db)
+            db.commit()
+        except EdgeContractFailure as exc:
+            db.rollback()
+            serialized = exc.bundle.model_dump(mode="json")
+            failure_path = TRACE / "05b_node_specs_edge_failed.json"
+            failure_path.write_text(json.dumps(serialized, ensure_ascii=False, indent=2))
+            print(f"!! EDGE CONTRACT FAILED — bundle dumped to {failure_path}")
+            report = serialized.get("edge_contract_report") or {}
+            print(f"   checked_edges={report.get('checked_edges')}  "
+                  f"skipped_edges={report.get('skipped_edges')}  "
+                  f"issues={len(report.get('issues') or [])}")
+            for i, issue in enumerate(report.get("issues") or []):
+                print(f"   [{i+1}] {issue['kind']:25s} {issue['from_node_id']} → {issue['to_node_id']}")
+                print(f"       {issue['detail']}")
+                if issue.get("missing_fields"):
+                    print(f"       missing_fields: {issue['missing_fields']}")
+            return 2
     finally:
         db.close()
 
@@ -37,6 +55,11 @@ def main() -> int:
     out_path.write_text(json.dumps(serialized, ensure_ascii=False, indent=2, default=str))
     print(f"wrote {out_path}  size={out_path.stat().st_size}B")
     print()
+    edge_report = serialized.get("edge_contract_report") or {}
+    print(f"edge_contract    : checked={edge_report.get('checked_edges')}  "
+          f"skipped={edge_report.get('skipped_edges')}  "
+          f"issues={len(edge_report.get('issues') or [])}  "
+          f"PASSED={not edge_report.get('issues')}")
     print(f"spec_version     : {serialized['spec_version']}")
     print(f"spec count       : {len(serialized['specs'])}")
     print(f"skipped_node_ids : {serialized['skipped_node_ids']}")

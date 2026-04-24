@@ -16,6 +16,7 @@ from app.schemas.node_execution_spec import NODE_EXECUTION_SPEC_VERSION
 from app.schemas.requirement_compiler import CompileContextResponse
 from app.schemas.workflow_planner import WorkflowPlannerOutput
 from app.services.node_spec.node_spec_service import (
+    EdgeContractFailure,
     NodeSpecFailure,
     NodeSpecService,
 )
@@ -78,6 +79,20 @@ def specify_for_session(
     )
     serialized = bundle.model_dump(mode="json")
 
+    # Fail-fast on edge contract issues. We still surface the bundle via
+    # the exception so the endpoint can relay diagnostics to the caller
+    # without a second round-trip.
+    if bundle.edge_contract_report and bundle.edge_contract_report.issues:
+        log_event(
+            logger,
+            logging.INFO,
+            "node_spec.edge_contract_failed",
+            session_id=session_id,
+            state_id=row.id,
+            issue_count=len(bundle.edge_contract_report.issues),
+        )
+        raise EdgeContractFailure(bundle)
+
     if persist:
         row.node_specs_json = serialized
         row.node_specs_version = NODE_EXECUTION_SPEC_VERSION
@@ -92,6 +107,7 @@ def specify_for_session(
         state_id=row.id,
         spec_count=len(bundle.specs),
         skipped_count=len(bundle.skipped_node_ids),
+        edge_checked=bundle.edge_contract_report.checked_edges if bundle.edge_contract_report else 0,
         persisted=persist,
     )
     return serialized, row
@@ -100,5 +116,6 @@ def specify_for_session(
 __all__ = [
     "NodeSpecSessionNotFoundError",
     "NodeSpecPlannerOutputMissingError",
+    "EdgeContractFailure",
     "specify_for_session",
 ]

@@ -201,6 +201,44 @@ class NodeExecutionSpec(BaseModel):
     )
 
 
+class EdgeContractIssue(BaseModel):
+    """A single inconsistency found between two neighbouring nodes' specs.
+
+    The validator walks each planner edge (A → B) and checks that B's
+    ``input_contract`` declares an input slot that matches A's
+    ``output_contract.primary_output``. Different failure modes carry
+    different ``kind`` tags so downstream can triage without re-parsing
+    the detail string.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    edge_id: str
+    from_node_id: str
+    to_node_id: str
+    kind: Literal[
+        "spec_missing",             # one end has no spec (and isn't skipped)
+        "missing_input_reference",  # dst has no input slot pointing at src
+        "schema_mismatch",          # dst requires fields src doesn't emit
+    ]
+    detail: str
+    missing_fields: list[str] = Field(default_factory=list)
+
+
+class EdgeContractReport(BaseModel):
+    """Aggregated validator result."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    checked_edges: int = 0
+    skipped_edges: int = 0
+    issues: list[EdgeContractIssue] = Field(default_factory=list)
+
+    @property
+    def passed(self) -> bool:
+        return not self.issues
+
+
 class NodeExecutionSpecBundle(BaseModel):
     """All specs produced for one planner_output, plus provenance.
 
@@ -224,6 +262,14 @@ class NodeExecutionSpecBundle(BaseModel):
         default_factory=dict,
         description="Compact summary of the data profiling pass; see DataProfilingResult.",
     )
+    edge_contract_report: Optional[EdgeContractReport] = Field(
+        default=None,
+        description=(
+            "Result of the edge contract validator. Populated when the "
+            "spec pass runs against a planner_output with edges. When "
+            "``issues`` is non-empty the bundle is structurally unusable."
+        ),
+    )
     llm_trace: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -239,5 +285,7 @@ __all__ = [
     "FailurePolicy",
     "VerifierHints",
     "NodeExecutionSpec",
+    "EdgeContractIssue",
+    "EdgeContractReport",
     "NodeExecutionSpecBundle",
 ]
