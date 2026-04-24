@@ -276,6 +276,13 @@ def specify_front_chain_session(
         report = exc.bundle.edge_contract_report
         issues = [i.model_dump(mode="json") for i in (report.issues if report else [])]
         trace = exc.bundle.llm_trace or {}
+        # Roll up issue counts by classification so callers can decide
+        # the next move (more retries vs planner repair vs slice growth)
+        # without re-parsing the full issue list.
+        classification_counts: dict[str, int] = {}
+        for issue in (report.issues if report else []):
+            label = issue.classification or "unknown"
+            classification_counts[label] = classification_counts.get(label, 0) + 1
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -283,6 +290,14 @@ def specify_front_chain_session(
                 "checked_edges": report.checked_edges if report else 0,
                 "skipped_edges": report.skipped_edges if report else 0,
                 "issues": issues,
+                "classification_counts": classification_counts,
+                # Hint for the orchestrator: anything tagged
+                # topology_repair_required survived the retry budget;
+                # spec retries alone won't fix it on a third try.
+                "topology_repair_required": classification_counts.get(
+                    "topology_repair_required", 0
+                )
+                > 0,
                 # Retry trace: shows callers which retries were attempted
                 # before giving up, so they can see whether the validator
                 # was making progress or hitting the same wall every time.

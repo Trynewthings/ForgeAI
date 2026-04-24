@@ -5,194 +5,52 @@
       "node_id": "planner_node_1",
       "semantic_goal": "Read all raw data files from the input directory",
       "input_contract": {
-        "required": [
-          {
-            "name": "demand_history_120d.csv",
-            "kind": "csv",
-            "schema_hint": [
-              "date",
-              "sku_id",
-              "warehouse",
-              "actual_consumption_qty",
-              "demand_including_lost_qty",
-              "market_index",
-              "planned_maintenance_flag",
-              "stockout_lost_qty",
-              "unit_replacement_price",
-              "source_channel"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/demand_history_120d.csv"
-          },
-          {
-            "name": "inventory_rt.csv",
-            "kind": "csv",
-            "schema_hint": [
-              "sku_id",
-              "part_name",
-              "warehouse",
-              "category",
-              "criticality",
-              "lifecycle",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "on_hand",
-              "reserved",
-              "available_qty",
-              "inbound_approved",
-              "last_event_ts"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/inventory_rt.csv"
-          },
-          {
-            "name": "market_signals.csv",
-            "kind": "csv",
-            "schema_hint": [
-              "week_start",
-              "category",
-              "region",
-              "demand_index",
-              "maintenance_cycle_index",
-              "customer_backlog_index",
-              "competitor_supply_shock",
-              "note"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/market_signals.csv"
-          },
-          {
-            "name": "real_time_events.csv",
-            "kind": "csv",
-            "schema_hint": [
-              "event_ts",
-              "event_id",
-              "event_type",
-              "sku_id",
-              "warehouse",
-              "qty_delta",
-              "source_system",
-              "reference_no",
-              "processed",
-              "note"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/real_time_events.csv"
-          },
-          {
-            "name": "sku_master.csv",
-            "kind": "csv",
-            "schema_hint": [
-              "sku_id",
-              "part_name",
-              "category",
-              "criticality",
-              "unit",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "target_service_level",
-              "shelf_life_days",
-              "lifecycle",
-              "substitution_group",
-              "max_stock",
-              "base_daily_demand"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/sku_master.csv"
-          },
-          {
-            "name": "supplier_performance.csv",
-            "kind": "csv",
-            "schema_hint": [
-              "supplier_id",
-              "supplier_name",
-              "region",
-              "contract_leadtime_days",
-              "latest_leadtime_days",
-              "on_time_rate",
-              "default_moq",
-              "quality_ppm",
-              "reliability_grade",
-              "last_delay_event"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/supplier_performance.csv"
-          }
-        ],
-        "optional": [
-          {
-            "name": "README.md",
-            "kind": "text",
-            "schema_hint": [],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/README.md"
-          }
-        ]
+        "required": [],
+        "optional": []
       },
       "output_contract": {
         "primary_output": {
-          "name": "raw_data_bundle",
+          "name": "ingested_files",
           "kind": "dataset_collection",
           "schema_hint": [
-            "demand_history_120d",
-            "inventory_rt",
-            "market_signals",
-            "real_time_events",
-            "sku_master",
-            "supplier_performance"
+            "demand_history_120d.csv",
+            "inventory_rt.csv",
+            "market_signals.csv",
+            "real_time_events.csv",
+            "sku_master.csv",
+            "supplier_performance.csv"
           ],
-          "locator_hint": null
+          "locator_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input"
         },
         "secondary_outputs": []
       },
       "business_rules": [
         {
           "rule_id": "BR-001",
-          "rule": "All required CSV files must be present and readable in the input directory.",
-          "category": "completeness"
+          "rule": "All files must be read from the input directory exactly as named; no renaming or transformation during acquisition.",
+          "category": "data_integrity"
         },
         {
           "rule_id": "BR-002",
-          "rule": "Each file must be read in its entirety; no truncation or partial reads are allowed.",
-          "category": "data_integrity"
+          "rule": "If a file is missing or unreadable, the node must still produce a dataset_collection containing only the successfully read files; missing files are recorded as empty datasets.",
+          "category": "completeness"
         }
       ],
       "acceptance_criteria": [
         {
           "criterion_id": "AC-001",
-          "statement": "All six required CSV files are present and readable.",
+          "statement": "The output dataset_collection contains exactly 6 entries with keys matching the schema_hint.",
           "kind": "presence",
           "params": {
-            "files": [
-              "demand_history_120d.csv",
-              "inventory_rt.csv",
-              "market_signals.csv",
-              "real_time_events.csv",
-              "sku_master.csv",
-              "supplier_performance.csv"
-            ]
+            "expected_count": 6
           }
         },
         {
           "criterion_id": "AC-002",
-          "statement": "Each CSV file has at least one row of data (excluding header).",
+          "statement": "Each entry in the dataset_collection is a valid CSV dataset with at least one row (except for missing files which are empty).",
           "kind": "row_count",
           "params": {
-            "min_rows": 1
-          }
-        },
-        {
-          "criterion_id": "AC-003",
-          "statement": "The output bundle contains exactly six named datasets corresponding to the input files.",
-          "kind": "tabular_contract",
-          "params": {
-            "expected_datasets": [
-              "demand_history_120d",
-              "inventory_rt",
-              "market_signals",
-              "real_time_events",
-              "sku_master",
-              "supplier_performance"
-            ]
+            "min_rows": 0
           }
         }
       ],
@@ -205,24 +63,22 @@
         "max_duration_seconds": 30
       },
       "failure_policy": {
-        "on_missing_input": "abort",
-        "on_rule_violation": "abort",
-        "on_empty_output": "abort"
+        "on_missing_input": "skip_and_emit_empty",
+        "on_rule_violation": "emit_warning",
+        "on_empty_output": "emit_warning"
       },
       "verifier_hints": {
         "suggested_checks": [
-          "Verify all six CSV files are present in the input directory.",
-          "Check that each file has non-zero row count.",
-          "Ensure the output bundle contains exactly six datasets with correct names."
+          "Verify that the output dataset_collection contains exactly the 6 expected file keys.",
+          "Verify that each non-missing file has the correct CSV structure (columns match profiling)."
         ],
         "deterministic_preferred": true
       },
       "implementation_sketch": [
-        "Use Python's csv.DictReader to read each CSV file into a list of dictionaries.",
-        "Store each dataset in a dictionary keyed by the file stem (e.g., 'demand_history_120d').",
-        "Handle the optional README.md by reading it as a plain text string if present.",
-        "Return the dictionary of datasets as the primary output bundle.",
-        "Log the number of rows read per file for audit trail."
+        "List all CSV files in the input directory matching the expected filenames.",
+        "For each expected file, attempt to read it as a CSV with pandas; if missing, store an empty DataFrame.",
+        "Bundle the resulting DataFrames into a dictionary keyed by the original filename (including .csv extension).",
+        "Return the dictionary as the primary_output dataset_collection."
       ]
     },
     {
@@ -231,130 +87,31 @@
       "input_contract": {
         "required": [
           {
-            "name": "demand_history_120d",
-            "kind": "csv",
+            "name": "ingested_files",
+            "kind": "dataset_collection",
             "schema_hint": [
-              "date",
-              "sku_id",
-              "warehouse",
-              "actual_consumption_qty",
-              "demand_including_lost_qty",
-              "market_index",
-              "planned_maintenance_flag",
-              "stockout_lost_qty",
-              "unit_replacement_price",
-              "source_channel"
+              "demand_history_120d.csv",
+              "inventory_rt.csv",
+              "market_signals.csv",
+              "real_time_events.csv",
+              "sku_master.csv",
+              "supplier_performance.csv"
             ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/demand_history_120d.csv"
-          },
-          {
-            "name": "inventory_rt",
-            "kind": "csv",
-            "schema_hint": [
-              "sku_id",
-              "part_name",
-              "warehouse",
-              "category",
-              "criticality",
-              "lifecycle",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "on_hand",
-              "reserved",
-              "available_qty",
-              "inbound_approved",
-              "last_event_ts"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/inventory_rt.csv"
-          },
-          {
-            "name": "market_signals",
-            "kind": "csv",
-            "schema_hint": [
-              "week_start",
-              "category",
-              "region",
-              "demand_index",
-              "maintenance_cycle_index",
-              "customer_backlog_index",
-              "competitor_supply_shock",
-              "note"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/market_signals.csv"
-          },
-          {
-            "name": "real_time_events",
-            "kind": "csv",
-            "schema_hint": [
-              "event_ts",
-              "event_id",
-              "event_type",
-              "sku_id",
-              "warehouse",
-              "qty_delta",
-              "source_system",
-              "reference_no",
-              "processed",
-              "note"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/real_time_events.csv"
-          },
-          {
-            "name": "sku_master",
-            "kind": "csv",
-            "schema_hint": [
-              "sku_id",
-              "part_name",
-              "category",
-              "criticality",
-              "unit",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "target_service_level",
-              "shelf_life_days",
-              "lifecycle",
-              "substitution_group",
-              "max_stock",
-              "base_daily_demand"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/sku_master.csv"
-          },
-          {
-            "name": "supplier_performance",
-            "kind": "csv",
-            "schema_hint": [
-              "supplier_id",
-              "supplier_name",
-              "region",
-              "contract_leadtime_days",
-              "latest_leadtime_days",
-              "on_time_rate",
-              "default_moq",
-              "quality_ppm",
-              "reliability_grade",
-              "last_delay_event"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/supplier_performance.csv"
+            "source_hint": "planner_node_1"
           }
         ],
         "optional": []
       },
       "output_contract": {
         "primary_output": {
-          "name": "validated_inputs",
+          "name": "parsed_datasets",
           "kind": "dataset_collection",
           "schema_hint": [
-            "demand_history_120d",
+            "sku_master",
             "inventory_rt",
+            "demand_history_120d",
             "market_signals",
             "real_time_events",
-            "sku_master",
             "supplier_performance"
           ],
           "locator_hint": null
@@ -363,82 +120,146 @@
       },
       "business_rules": [
         {
-          "rule_id": "BR-001",
-          "rule": "Each CSV file must have exactly the columns listed in its schema_hint; extra or missing columns cause rejection.",
+          "rule_id": "BR_001",
+          "rule": "Each parsed dataset must contain all columns defined in the corresponding CSV header from input_profiling.",
           "category": "data_integrity"
         },
         {
-          "rule_id": "BR-002",
-          "rule": "All date/time fields must be parseable as ISO 8601 or YYYY-MM-DD format; invalid values cause row rejection.",
+          "rule_id": "BR_002",
+          "rule": "Data types must be inferred and validated: numeric columns (e.g., actual_consumption_qty, on_hand) must be parseable as numbers; date columns must be parseable as dates.",
           "category": "data_integrity"
         },
         {
-          "rule_id": "BR-003",
-          "rule": "Numeric fields (e.g., qty, cost, price) must be convertible to float; non-numeric values cause row rejection.",
-          "category": "data_integrity"
-        },
-        {
-          "rule_id": "BR-004",
-          "rule": "sku_id values must be non-null and non-empty across all files that contain them.",
+          "rule_id": "BR_003",
+          "rule": "Rows with missing critical fields (sku_id, warehouse, date for demand history) must be flagged and excluded.",
           "category": "completeness"
-        },
-        {
-          "rule_id": "BR-005",
-          "rule": "event_type in real_time_events must be one of: stock_out, reservation, adjustment, return, transfer.",
-          "category": "domain_policy"
         }
       ],
       "acceptance_criteria": [
         {
-          "criterion_id": "AC-001",
-          "statement": "All 6 input CSV files are present and readable.",
+          "criterion_id": "AC_001",
+          "statement": "All six datasets are present in the output collection with the expected names.",
           "kind": "presence",
-          "params": {}
-        },
-        {
-          "criterion_id": "AC-002",
-          "statement": "Each CSV file's columns match the schema_hint exactly (order-insensitive).",
-          "kind": "tabular_contract",
-          "params": {}
-        },
-        {
-          "criterion_id": "AC-003",
-          "statement": "No null or empty values in sku_id fields across all files.",
-          "kind": "non_null",
           "params": {
-            "fields": [
-              "sku_id"
+            "expected_names": [
+              "sku_master",
+              "inventory_rt",
+              "demand_history_120d",
+              "market_signals",
+              "real_time_events",
+              "supplier_performance"
             ]
           }
         },
         {
-          "criterion_id": "AC-004",
-          "statement": "All date fields parse successfully without errors.",
-          "kind": "other",
+          "criterion_id": "AC_002",
+          "statement": "Each dataset has the same columns as the corresponding CSV file header from input_profiling.",
+          "kind": "tabular_contract",
           "params": {
-            "check": "date_parsing"
+            "expected_columns_per_dataset": {
+              "sku_master": [
+                "sku_id",
+                "part_name",
+                "category",
+                "criticality",
+                "unit",
+                "unit_cost",
+                "supplier_id",
+                "lead_time_days",
+                "moq",
+                "reorder_multiple",
+                "target_service_level",
+                "shelf_life_days",
+                "lifecycle",
+                "substitution_group",
+                "max_stock",
+                "base_daily_demand"
+              ],
+              "inventory_rt": [
+                "sku_id",
+                "part_name",
+                "warehouse",
+                "category",
+                "criticality",
+                "lifecycle",
+                "unit_cost",
+                "supplier_id",
+                "lead_time_days",
+                "moq",
+                "reorder_multiple",
+                "on_hand",
+                "reserved",
+                "available_qty",
+                "inbound_approved",
+                "last_event_ts"
+              ],
+              "demand_history_120d": [
+                "date",
+                "sku_id",
+                "warehouse",
+                "actual_consumption_qty",
+                "demand_including_lost_qty",
+                "market_index",
+                "planned_maintenance_flag",
+                "stockout_lost_qty",
+                "unit_replacement_price",
+                "source_channel"
+              ],
+              "market_signals": [
+                "week_start",
+                "category",
+                "region",
+                "demand_index",
+                "maintenance_cycle_index",
+                "customer_backlog_index",
+                "competitor_supply_shock",
+                "note"
+              ],
+              "real_time_events": [
+                "event_ts",
+                "event_id",
+                "event_type",
+                "sku_id",
+                "warehouse",
+                "qty_delta",
+                "source_system",
+                "reference_no",
+                "processed",
+                "note"
+              ],
+              "supplier_performance": [
+                "supplier_id",
+                "supplier_name",
+                "region",
+                "contract_leadtime_days",
+                "latest_leadtime_days",
+                "on_time_rate",
+                "default_moq",
+                "quality_ppm",
+                "reliability_grade",
+                "last_delay_event"
+              ]
+            }
           }
         },
         {
-          "criterion_id": "AC-005",
-          "statement": "All numeric fields parse as valid numbers.",
-          "kind": "other",
+          "criterion_id": "AC_003",
+          "statement": "Row count of each parsed dataset matches the row_count_hint from input_profiling (within 10% tolerance).",
+          "kind": "row_count",
           "params": {
-            "check": "numeric_parsing"
+            "tolerance_percent": 10
           }
         },
         {
-          "criterion_id": "AC-006",
-          "statement": "event_type values in real_time_events belong to the allowed set.",
-          "kind": "enum_membership",
+          "criterion_id": "AC_004",
+          "statement": "No null values in key identifier columns (sku_id, warehouse, date, supplier_id).",
+          "kind": "non_null",
           "params": {
-            "field": "event_type",
-            "allowed_values": [
-              "stock_out",
-              "reservation",
-              "adjustment",
-              "return",
-              "transfer"
+            "columns": [
+              "sku_id",
+              "warehouse",
+              "date",
+              "supplier_id"
             ]
           }
         }
@@ -449,7 +270,7 @@
         "expected_runtime_class": "bounded_transform",
         "deterministic_preferred": true,
         "max_iterations": 1,
-        "max_duration_seconds": 300
+        "max_duration_seconds": 120
       },
       "failure_policy": {
         "on_missing_input": "abort",
@@ -458,22 +279,19 @@
       },
       "verifier_hints": {
         "suggested_checks": [
-          "Verify all 6 CSV files are present and non-empty.",
-          "Check column names match expected schema for each file.",
-          "Check no null sku_id values.",
-          "Check date and numeric field parsing success rate.",
-          "Check event_type values against allowed enum."
+          "Verify that each dataset in parsed_datasets has the expected columns per AC_002.",
+          "Verify row counts are within tolerance per AC_003.",
+          "Verify no nulls in key columns per AC_004."
         ],
         "deterministic_preferred": true
       },
       "implementation_sketch": [
-        "Read each CSV file using a CSV parser with header detection.",
-        "For each file, validate that the column set matches the expected schema_hint; reject files with mismatched columns.",
-        "Parse date columns using a date parser; reject rows with unparseable dates.",
-        "Parse numeric columns using float conversion; reject rows with non-numeric values.",
-        "Check sku_id fields for null/empty; reject rows with missing sku_id.",
-        "Validate event_type against the allowed enum list; reject rows with invalid values.",
-        "Collect all valid rows into structured in-memory datasets keyed by file name, and pass the collection downstream."
+        "Read each CSV file from the ingested dataset collection using the file paths from the upstream output locator.",
+        "Parse each CSV into a structured DataFrame, inferring column types (numeric, date, string).",
+        "Validate column presence and data types against the expected schema from input_profiling.",
+        "Filter out rows with missing critical fields and log warnings for rule violations.",
+        "Store each validated dataset as a named entry in the output dataset_collection with keys matching the file names without extension.",
+        "Return the collection of parsed datasets as the primary output."
       ]
     },
     {
@@ -482,97 +300,15 @@
       "input_contract": {
         "required": [
           {
-            "name": "sku_master",
-            "kind": "dataset",
+            "name": "parsed_datasets",
+            "kind": "dataset_collection",
             "schema_hint": [
-              "sku_id",
-              "part_name",
-              "category",
-              "criticality",
-              "unit",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "target_service_level",
-              "shelf_life_days",
-              "lifecycle",
-              "substitution_group",
-              "max_stock",
-              "base_daily_demand"
-            ],
-            "source_hint": "planner_node_2"
-          },
-          {
-            "name": "inventory_rt",
-            "kind": "dataset",
-            "schema_hint": [
-              "sku_id",
-              "part_name",
-              "warehouse",
-              "category",
-              "criticality",
-              "lifecycle",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "on_hand",
-              "reserved",
-              "available_qty",
-              "inbound_approved",
-              "last_event_ts"
-            ],
-            "source_hint": "planner_node_2"
-          },
-          {
-            "name": "demand_history_120d",
-            "kind": "dataset",
-            "schema_hint": [
-              "date",
-              "sku_id",
-              "warehouse",
-              "actual_consumption_qty",
-              "demand_including_lost_qty",
-              "market_index",
-              "planned_maintenance_flag",
-              "stockout_lost_qty",
-              "unit_replacement_price",
-              "source_channel"
-            ],
-            "source_hint": "planner_node_2"
-          },
-          {
-            "name": "market_signals",
-            "kind": "dataset",
-            "schema_hint": [
-              "week_start",
-              "category",
-              "region",
-              "demand_index",
-              "maintenance_cycle_index",
-              "customer_backlog_index",
-              "competitor_supply_shock",
-              "note"
-            ],
-            "source_hint": "planner_node_2"
-          },
-          {
-            "name": "supplier_performance",
-            "kind": "dataset",
-            "schema_hint": [
-              "supplier_id",
-              "supplier_name",
-              "region",
-              "contract_leadtime_days",
-              "latest_leadtime_days",
-              "on_time_rate",
-              "default_moq",
-              "quality_ppm",
-              "reliability_grade",
-              "last_delay_event"
+              "sku_master",
+              "inventory_rt",
+              "demand_history_120d",
+              "market_signals",
+              "real_time_events",
+              "supplier_performance"
             ],
             "source_hint": "planner_node_2"
           }
@@ -582,21 +318,14 @@
       "output_contract": {
         "primary_output": {
           "name": "inventory_risk_assessment",
-          "kind": "dataset",
+          "kind": "tabular_records",
           "schema_hint": [
             "sku_id",
             "warehouse",
             "risk_score",
             "risk_category",
             "days_until_stockout",
-            "recommended_reorder_qty",
-            "forecast_demand_30d",
-            "forecast_demand_60d",
-            "forecast_demand_90d",
-            "lead_time_risk",
-            "demand_volatility",
-            "criticality_score",
-            "analysis_timestamp"
+            "recommended_action"
           ],
           "locator_hint": null
         },
@@ -604,91 +333,97 @@
       },
       "business_rules": [
         {
-          "rule_id": "BR01",
-          "rule": "Risk score must be computed as a weighted combination of days until stockout, demand volatility, lead time reliability, and criticality. Weights: stockout_days 0.3, demand_volatility 0.25, lead_time_risk 0.25, criticality 0.2.",
+          "rule_id": "BR-001",
+          "rule": "Risk score must be computed as a weighted combination of days_cover, criticality, supplier_reliability, and demand volatility.",
           "category": "domain_policy"
         },
         {
-          "rule_id": "BR02",
-          "rule": "Risk category mapping: risk_score >= 0.7 -> 'High', 0.4 <= risk_score < 0.7 -> 'Medium', risk_score < 0.4 -> 'Low'.",
+          "rule_id": "BR-002",
+          "rule": "Risk category must be one of: 'critical', 'high', 'medium', 'low' based on risk score thresholds defined in business policy.",
           "category": "value_mapping"
         },
         {
-          "rule_id": "BR03",
-          "rule": "Forecast demand for 30/60/90 days must use a time-series method (e.g., exponential smoothing or moving average) on actual_consumption_qty from demand_history_120d, adjusted by market_index and planned_maintenance_flag.",
-          "category": "domain_policy"
-        },
-        {
-          "rule_id": "BR04",
-          "rule": "Lead time risk must be derived from supplier_performance.latest_leadtime_days vs contract_leadtime_days and on_time_rate. If on_time_rate < 0.9 or latest_leadtime_days > contract_leadtime_days * 1.2, mark as 'High'.",
+          "rule_id": "BR-003",
+          "rule": "Days until stockout must be calculated as available_qty / daily_demand_forecast, capped at 365.",
           "category": "data_integrity"
         },
         {
-          "rule_id": "BR05",
-          "rule": "Days until stockout = available_qty / (average daily consumption over last 30 days). If average daily consumption is 0, set to a large sentinel value (9999).",
-          "category": "completeness"
+          "rule_id": "BR-004",
+          "rule": "Recommended action must be derived from risk category and days_until_stockout: 'reorder_immediately' for critical, 'schedule_reorder' for high, 'monitor' for medium, 'no_action' for low.",
+          "category": "domain_policy"
         }
       ],
       "acceptance_criteria": [
         {
-          "criterion_id": "AC01",
-          "statement": "Output dataset must contain exactly one row per (sku_id, warehouse) combination present in inventory_rt.",
+          "criterion_id": "AC-001",
+          "statement": "Output contains exactly one row per (sku_id, warehouse) combination present in inventory_rt.",
           "kind": "row_count",
           "params": {
-            "expected_count_expression": "count(distinct sku_id, warehouse) from inventory_rt"
+            "min": 1,
+            "max": 1000
           }
         },
         {
-          "criterion_id": "AC02",
-          "statement": "risk_score must be a float between 0 and 1 inclusive.",
-          "kind": "value_range",
-          "params": {
-            "field": "risk_score",
-            "min": 0.0,
-            "max": 1.0
-          }
-        },
-        {
-          "criterion_id": "AC03",
-          "statement": "risk_category must be one of 'High', 'Medium', 'Low'.",
-          "kind": "enum_membership",
-          "params": {
-            "field": "risk_category",
-            "allowed_values": [
-              "High",
-              "Medium",
-              "Low"
-            ]
-          }
-        },
-        {
-          "criterion_id": "AC04",
-          "statement": "All sku_id values in output must exist in sku_master.sku_id.",
-          "kind": "relational_integrity",
-          "params": {
-            "source_field": "sku_id",
-            "target_table": "sku_master",
-            "target_field": "sku_id"
-          }
-        },
-        {
-          "criterion_id": "AC05",
-          "statement": "forecast_demand_30d, forecast_demand_60d, forecast_demand_90d must be non-negative integers.",
+          "criterion_id": "AC-002",
+          "statement": "All rows have non-null values for sku_id, warehouse, risk_score, risk_category, days_until_stockout, recommended_action.",
           "kind": "non_null",
           "params": {
-            "fields": [
-              "forecast_demand_30d",
-              "forecast_demand_60d",
-              "forecast_demand_90d"
+            "columns": [
+              "sku_id",
+              "warehouse",
+              "risk_score",
+              "risk_category",
+              "days_until_stockout",
+              "recommended_action"
             ]
           }
         },
         {
-          "criterion_id": "AC06",
-          "statement": "analysis_timestamp must be present and non-null for every row.",
-          "kind": "presence",
+          "criterion_id": "AC-003",
+          "statement": "risk_category values are one of: critical, high, medium, low.",
+          "kind": "enum_membership",
           "params": {
-            "field": "analysis_timestamp"
+            "column": "risk_category",
+            "allowed_values": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ]
+          }
+        },
+        {
+          "criterion_id": "AC-004",
+          "statement": "risk_score is a float between 0 and 100.",
+          "kind": "value_range",
+          "params": {
+            "column": "risk_score",
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "criterion_id": "AC-005",
+          "statement": "days_until_stockout is a non-negative float.",
+          "kind": "value_range",
+          "params": {
+            "column": "days_until_stockout",
+            "min": 0,
+            "max": 365
+          }
+        },
+        {
+          "criterion_id": "AC-006",
+          "statement": "recommended_action values are one of: reorder_immediately, schedule_reorder, monitor, no_action.",
+          "kind": "enum_membership",
+          "params": {
+            "column": "recommended_action",
+            "allowed_values": [
+              "reorder_immediately",
+              "schedule_reorder",
+              "monitor",
+              "no_action"
+            ]
           }
         }
       ],
@@ -707,22 +442,22 @@
       },
       "verifier_hints": {
         "suggested_checks": [
-          "Verify risk_score range [0,1]",
-          "Verify risk_category enum membership",
-          "Verify row count matches distinct (sku_id, warehouse) in inventory_rt",
-          "Verify relational integrity of sku_id against sku_master",
-          "Verify forecast fields are non-negative integers",
-          "Verify analysis_timestamp is present"
+          "Verify output schema matches schema_hint exactly",
+          "Check risk_category enum membership",
+          "Verify risk_score range 0-100",
+          "Check days_until_stockout non-negative",
+          "Verify recommended_action enum membership",
+          "Check row count matches inventory_rt distinct (sku_id, warehouse) count"
         ],
         "deterministic_preferred": true
       },
       "implementation_sketch": [
-        "Load all five input datasets (sku_master, inventory_rt, demand_history_120d, market_signals, supplier_performance) from upstream node output.",
-        "Merge datasets on sku_id and warehouse to create a unified analysis record per SKU-warehouse pair.",
-        "Compute average daily consumption from last 30 days of demand_history_120d, adjusting for market_index and planned maintenance flags.",
-        "Calculate days until stockout using available_qty and average daily consumption; compute demand volatility as coefficient of variation of daily consumption.",
-        "Derive lead time risk from supplier_performance fields; compute weighted risk score and assign risk category.",
-        "Generate forecast demand for 30/60/90 days using exponential smoothing on historical consumption; output final risk assessment dataset with all required fields."
+        "Extract the six datasets from the parsed_datasets collection (sku_master, inventory_rt, demand_history_120d, market_signals, real_time_events, supplier_performance).",
+        "Join inventory_rt with sku_master on sku_id to enrich with criticality, lead_time_days, target_service_level, base_daily_demand.",
+        "Compute daily demand forecast per (sku_id, warehouse) using demand_history_120d, market_signals, and real_time_events (e.g., moving average with seasonal adjustment).",
+        "Calculate days_cover = available_qty / daily_demand_forecast, then days_until_stockout = days_cover (capped at 365).",
+        "Compute risk_score as weighted combination of days_cover, criticality, supplier_reliability (from supplier_performance), and demand volatility; map to risk_category.",
+        "Derive recommended_action from risk_category and days_until_stockout, then output tabular records with the required schema."
       ]
     },
     {
@@ -731,57 +466,15 @@
       "input_contract": {
         "required": [
           {
-            "name": "demand_history_120d",
-            "kind": "csv",
+            "name": "parsed_datasets",
+            "kind": "dataset_collection",
             "schema_hint": [
-              "date",
-              "sku_id",
-              "warehouse",
-              "actual_consumption_qty",
-              "demand_including_lost_qty",
-              "market_index",
-              "planned_maintenance_flag",
-              "stockout_lost_qty",
-              "unit_replacement_price",
-              "source_channel"
-            ],
-            "source_hint": "planner_node_2"
-          },
-          {
-            "name": "market_signals",
-            "kind": "csv",
-            "schema_hint": [
-              "week_start",
-              "category",
-              "region",
-              "demand_index",
-              "maintenance_cycle_index",
-              "customer_backlog_index",
-              "competitor_supply_shock",
-              "note"
-            ],
-            "source_hint": "planner_node_2"
-          },
-          {
-            "name": "sku_master",
-            "kind": "csv",
-            "schema_hint": [
-              "sku_id",
-              "part_name",
-              "category",
-              "criticality",
-              "unit",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "target_service_level",
-              "shelf_life_days",
-              "lifecycle",
-              "substitution_group",
-              "max_stock",
-              "base_daily_demand"
+              "sku_master",
+              "inventory_rt",
+              "demand_history_120d",
+              "market_signals",
+              "real_time_events",
+              "supplier_performance"
             ],
             "source_hint": "planner_node_2"
           }
@@ -791,16 +484,14 @@
       "output_contract": {
         "primary_output": {
           "name": "demand_forecast",
-          "kind": "csv",
+          "kind": "tabular_records",
           "schema_hint": [
             "sku_id",
             "warehouse",
             "forecast_date",
             "forecast_qty",
-            "forecast_upper_bound",
-            "forecast_lower_bound",
-            "confidence_level",
-            "method_used"
+            "forecast_confidence_lower",
+            "forecast_confidence_upper"
           ],
           "locator_hint": null
         },
@@ -809,75 +500,77 @@
       "business_rules": [
         {
           "rule_id": "BR-001",
-          "rule": "Forecast must be generated per (sku_id, warehouse) pair using at least 30 days of historical data; if less than 30 days available, use base_daily_demand from sku_master as fallback.",
+          "rule": "Forecast must be generated per (sku_id, warehouse) pair using at least 30 days of historical consumption data.",
           "category": "completeness"
         },
         {
           "rule_id": "BR-002",
-          "rule": "Market demand_index and maintenance_cycle_index from market_signals must be applied as multiplicative factors to the baseline forecast for the corresponding category and region.",
-          "category": "value_mapping"
+          "rule": "Market demand signals (demand_index, maintenance_cycle_index, customer_backlog_index) must be incorporated as exogenous regressors in the forecast model.",
+          "category": "domain_policy"
         },
         {
           "rule_id": "BR-003",
-          "rule": "Forecast horizon must be 30 days from the current date (latest date in demand_history_120d).",
+          "rule": "Forecast horizon must be at least the maximum supplier lead time for each SKU, capped at 90 days.",
           "category": "domain_policy"
         },
         {
           "rule_id": "BR-004",
-          "rule": "If a sku_id in sku_master has lifecycle = 'Discontinued' or 'Phase-out', set forecast_qty to 0 and mark method_used as 'no_forecast'.",
-          "category": "domain_policy"
+          "rule": "Confidence intervals must be computed at the 95% confidence level.",
+          "category": "other"
         }
       ],
       "acceptance_criteria": [
         {
           "criterion_id": "AC-001",
-          "statement": "Output contains exactly one row per (sku_id, warehouse) per forecast day for the 30-day horizon.",
-          "kind": "row_count",
+          "statement": "Output contains exactly the fields: sku_id, warehouse, forecast_date, forecast_qty, forecast_confidence_lower, forecast_confidence_upper.",
+          "kind": "tabular_contract",
           "params": {
-            "min": 1,
-            "max": null
-          }
-        },
-        {
-          "criterion_id": "AC-002",
-          "statement": "All forecast_qty values are non-negative.",
-          "kind": "value_range",
-          "params": {
-            "field": "forecast_qty",
-            "min": 0,
-            "max": null
-          }
-        },
-        {
-          "criterion_id": "AC-003",
-          "statement": "Every sku_id in the output exists in the sku_master input.",
-          "kind": "relational_integrity",
-          "params": {
-            "source_field": "sku_id",
-            "target_table": "sku_master",
-            "target_field": "sku_id"
-          }
-        },
-        {
-          "criterion_id": "AC-004",
-          "statement": "The method_used field is one of: 'time_series', 'market_adjusted', 'base_demand_fallback', 'no_forecast'.",
-          "kind": "enum_membership",
-          "params": {
-            "field": "method_used",
-            "allowed_values": [
-              "time_series",
-              "market_adjusted",
-              "base_demand_fallback",
-              "no_forecast"
+            "fields": [
+              "sku_id",
+              "warehouse",
+              "forecast_date",
+              "forecast_qty",
+              "forecast_confidence_lower",
+              "forecast_confidence_upper"
             ]
           }
         },
         {
-          "criterion_id": "AC-005",
-          "statement": "forecast_upper_bound >= forecast_qty >= forecast_lower_bound for all rows.",
-          "kind": "other",
+          "criterion_id": "AC-002",
+          "statement": "Every row has non-null sku_id, warehouse, forecast_date, forecast_qty.",
+          "kind": "non_null",
           "params": {
-            "description": "Interval consistency check"
+            "columns": [
+              "sku_id",
+              "warehouse",
+              "forecast_date",
+              "forecast_qty"
+            ]
+          }
+        },
+        {
+          "criterion_id": "AC-003",
+          "statement": "forecast_confidence_lower <= forecast_qty <= forecast_confidence_upper for every row.",
+          "kind": "value_range",
+          "params": {
+            "rule": "forecast_confidence_lower <= forecast_qty <= forecast_confidence_upper"
+          }
+        },
+        {
+          "criterion_id": "AC-004",
+          "statement": "forecast_qty is non-negative for all rows.",
+          "kind": "value_range",
+          "params": {
+            "min": 0
+          }
+        },
+        {
+          "criterion_id": "AC-005",
+          "statement": "Row count is at least 1 and at most 10000.",
+          "kind": "row_count",
+          "params": {
+            "min": 1,
+            "max": 10000
           }
         }
       ],
@@ -885,7 +578,7 @@
         "allow_network": false,
         "preferred_language": "python",
         "expected_runtime_class": "bounded_transform",
-        "deterministic_preferred": true,
+        "deterministic_preferred": false,
         "max_iterations": 1,
         "max_duration_seconds": 300
       },
@@ -896,20 +589,19 @@
       },
       "verifier_hints": {
         "suggested_checks": [
-          "Verify row count matches (number of active SKUs * number of warehouses * 30 days).",
-          "Check that forecast_qty for discontinued SKUs is 0.",
-          "Confirm market indices are applied correctly by comparing a sample manual calculation.",
-          "Ensure no nulls in sku_id, warehouse, forecast_date, forecast_qty."
+          "Check that all required fields are present and non-null",
+          "Verify confidence interval ordering",
+          "Ensure forecast_qty is non-negative",
+          "Confirm row count is within expected range"
         ],
-        "deterministic_preferred": true
+        "deterministic_preferred": false
       },
       "implementation_sketch": [
-        "Load the three input datasets (demand_history_120d, market_signals, sku_master) from the upstream node's output.",
-        "For each (sku_id, warehouse) pair, compute a baseline daily forecast using time-series decomposition (e.g., moving average or exponential smoothing) on actual_consumption_qty; if insufficient history, fall back to base_daily_demand from sku_master.",
-        "Join with market_signals on category and region to apply demand_index and maintenance_cycle_index as multiplicative adjustments per week.",
-        "Generate a 30-day forecast table with upper/lower bounds based on historical variability (e.g., standard deviation of forecast errors).",
-        "Handle lifecycle-based exceptions: set forecast to 0 for discontinued/phase-out SKUs.",
-        "Write the output CSV with columns: sku_id, warehouse, forecast_date, forecast_qty, forecast_upper_bound, forecast_lower_bound, confidence_level, method_used."
+        "Load the parsed_datasets collection from upstream, extracting demand_history_120d and market_signals tables.",
+        "Merge demand_history_120d with market_signals on date/week_start and category to enrich historical consumption with market indices.",
+        "For each (sku_id, warehouse) group, fit a time series model (e.g., ARIMA or Prophet) using at least 30 days of actual_consumption_qty and exogenous regressors from market signals.",
+        "Generate daily forecasts for the required horizon (max lead time, capped at 90 days) with 95% confidence intervals.",
+        "Output the forecast as a tabular_records dataset with columns: sku_id, warehouse, forecast_date, forecast_qty, forecast_confidence_lower, forecast_confidence_upper."
       ]
     },
     {
@@ -918,89 +610,28 @@
       "input_contract": {
         "required": [
           {
-            "name": "inventory_rt",
-            "kind": "csv",
-            "schema_hint": [
-              "sku_id",
-              "part_name",
-              "warehouse",
-              "category",
-              "criticality",
-              "lifecycle",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "on_hand",
-              "reserved",
-              "available_qty",
-              "inbound_approved",
-              "last_event_ts"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/inventory_rt.csv"
-          },
-          {
-            "name": "sku_master",
-            "kind": "csv",
-            "schema_hint": [
-              "sku_id",
-              "part_name",
-              "category",
-              "criticality",
-              "unit",
-              "unit_cost",
-              "supplier_id",
-              "lead_time_days",
-              "moq",
-              "reorder_multiple",
-              "target_service_level",
-              "shelf_life_days",
-              "lifecycle",
-              "substitution_group",
-              "max_stock",
-              "base_daily_demand"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/sku_master.csv"
-          },
-          {
-            "name": "supplier_performance",
-            "kind": "csv",
-            "schema_hint": [
-              "supplier_id",
-              "supplier_name",
-              "region",
-              "contract_leadtime_days",
-              "latest_leadtime_days",
-              "on_time_rate",
-              "default_moq",
-              "quality_ppm",
-              "reliability_grade",
-              "last_delay_event"
-            ],
-            "source_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/supplier_performance.csv"
-          },
-          {
-            "name": "risk_assessment",
-            "kind": "dataset",
+            "name": "inventory_risk_assessment",
+            "kind": "tabular_records",
             "schema_hint": [
               "sku_id",
               "warehouse",
               "risk_score",
-              "risk_category"
+              "risk_category",
+              "days_until_stockout",
+              "recommended_action"
             ],
             "source_hint": "planner_node_3"
           },
           {
             "name": "demand_forecast",
-            "kind": "dataset",
+            "kind": "tabular_records",
             "schema_hint": [
               "sku_id",
               "warehouse",
               "forecast_date",
               "forecast_qty",
-              "confidence_interval_lower",
-              "confidence_interval_upper"
+              "forecast_confidence_lower",
+              "forecast_confidence_upper"
             ],
             "source_hint": "planner_node_4"
           }
@@ -1010,17 +641,22 @@
       "output_contract": {
         "primary_output": {
           "name": "replenishment_queue",
-          "kind": "csv",
+          "kind": "tabular_records",
           "schema_hint": [
             "sku_id",
             "part_name",
             "warehouse",
-            "replenishment_qty",
-            "priority_score",
-            "suggested_order_date",
-            "expected_delivery_date",
+            "category",
+            "criticality",
+            "current_available_qty",
+            "forecast_daily_demand",
+            "lead_time_days",
+            "reorder_point",
+            "reorder_qty",
+            "suggested_order_qty",
             "supplier_id",
-            "reason_code"
+            "priority_score",
+            "decision_reason"
           ],
           "locator_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv"
         },
@@ -1028,75 +664,88 @@
       },
       "business_rules": [
         {
-          "rule_id": "BR01",
-          "rule": "Replenishment quantity must be a multiple of the reorder_multiple from sku_master, and at least the MOQ.",
+          "rule_id": "BR-01",
+          "rule": "Replenishment decision must consider both inventory risk category and demand forecast to compute priority score.",
           "category": "domain_policy"
         },
         {
-          "rule_id": "BR02",
-          "rule": "Priority score must be computed as a weighted function of risk_score, forecast_qty, and criticality (A > B > C).",
+          "rule_id": "BR-02",
+          "rule": "Suggested order quantity must respect MOQ and reorder multiple from SKU master data.",
           "category": "value_mapping"
         },
         {
-          "rule_id": "BR03",
-          "rule": "Suggested order date must be no later than (expected stockout date - lead_time_days) to maintain target service level.",
+          "rule_id": "BR-03",
+          "rule": "Reorder point must be calculated as forecast daily demand multiplied by lead time days plus safety stock.",
           "category": "domain_policy"
         },
         {
-          "rule_id": "BR04",
-          "rule": "Only SKUs with available_qty below reorder point (base_daily_demand * lead_time_days * safety_factor) shall be included.",
-          "category": "data_integrity"
+          "rule_id": "BR-04",
+          "rule": "Decision reason must be a human-readable string explaining the primary driver (e.g., risk level, forecast spike, stockout).",
+          "category": "completeness"
         }
       ],
       "acceptance_criteria": [
         {
-          "criterion_id": "AC01",
-          "statement": "Output file replenishment_queue.csv exists and is non-empty.",
-          "kind": "presence",
-          "params": {}
-        },
-        {
-          "criterion_id": "AC02",
-          "statement": "Output schema matches expected columns: sku_id, part_name, warehouse, replenishment_qty, priority_score, suggested_order_date, expected_delivery_date, supplier_id, reason_code.",
+          "criterion_id": "AC-01",
+          "statement": "Output must contain all required fields: sku_id, part_name, warehouse, category, criticality, current_available_qty, forecast_daily_demand, lead_time_days, reorder_point, reorder_qty, suggested_order_qty, supplier_id, priority_score, decision_reason.",
           "kind": "tabular_contract",
           "params": {
-            "expected_columns": [
+            "fields": [
               "sku_id",
               "part_name",
               "warehouse",
-              "replenishment_qty",
-              "priority_score",
-              "suggested_order_date",
-              "expected_delivery_date",
+              "category",
+              "criticality",
+              "current_available_qty",
+              "forecast_daily_demand",
+              "lead_time_days",
+              "reorder_point",
+              "reorder_qty",
+              "suggested_order_qty",
               "supplier_id",
-              "reason_code"
+              "priority_score",
+              "decision_reason"
             ]
           }
         },
         {
-          "criterion_id": "AC03",
-          "statement": "All replenishment_qty values are positive integers and multiples of the corresponding reorder_multiple.",
-          "kind": "value_range",
+          "criterion_id": "AC-02",
+          "statement": "Each row must have a non-null sku_id and warehouse.",
+          "kind": "non_null",
           "params": {
-            "min": 1,
-            "type": "integer"
+            "fields": [
+              "sku_id",
+              "warehouse"
+            ]
           }
         },
         {
-          "criterion_id": "AC04",
-          "statement": "priority_score is between 0 and 1 (inclusive).",
+          "criterion_id": "AC-03",
+          "statement": "suggested_order_qty must be a non-negative integer.",
           "kind": "value_range",
           "params": {
-            "min": 0.0,
-            "max": 1.0
+            "field": "suggested_order_qty",
+            "min": 0
           }
         },
         {
-          "criterion_id": "AC05",
-          "statement": "suggested_order_date and expected_delivery_date are valid dates in ISO format.",
-          "kind": "other",
+          "criterion_id": "AC-04",
+          "statement": "priority_score must be between 0 and 100.",
+          "kind": "value_range",
           "params": {
-            "format": "ISO date"
+            "field": "priority_score",
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "criterion_id": "AC-05",
+          "statement": "decision_reason must be a non-empty string.",
+          "kind": "non_null",
+          "params": {
+            "fields": [
+              "decision_reason"
+            ]
           }
         }
       ],
@@ -1115,21 +764,20 @@
       },
       "verifier_hints": {
         "suggested_checks": [
-          "Verify output file exists and is non-empty",
-          "Check schema matches expected columns",
-          "Validate replenishment_qty is positive integer multiple of reorder_multiple",
-          "Check priority_score is in [0,1]",
-          "Verify dates are valid ISO dates",
-          "Ensure all SKUs in output have a corresponding entry in sku_master"
+          "Verify that all required fields are present in output.",
+          "Check that suggested_order_qty respects MOQ and reorder multiple.",
+          "Ensure priority_score is computed consistently with risk and forecast inputs.",
+          "Validate that decision_reason is non-empty and meaningful."
         ],
         "deterministic_preferred": true
       },
       "implementation_sketch": [
-        "Load all required input datasets (inventory_rt, sku_master, supplier_performance, risk_assessment, demand_forecast) into memory.",
-        "Join datasets on sku_id and warehouse to create a unified view per SKU-warehouse combination.",
-        "Apply business rules to compute reorder point, replenishment quantity (respecting MOQ and reorder_multiple), and priority score.",
-        "Calculate suggested_order_date and expected_delivery_date using lead_time_days and forecasted stockout date.",
-        "Sort the resulting records by priority_score descending and write the ranked queue to the output CSV file."
+        "Load the inventory risk assessment dataset from planner_node_3.",
+        "Load the demand forecast dataset from planner_node_4.",
+        "Join both datasets on sku_id and warehouse to create a unified view per SKU-warehouse.",
+        "For each SKU-warehouse, compute reorder point, suggested order quantity (respecting MOQ and reorder multiple), and priority score based on risk category and forecast.",
+        "Generate a human-readable decision_reason for each row.",
+        "Write the resulting replenishment queue to the specified output CSV file."
       ]
     },
     {
@@ -1139,33 +787,47 @@
         "required": [
           {
             "name": "replenishment_queue",
-            "kind": "dataset",
+            "kind": "tabular_records",
             "schema_hint": [
               "sku_id",
+              "part_name",
               "warehouse",
-              "replenish_qty",
-              "suggested_order_date",
-              "expected_arrival_date",
-              "priority",
-              "reason_code"
+              "category",
+              "criticality",
+              "current_available_qty",
+              "forecast_daily_demand",
+              "lead_time_days",
+              "reorder_point",
+              "reorder_qty",
+              "suggested_order_qty",
+              "supplier_id",
+              "priority_score",
+              "decision_reason"
             ],
-            "source_hint": "human_gate_before_planner_node_6"
+            "source_hint": "planner_node_5"
           }
         ],
         "optional": []
       },
       "output_contract": {
         "primary_output": {
-          "name": "replenishment_queue.csv",
-          "kind": "csv",
+          "name": "replenishment_queue",
+          "kind": "tabular_records",
           "schema_hint": [
             "sku_id",
+            "part_name",
             "warehouse",
-            "replenish_qty",
-            "suggested_order_date",
-            "expected_arrival_date",
-            "priority",
-            "reason_code"
+            "category",
+            "criticality",
+            "current_available_qty",
+            "forecast_daily_demand",
+            "lead_time_days",
+            "reorder_point",
+            "reorder_qty",
+            "suggested_order_qty",
+            "supplier_id",
+            "priority_score",
+            "decision_reason"
           ],
           "locator_hint": "/Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv"
         },
@@ -1173,47 +835,55 @@
       },
       "business_rules": [
         {
-          "rule_id": "BR_001",
-          "rule": "Output file must be a valid CSV with header row matching the schema_hint.",
+          "rule_id": "BR_01",
+          "rule": "The output CSV must contain exactly the columns listed in schema_hint, in the same order.",
           "category": "data_integrity"
         },
         {
-          "rule_id": "BR_002",
-          "rule": "All rows in the output must have non-null values for sku_id, warehouse, replenish_qty, suggested_order_date, expected_arrival_date, priority, and reason_code.",
+          "rule_id": "BR_02",
+          "rule": "All rows from the input replenishment_queue must be written; no filtering or transformation is allowed.",
           "category": "completeness"
         }
       ],
       "acceptance_criteria": [
         {
-          "criterion_id": "AC_001",
-          "statement": "Output file exists at the specified delivery path.",
+          "criterion_id": "AC_01",
+          "statement": "The output file exists at the specified locator path.",
           "kind": "presence",
           "params": {
             "path": "/Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv"
           }
         },
         {
-          "criterion_id": "AC_002",
-          "statement": "Output CSV has the correct header columns.",
+          "criterion_id": "AC_02",
+          "statement": "The output CSV has the same number of rows as the input replenishment_queue.",
+          "kind": "row_count",
+          "params": {
+            "comparison": "eq",
+            "source": "input"
+          }
+        },
+        {
+          "criterion_id": "AC_03",
+          "statement": "The output CSV columns match the schema_hint exactly.",
           "kind": "tabular_contract",
           "params": {
             "expected_columns": [
               "sku_id",
+              "part_name",
               "warehouse",
-              "replenish_qty",
-              "suggested_order_date",
-              "expected_arrival_date",
-              "priority",
-              "reason_code"
+              "category",
+              "criticality",
+              "current_available_qty",
+              "forecast_daily_demand",
+              "lead_time_days",
+              "reorder_point",
+              "reorder_qty",
+              "suggested_order_qty",
+              "supplier_id",
+              "priority_score",
+              "decision_reason"
             ]
-          }
-        },
-        {
-          "criterion_id": "AC_003",
-          "statement": "Output file contains at least one row.",
-          "kind": "row_count",
-          "params": {
-            "min": 1
           }
         }
       ],
@@ -1232,19 +902,18 @@
       },
       "verifier_hints": {
         "suggested_checks": [
-          "Check file existence at delivery path",
-          "Validate CSV header matches expected columns",
-          "Ensure all rows have non-null values for required fields",
-          "Verify row count > 0"
+          "Verify output file exists",
+          "Verify column count and names match schema_hint",
+          "Verify row count matches input row count"
         ],
         "deterministic_preferred": true
       },
       "implementation_sketch": [
-        "Receive the replenishment queue dataset from upstream (human_gate_before_planner_node_6).",
-        "Open the output file path for writing, creating directories if needed.",
-        "Write the CSV header line using the schema_hint column names.",
-        "Iterate over each row in the dataset and write it as a CSV line.",
-        "Flush and close the file, then confirm successful write."
+        "Read the replenishment_queue dataset from the upstream node (planner_node_5) via its primary_output.",
+        "Open the target CSV file path for writing with UTF-8 encoding.",
+        "Write the header row using the schema_hint column names.",
+        "Iterate over each row in the input dataset and write it as a CSV line, preserving field order.",
+        "Close the file and confirm successful write."
       ]
     }
   ],
@@ -1814,57 +1483,164 @@
       }
     ]
   },
+  "edge_contract_report": {
+    "checked_edges": 6,
+    "skipped_edges": 1,
+    "issues": []
+  },
   "llm_trace": {
-    "call_count": 6,
+    "call_count": 12,
     "llm_mode": "real",
+    "per_node_max_retries": 1,
+    "bundle_max_retries": 2,
+    "bundle_retry_attempts": [
+      {
+        "attempt_index": 0,
+        "respec_node_ids": [
+          "planner_node_1",
+          "planner_node_2",
+          "planner_node_4",
+          "planner_node_3",
+          "planner_node_5",
+          "planner_node_6"
+        ],
+        "issues_before": 5,
+        "issues_after": 0,
+        "per_attempt_calls": 6
+      }
+    ],
     "per_node": [
       {
         "node_id": "planner_node_1",
         "llm_mode": "real",
         "prompt_hash": "38d3fb3066c78eff",
-        "duration_ms": 18840,
+        "duration_ms": 18304,
         "provider_key": "openai-compatible",
-        "model_name": "deepseek-chat"
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": null
       },
       {
         "node_id": "planner_node_2",
         "llm_mode": "real",
         "prompt_hash": "43f3b21d82e5af3c",
-        "duration_ms": 21894,
+        "duration_ms": 14521,
         "provider_key": "openai-compatible",
-        "model_name": "deepseek-chat"
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": null
       },
       {
         "node_id": "planner_node_3",
         "llm_mode": "real",
         "prompt_hash": "dd5141c616accd46",
-        "duration_ms": 25135,
+        "duration_ms": 18744,
         "provider_key": "openai-compatible",
-        "model_name": "deepseek-chat"
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": null
       },
       {
         "node_id": "planner_node_4",
         "llm_mode": "real",
         "prompt_hash": "c1386af5d6fac5d7",
-        "duration_ms": 20212,
+        "duration_ms": 19050,
         "provider_key": "openai-compatible",
-        "model_name": "deepseek-chat"
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": null
       },
       {
         "node_id": "planner_node_5",
         "llm_mode": "real",
         "prompt_hash": "ddd2049a76b825c3",
-        "duration_ms": 20175,
+        "duration_ms": 18907,
         "provider_key": "openai-compatible",
-        "model_name": "deepseek-chat"
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": null
       },
       {
         "node_id": "planner_node_6",
         "llm_mode": "real",
         "prompt_hash": "72e21caacdacad36",
-        "duration_ms": 11515,
+        "duration_ms": 15295,
         "provider_key": "openai-compatible",
-        "model_name": "deepseek-chat"
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": null
+      },
+      {
+        "node_id": "planner_node_1",
+        "llm_mode": "real",
+        "prompt_hash": "37bcfcf11f94d374",
+        "duration_ms": 10025,
+        "provider_key": "openai-compatible",
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": 0
+      },
+      {
+        "node_id": "planner_node_2",
+        "llm_mode": "real",
+        "prompt_hash": "57a67ec15e707364",
+        "duration_ms": 18227,
+        "provider_key": "openai-compatible",
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": 0
+      },
+      {
+        "node_id": "planner_node_4",
+        "llm_mode": "real",
+        "prompt_hash": "48fb617cab678d34",
+        "duration_ms": 17203,
+        "provider_key": "openai-compatible",
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": 0
+      },
+      {
+        "node_id": "planner_node_3",
+        "llm_mode": "real",
+        "prompt_hash": "633192254efe587a",
+        "duration_ms": 19945,
+        "provider_key": "openai-compatible",
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": 0
+      },
+      {
+        "node_id": "planner_node_5",
+        "llm_mode": "real",
+        "prompt_hash": "cf7a8e18c34791c7",
+        "duration_ms": 18607,
+        "provider_key": "openai-compatible",
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": 0
+      },
+      {
+        "node_id": "planner_node_6",
+        "llm_mode": "real",
+        "prompt_hash": "5fe239969c098b67",
+        "duration_ms": 13665,
+        "provider_key": "openai-compatible",
+        "model_name": "deepseek-chat",
+        "attempts": 1,
+        "per_node_retry_history": null,
+        "bundle_retry_attempt": 0
       }
     ]
   }

@@ -201,6 +201,30 @@ class NodeExecutionSpec(BaseModel):
     )
 
 
+EdgeIssueClassification = Literal[
+    # Per-node spec is internally malformed in a way another retry
+    # could plausibly fix (parse, schema, missing fields the LLM can
+    # straightforwardly emit). Today the validator's three kinds all
+    # start at this classification on first detection.
+    "node_spec_repairable",
+    # Cross-node contract drift the bundle retry layer can usually
+    # bridge: one end emits/expects fields that don't line up; or dst
+    # bypasses upstream by declaring direct file access when an
+    # upstream spec actually publishes the data. Layer 2 retry
+    # feedback is designed for this class.
+    "contract_alignment_repairable",
+    # Same issue keeps recurring after bundle retries are exhausted.
+    # The mismatch is at a deeper level than per-node prompt rewriting
+    # can fix — typically two LLM calls disagreeing on the abstraction
+    # level (e.g. dataset bundle vs raw CSV columns). Needs planner /
+    # topology repair (split a node, re-order, change capability).
+    "topology_repair_required",
+    # Required capability isn't in the runnable slice. Spec retry can't
+    # help — the slice itself needs to grow.
+    "capability_gap",
+]
+
+
 class EdgeContractIssue(BaseModel):
     """A single inconsistency found between two neighbouring nodes' specs.
 
@@ -209,6 +233,12 @@ class EdgeContractIssue(BaseModel):
     ``output_contract.primary_output``. Different failure modes carry
     different ``kind`` tags so downstream can triage without re-parsing
     the detail string.
+
+    ``classification`` records the actionable category — see
+    ``EdgeIssueClassification``. The classifier defaults to
+    ``contract_alignment_repairable`` and gets escalated to
+    ``topology_repair_required`` after all bundle retries are exhausted
+    without resolving the issue.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -223,6 +253,23 @@ class EdgeContractIssue(BaseModel):
     ]
     detail: str
     missing_fields: list[str] = Field(default_factory=list)
+    classification: EdgeIssueClassification = Field(
+        default="contract_alignment_repairable",
+        description=(
+            "Actionable category for this issue. Persisted on the issue so "
+            "diagnostics surfaces (logs, /specify error detail, the bundle "
+            "itself) all see the same triage label."
+        ),
+    )
+    bypass_signal: bool = Field(
+        default=False,
+        description=(
+            "True when the dst declares direct raw-file / CSV access for "
+            "data that upstream's primary_output already publishes. The "
+            "validator + classifier set this so retry prompts can call "
+            "out 'consume upstream output, do not bypass'."
+        ),
+    )
 
 
 class EdgeContractReport(BaseModel):
@@ -285,6 +332,7 @@ __all__ = [
     "FailurePolicy",
     "VerifierHints",
     "NodeExecutionSpec",
+    "EdgeIssueClassification",
     "EdgeContractIssue",
     "EdgeContractReport",
     "NodeExecutionSpecBundle",

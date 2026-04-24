@@ -62,6 +62,11 @@ from app.services.node_spec.data_profiling_service import (
 )
 from app.schemas.node_execution_spec import EdgeContractIssue
 from app.services.node_spec.edge_contract_validator import validate_edge_contracts
+from app.services.node_spec.issue_classifier import (
+    apply_classification_to_report,
+    escalate_persistent_issues,
+    issue_keys,
+)
 from app.services.provider_runtime import (
     BaseProviderAdapter,
     ProviderCallError,
@@ -148,32 +153,51 @@ no commentary. The top-level object MUST contain these keys exactly:
     failure_policy, verifier_hints, implementation_sketch
 
 Hard rules:
-1. input_contract.required lists everything this node MUST consume.
+
+1. CONTRACT-BOUND CONSUMPTION (the most important rule).
+   The graph is a dataflow. Each node produces a primary_output and
+   each downstream node consumes it through a declared input slot.
+   You MUST NOT bypass the graph by reading raw files / CSV columns
+   that an upstream node already publishes.
+   * If the target_node has any upstream_context entry, the data your
+     node needs comes from that upstream's primary_output. Set the
+     slot's ``source_hint`` to the upstream node_id.
+   * If the upstream's primary_output has a schema_hint (or its kind
+     is a structured type like tabular_records / dataset_collection /
+     json_object), copy or align with those field names rather than
+     inventing fields from the raw profiling sample.
+   * The ONLY acceptable case for a raw file path / column-level
+     source_hint is when the target_node is itself the source /
+     acquisition node (no upstream_context, semantic_type=acquire).
+     Then the slot can have source_hint=<file path from profiling>.
+   * Auto-inserted ``human_gate_*`` and ``verify_after_*`` nodes are
+     gates / observers, not data producers. If an edge goes through
+     one, use the REAL upstream node_id (the one before the gate) as
+     source_hint, never the gate id.
+   * Do NOT re-declare a file-path input for data that an upstream
+     node already produces — that creates a parallel data path and the
+     contract validator will reject it.
+
+2. input_contract.required lists everything this node MUST consume.
    Each slot has: name, kind, schema_hint (list of field names), source_hint.
-   * When an upstream node produces the data, source_hint = that
-     upstream node_id (not a file path).
-   * source_hint MUST point to a REAL producer node, never to an
-     auto-inserted ``human_gate_*`` or ``verify_after_*`` node — those
-     are not data producers, they're gates or observers. If the edge
-     goes through such a node, use the real producer that sits before
-     the gate as source_hint.
-   * When a raw input file is consumed directly, source_hint = the file
-     path from the profiling summary (copy verbatim).
-   * schema_hint MUST come from profiling samples when available — do
-     NOT invent columns that don't appear in profiling.
-   * Do NOT duplicate upstream inputs: if an upstream node already
-     produces a dataset, consume it via source_hint=<upstream_node_id>
-     rather than re-declaring a file-path input for the same data.
-2. output_contract.primary_output is the SINGLE downstream-consumable
+   * Slot ``name`` should match the upstream's primary_output name when
+     consuming an upstream output (so reviewers can trace the flow).
+   * schema_hint MUST come from upstream's output_contract OR (only for
+     acquisition nodes) the profiling samples — never from imagination.
+3. output_contract.primary_output is the SINGLE downstream-consumable
    output of this node. schema_hint lists the fields it will emit.
-3. business_rules is for "how this node must decide / transform" rules,
+   * If your node aggregates / wraps multiple datasets, prefer to
+     enumerate the inner field names downstream will need, not just
+     the wrapper key. A primary_output with schema_hint=["bundle"] is
+     not consumable; one with schema_hint=["sku_id","qty","date"] is.
+4. business_rules is for "how this node must decide / transform" rules,
    not implementation steps. Each rule has rule_id, rule, category.
-4. acceptance_criteria is what a verifier checks. Each criterion has
+5. acceptance_criteria is what a verifier checks. Each criterion has
    criterion_id, statement, kind (from the enum), params.
    Prefer specific kinds: presence, tabular_contract, uniqueness,
    enum_membership, value_range, non_null, row_count,
    relational_integrity. Use 'other' sparingly.
-5. execution_constraints captures runtime expectations.
+6. execution_constraints captures runtime expectations.
    expected_runtime_class MUST be one of:
      * bounded_acquire  — node only reads input files
      * bounded_transform — node performs compute / analysis / decision
@@ -182,8 +206,8 @@ Hard rules:
      * bounded_agentic  — node needs multi-step agentic reasoning
    For 'analyze / compute / forecast / decide / aggregate / join' work
    the class is bounded_transform. File IO nodes are acquire or persist.
-6. failure_policy decides abort vs warn for each failure kind.
-7. implementation_sketch is 3–6 short bullets, each a high-level
+7. failure_policy decides abort vs warn for each failure kind.
+8. implementation_sketch is 3–6 short bullets, each a high-level
    implementation step (NOT pseudocode). It should read as a human
    engineer's outline, not as code.
 
@@ -273,6 +297,14 @@ class NodeSpecService:
             for upstream_id in node.upstream_dependencies or []:
                 downstream_map.setdefault(upstream_id, []).append(node.draft_node_id)
 
+        # Used by the issue classifier to decide whether a dst node is
+        # an acquisition node (bypass detection skipped) or a regular
+        # transform/analyze (bypass is meaningful).
+        semantic_types_by_node_id = {
+            n.draft_node_id: (n.node_semantic_type or "").lower()
+            for n in all_nodes
+        }
+
         # ----- Initial pass: spec every non-skipped node -----
         specs_by_id: dict[str, NodeExecutionSpec] = {}
         call_traces: list[dict[str, Any]] = []
@@ -294,6 +326,14 @@ class NodeSpecService:
             specs=list(specs_by_id.values()),
             skipped_node_ids=skipped,
         )
+        edge_report = apply_classification_to_report(
+            report=edge_report,
+            specs=list(specs_by_id.values()),
+            semantic_types_by_node_id=semantic_types_by_node_id,
+        )
+        # Track every issue identity we've ever seen — used at the end
+        # to escalate "persistent across retries" issues to topology_repair_required.
+        seen_issue_keys = issue_keys(edge_report.issues)
 
         # ----- Bundle retry: re-spec affected nodes on edge issues -----
         bundle_attempts: list[dict[str, Any]] = []
@@ -347,6 +387,12 @@ class NodeSpecService:
                 specs=list(specs_by_id.values()),
                 skipped_node_ids=skipped,
             )
+            edge_report = apply_classification_to_report(
+                report=edge_report,
+                specs=list(specs_by_id.values()),
+                semantic_types_by_node_id=semantic_types_by_node_id,
+            )
+            seen_issue_keys.update(issue_keys(edge_report.issues))
             attempt_record = {
                 "attempt_index": retry_idx,
                 "respec_node_ids": list(affected_ids),
@@ -364,6 +410,17 @@ class NodeSpecService:
             )
             if not edge_report.issues:
                 break
+
+        # If issues remain after all bundle retries, escalate the ones
+        # that were present from earlier attempts (they survived the
+        # retry budget) — diagnostic signal for the orchestration layer
+        # that the next useful action is planner / topology repair.
+        if edge_report.issues:
+            escalated = escalate_persistent_issues(
+                final_issues=edge_report.issues,
+                initial_issue_keys=seen_issue_keys,
+            )
+            edge_report = edge_report.model_copy(update={"issues": escalated})
 
         # Preserve the planner's node order in the final list — easier
         # to reason about downstream than insertion order.
@@ -768,30 +825,89 @@ def _build_prompt_body(
     # actual upstream/downstream spec contracts so the LLM can see
     # exactly what fields the neighbours emit / expect.
     if bundle_feedback is not None:
+        upstream_specs_by_id = {
+            s.node_id: s for s in bundle_feedback.upstream_specs
+        }
+        downstream_specs_by_id = {
+            s.node_id: s for s in bundle_feedback.downstream_specs
+        }
+        # Per-issue dossiers: each entry is fully self-contained — the
+        # validator's diagnostic plus the actual contracts on BOTH ends
+        # of the offending edge. The LLM doesn't have to cross-
+        # reference indices to figure out what to fix.
+        per_issue: list[dict[str, Any]] = []
+        for issue in bundle_feedback.issues_for_node:
+            entry: dict[str, Any] = {
+                "edge_id": issue.edge_id,
+                "kind": issue.kind,
+                "classification": issue.classification,
+                "bypass_signal": issue.bypass_signal,
+                "from_node_id": issue.from_node_id,
+                "to_node_id": issue.to_node_id,
+                "validator_detail": issue.detail,
+                "missing_fields": list(issue.missing_fields or []),
+                "upstream_output_contract": None,
+                "downstream_input_contract": None,
+            }
+            up = upstream_specs_by_id.get(issue.from_node_id)
+            if up is not None:
+                entry["upstream_output_contract"] = up.output_contract.model_dump(
+                    mode="json"
+                )
+            down = downstream_specs_by_id.get(issue.to_node_id)
+            if down is not None:
+                entry["downstream_input_contract"] = (
+                    down.input_contract.model_dump(mode="json")
+                )
+            # Per-issue repair instruction so the LLM doesn't have to
+            # re-derive the right move from the validator detail alone.
+            if issue.bypass_signal:
+                entry["repair_instruction"] = (
+                    "BYPASS DETECTED. The downstream's input slot tries to "
+                    "read raw file / CSV columns, but the upstream node "
+                    "ALREADY publishes that data via its primary_output. "
+                    "Repair: change the downstream's input slot to "
+                    f"source_hint='{issue.from_node_id}', and align "
+                    "its schema_hint with the upstream output_contract's "
+                    "schema_hint shown above. Do NOT keep a parallel "
+                    "raw-file source for the same data."
+                )
+            elif issue.kind == "missing_input_reference":
+                entry["repair_instruction"] = (
+                    "Add a required input slot whose source_hint equals "
+                    f"'{issue.from_node_id}'. Use the upstream's "
+                    "primary_output.name as the slot name and copy its "
+                    "schema_hint."
+                )
+            else:  # schema_mismatch (no bypass) or spec_missing
+                entry["repair_instruction"] = (
+                    "Align the contracts: either expand the upstream's "
+                    "output_contract.primary_output.schema_hint to include "
+                    "the downstream's required fields, OR narrow the "
+                    "downstream's input_contract slot's schema_hint to "
+                    "fields the upstream actually emits."
+                )
+            per_issue.append(entry)
+
         payload["bundle_retry_feedback"] = {
             "attempt_index": bundle_feedback.attempt_index,
             "guidance": (
-                "The previous attempt produced specs that the edge contract "
-                "validator rejected. Adjust THIS node's input_contract.required "
-                "and/or output_contract.primary_output so it bridges the "
-                "neighbour contracts shown below. Specifically: when the "
-                "issues mention 'schema_mismatch', either expand THIS node's "
-                "output schema_hint to include the fields downstream needs, "
-                "OR narrow THIS node's input schema_hint to fields upstream "
-                "actually emits. When the issues mention "
-                "'missing_input_reference', add a required input slot whose "
-                "source_hint matches the upstream node_id."
+                "The previous attempt produced specs that the edge "
+                "contract validator rejected. Below is one dossier per "
+                "issue that touches THIS node, including the actual "
+                "upstream/downstream contracts. Use the "
+                "``repair_instruction`` field on each dossier as the "
+                "primary directive; the system_prompt's CONTRACT-BOUND "
+                "CONSUMPTION rule still applies."
             ),
-            "issues_touching_this_node": [
-                {
-                    "kind": issue.kind,
-                    "from_node_id": issue.from_node_id,
-                    "to_node_id": issue.to_node_id,
-                    "detail": issue.detail,
-                    "missing_fields": list(issue.missing_fields or []),
-                }
-                for issue in bundle_feedback.issues_for_node
-            ],
+            "anti_bypass_rule": (
+                "If this node has any upstream node, its inputs MUST be "
+                "consumed via source_hint=<upstream_node_id>. Do NOT "
+                "introduce raw file paths or CSV column references for "
+                "data that an upstream node publishes. The only exception "
+                "is when this node IS the acquisition node (no upstream)."
+            ),
+            "per_issue": per_issue,
             "upstream_specs_actual": [
                 _spec_summary_for_feedback(s) for s in bundle_feedback.upstream_specs
             ],

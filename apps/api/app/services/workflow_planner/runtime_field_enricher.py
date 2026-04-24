@@ -224,6 +224,36 @@ def apply_spec_to_node(
 def _compose_system_prompt(spec: NodeExecutionSpec) -> str:
     constraints = spec.execution_constraints
     failure = spec.failure_policy
+    has_upstream_inputs = any(
+        (slot.source_hint or "") and not _looks_like_path(slot.source_hint or "")
+        for slot in spec.input_contract.required
+    )
+    contract_block = (
+        "Contract-bound data access (HARD RULE):",
+        "  - Your input_contract bindings are AUTHORITATIVE. Each",
+        "    required input slot tells you exactly which artifact to",
+        "    consume and from where (source_hint).",
+        "  - When source_hint names an upstream node_id, the runtime",
+        "    will pass that upstream's primary_output to you as",
+        "    runtime-provided upstream output. Consume THAT — do not",
+        "    re-read raw files or CSVs to get the same data.",
+        "  - When source_hint is a filesystem path, the runtime will",
+        "    expose that path under the workspace; read it via the",
+        "    declared path only.",
+        "  - Do NOT infer additional file paths or read original CSVs",
+        "    that the input_contract does not list. The graph's",
+        "    dataflow semantics depend on you respecting these slots.",
+        "  - Your primary_output (declared in output_contract) MUST",
+        "    match the declared schema_hint so downstream nodes can",
+        "    consume it. Do not change the field names or kind.",
+    )
+    if has_upstream_inputs:
+        contract_block = contract_block + (
+            "  - This node has upstream-bound inputs — at least one slot",
+            "    consumes another node's output. Treat any temptation to",
+            "    'just read the source CSV' as a contract violation.",
+        )
+
     lines = [
         f"You are executing the node '{spec.node_id}'.",
         f"Semantic goal: {spec.semantic_goal}",
@@ -241,6 +271,8 @@ def _compose_system_prompt(spec: NodeExecutionSpec) -> str:
         f"  - on rule violation : {failure.on_rule_violation}",
         f"  - on empty output   : {failure.on_empty_output}",
         "",
+        *contract_block,
+        "",
         (
             "Adhere to the input/output contract and business rules in "
             "the task prompt. Verifier checks listed in the task prompt "
@@ -249,6 +281,23 @@ def _compose_system_prompt(spec: NodeExecutionSpec) -> str:
         ),
     ]
     return "\n".join(lines)
+
+
+_PROMPT_PATH_PREFIXES = ("/", "./", "../", "~")
+
+
+def _looks_like_path(hint: str) -> bool:
+    """Used to decide whether a source_hint is upstream node_id vs path.
+
+    Mirrors the validator's heuristic — kept inline here so the enricher
+    has no cross-package dependency on classifier internals.
+    """
+    h = (hint or "").strip()
+    if not h:
+        return False
+    if h.startswith(_PROMPT_PATH_PREFIXES):
+        return True
+    return h.lower().endswith((".csv", ".json", ".jsonl", ".tsv", ".parquet", ".xlsx", ".txt"))
 
 
 def _compose_task_prompt(spec: NodeExecutionSpec) -> str:

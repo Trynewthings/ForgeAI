@@ -1,0 +1,146 @@
+wrote /Users/llk/agentsFactory/scenario_data/spare_parts/run_trace/05_node_specs.json  size=55312B
+
+edge_contract    : checked=6  skipped=1  issues=0  PASSED=True
+llm calls        : 12
+bundle retries   : 1 (cap=2)
+   [retry 1] respec=['planner_node_1', 'planner_node_2', 'planner_node_4', 'planner_node_3', 'planner_node_5', 'planner_node_6']  issues_before=5 -> issues_after=0  calls=6
+spec_version     : node_execution_spec_v1
+spec count       : 6
+skipped_node_ids : ['human_gate_before_planner_node_6', 'verify_after_planner_node_6']
+profiled_files   : 7
+llm call_count   : 12
+
+== planner_node_1  (runtime_class=bounded_acquire) ==
+  semantic_goal     : Read all raw data files from the input directory
+  inputs.required   : 0
+  output.primary    : ingested_files           kind=dataset_collection
+        schema_hint: ['demand_history_120d.csv', 'inventory_rt.csv', 'market_signals.csv', 'real_time_events.csv', 'sku_master.csv', 'supplier_performance.csv']
+        locator_hint: /Users/llk/agentsFactory/scenario_data/spare_parts/input
+  business_rules    : 2
+      - [data_integrity] All files must be read from the input directory exactly as named; no renaming or transformation during acquisition.
+      - [completeness] If a file is missing or unreadable, the node must still produce a dataset_collection containing only the successfully read files; missing files are recorded as empty datasets.
+  acceptance        : 2
+      - [presence] The output dataset_collection contains exactly 6 entries with keys matching the schema_hint.
+      - [row_count] Each entry in the dataset_collection is a valid CSV dataset with at least one row (except for missing files which are empty).
+  sketch            : 4 bullets
+      • List all CSV files in the input directory matching the expected filenames.
+      • For each expected file, attempt to read it as a CSV with pandas; if missing, store an empty DataFrame.
+      • Bundle the resulting DataFrames into a dictionary keyed by the original filename (including .csv extension).
+      • Return the dictionary as the primary_output dataset_collection.
+
+== planner_node_2  (runtime_class=bounded_transform) ==
+  semantic_goal     : Parse each raw file into structured records and validate against expected schemas
+  inputs.required   : 1
+      - ingested_files           kind=dataset_collection src=planner_node_1
+        schema_hint: ['demand_history_120d.csv', 'inventory_rt.csv', 'market_signals.csv', 'real_time_events.csv', 'sku_master.csv', 'supplier_performance.csv']
+  output.primary    : parsed_datasets          kind=dataset_collection
+        schema_hint: ['sku_master', 'inventory_rt', 'demand_history_120d', 'market_signals', 'real_time_events', 'supplier_performance']
+  business_rules    : 3
+      - [data_integrity] Each parsed dataset must contain all columns defined in the corresponding CSV header from input_profiling.
+      - [data_integrity] Data types must be inferred and validated: numeric columns (e.g., actual_consumption_qty, on_hand) must be parseable as numbers; date columns must be parseable as dates.
+      - [completeness] Rows with missing critical fields (sku_id, warehouse, date for demand history) must be flagged and excluded.
+  acceptance        : 4
+      - [presence] All six datasets are present in the output collection with the expected names.
+      - [tabular_contract] Each dataset has the same columns as the corresponding CSV file header from input_profiling.
+      - [row_count] Row count of each parsed dataset matches the row_count_hint from input_profiling (within 10% tolerance).
+  sketch            : 6 bullets
+      • Read each CSV file from the ingested dataset collection using the file paths from the upstream output locator.
+      • Parse each CSV into a structured DataFrame, inferring column types (numeric, date, string).
+      • Validate column presence and data types against the expected schema from input_profiling.
+      • Filter out rows with missing critical fields and log warnings for rule violations.
+      • Store each validated dataset as a named entry in the output dataset_collection with keys matching the file names without extension.
+      • Return the collection of parsed datasets as the primary output.
+
+== planner_node_3  (runtime_class=bounded_transform) ==
+  semantic_goal     : Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk
+  inputs.required   : 1
+      - parsed_datasets          kind=dataset_collection src=planner_node_2
+        schema_hint: ['sku_master', 'inventory_rt', 'demand_history_120d', 'market_signals', 'real_time_events', 'supplier_performance']
+  output.primary    : inventory_risk_assessment kind=tabular_records   
+        schema_hint: ['sku_id', 'warehouse', 'risk_score', 'risk_category', 'days_until_stockout', 'recommended_action']
+  business_rules    : 4
+      - [domain_policy] Risk score must be computed as a weighted combination of days_cover, criticality, supplier_reliability, and demand volatility.
+      - [value_mapping] Risk category must be one of: 'critical', 'high', 'medium', 'low' based on risk score thresholds defined in business policy.
+      - [data_integrity] Days until stockout must be calculated as available_qty / daily_demand_forecast, capped at 365.
+  acceptance        : 6
+      - [row_count] Output contains exactly one row per (sku_id, warehouse) combination present in inventory_rt.
+      - [non_null] All rows have non-null values for sku_id, warehouse, risk_score, risk_category, days_until_stockout, recommended_action.
+      - [enum_membership] risk_category values are one of: critical, high, medium, low.
+  sketch            : 6 bullets
+      • Extract the six datasets from the parsed_datasets collection (sku_master, inventory_rt, demand_history_120d, market_signals, real_time_events, supplier_performance).
+      • Join inventory_rt with sku_master on sku_id to enrich with criticality, lead_time_days, target_service_level, base_daily_demand.
+      • Compute daily demand forecast per (sku_id, warehouse) using demand_history_120d, market_signals, and real_time_events (e.g., moving average with seasonal adjustment).
+      • Calculate days_cover = available_qty / daily_demand_forecast, then days_until_stockout = days_cover (capped at 365).
+      • Compute risk_score as weighted combination of days_cover, criticality, supplier_reliability (from supplier_performance), and demand volatility; map to risk_category.
+      • Derive recommended_action from risk_category and days_until_stockout, then output tabular records with the required schema.
+
+== planner_node_4  (runtime_class=bounded_transform) ==
+  semantic_goal     : Forecast future demand using historical consumption and market demand signals
+  inputs.required   : 1
+      - parsed_datasets          kind=dataset_collection src=planner_node_2
+        schema_hint: ['sku_master', 'inventory_rt', 'demand_history_120d', 'market_signals', 'real_time_events', 'supplier_performance']
+  output.primary    : demand_forecast          kind=tabular_records   
+        schema_hint: ['sku_id', 'warehouse', 'forecast_date', 'forecast_qty', 'forecast_confidence_lower', 'forecast_confidence_upper']
+  business_rules    : 4
+      - [completeness] Forecast must be generated per (sku_id, warehouse) pair using at least 30 days of historical consumption data.
+      - [domain_policy] Market demand signals (demand_index, maintenance_cycle_index, customer_backlog_index) must be incorporated as exogenous regressors in the forecast model.
+      - [domain_policy] Forecast horizon must be at least the maximum supplier lead time for each SKU, capped at 90 days.
+  acceptance        : 5
+      - [tabular_contract] Output contains exactly the fields: sku_id, warehouse, forecast_date, forecast_qty, forecast_confidence_lower, forecast_confidence_upper.
+      - [non_null] Every row has non-null sku_id, warehouse, forecast_date, forecast_qty.
+      - [value_range] forecast_confidence_lower <= forecast_qty <= forecast_confidence_upper for every row.
+  sketch            : 5 bullets
+      • Load the parsed_datasets collection from upstream, extracting demand_history_120d and market_signals tables.
+      • Merge demand_history_120d with market_signals on date/week_start and category to enrich historical consumption with market indices.
+      • For each (sku_id, warehouse) group, fit a time series model (e.g., ARIMA or Prophet) using at least 30 days of actual_consumption_qty and exogenous regressors from market signals.
+      • Generate daily forecasts for the required horizon (max lead time, capped at 90 days) with 95% confidence intervals.
+      • Output the forecast as a tabular_records dataset with columns: sku_id, warehouse, forecast_date, forecast_qty, forecast_confidence_lower, forecast_confidence_upper.
+
+== planner_node_5  (runtime_class=bounded_transform) ==
+  semantic_goal     : Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue
+  inputs.required   : 2
+      - inventory_risk_assessment kind=tabular_records    src=planner_node_3
+        schema_hint: ['sku_id', 'warehouse', 'risk_score', 'risk_category', 'days_until_stockout', 'recommended_action']
+      - demand_forecast          kind=tabular_records    src=planner_node_4
+        schema_hint: ['sku_id', 'warehouse', 'forecast_date', 'forecast_qty', 'forecast_confidence_lower', 'forecast_confidence_upper']
+  output.primary    : replenishment_queue      kind=tabular_records   
+        schema_hint: ['sku_id', 'part_name', 'warehouse', 'category', 'criticality', 'current_available_qty', 'forecast_daily_demand', 'lead_time_days', 'reorder_point', 'reorder_qty', 'suggested_order_qty', 'supplier_id', 'priority_score', 'decision_reason']
+        locator_hint: /Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv
+  business_rules    : 4
+      - [domain_policy] Replenishment decision must consider both inventory risk category and demand forecast to compute priority score.
+      - [value_mapping] Suggested order quantity must respect MOQ and reorder multiple from SKU master data.
+      - [domain_policy] Reorder point must be calculated as forecast daily demand multiplied by lead time days plus safety stock.
+  acceptance        : 5
+      - [tabular_contract] Output must contain all required fields: sku_id, part_name, warehouse, category, criticality, current_available_qty, forecast_daily_demand, lead_time_days, reorder_point, reorder_qty, suggested_order_qty, supplier_id, priority_score, decision_reason.
+      - [non_null] Each row must have a non-null sku_id and warehouse.
+      - [value_range] suggested_order_qty must be a non-negative integer.
+  sketch            : 6 bullets
+      • Load the inventory risk assessment dataset from planner_node_3.
+      • Load the demand forecast dataset from planner_node_4.
+      • Join both datasets on sku_id and warehouse to create a unified view per SKU-warehouse.
+      • For each SKU-warehouse, compute reorder point, suggested order quantity (respecting MOQ and reorder multiple), and priority score based on risk category and forecast.
+      • Generate a human-readable decision_reason for each row.
+      • Write the resulting replenishment queue to the specified output CSV file.
+
+== planner_node_6  (runtime_class=bounded_persist) ==
+  semantic_goal     : Write the replenishment queue to the specified output CSV file
+  inputs.required   : 1
+      - replenishment_queue      kind=tabular_records    src=planner_node_5
+        schema_hint: ['sku_id', 'part_name', 'warehouse', 'category', 'criticality', 'current_available_qty', 'forecast_daily_demand', 'lead_time_days', 'reorder_point', 'reorder_qty', 'suggested_order_qty', 'supplier_id', 'priority_score', 'decision_reason']
+  output.primary    : replenishment_queue      kind=tabular_records   
+        schema_hint: ['sku_id', 'part_name', 'warehouse', 'category', 'criticality', 'current_available_qty', 'forecast_daily_demand', 'lead_time_days', 'reorder_point', 'reorder_qty', 'suggested_order_qty', 'supplier_id', 'priority_score', 'decision_reason']
+        locator_hint: /Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv
+  business_rules    : 2
+      - [data_integrity] The output CSV must contain exactly the columns listed in schema_hint, in the same order.
+      - [completeness] All rows from the input replenishment_queue must be written; no filtering or transformation is allowed.
+  acceptance        : 3
+      - [presence] The output file exists at the specified locator path.
+      - [row_count] The output CSV has the same number of rows as the input replenishment_queue.
+      - [tabular_contract] The output CSV columns match the schema_hint exactly.
+  sketch            : 5 bullets
+      • Read the replenishment_queue dataset from the upstream node (planner_node_5) via its primary_output.
+      • Open the target CSV file path for writing with UTF-8 encoding.
+      • Write the header row using the schema_hint column names.
+      • Iterate over each row in the input dataset and write it as a CSV line, preserving field order.
+      • Close the file and confirm successful write.
+
