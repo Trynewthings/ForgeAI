@@ -1,0 +1,661 @@
+{
+  "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+  "state_id": "0069ce77-5d8b-458e-bd58-9995ece5f0f5",
+  "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
+  "requirement_id": null,
+  "planner_version": "workflow_planner_v1",
+  "compile_context_version": "front_chain_compile_v1",
+  "planner_output": {
+    "planner_version": "workflow_planner_v1",
+    "draft_status": "complete",
+    "node_drafts": [
+      {
+        "draft_node_id": "planner_node_1",
+        "step_name": "Read all raw data files from the input directory",
+        "node_name": "ingest input files",
+        "node_semantic_type": "acquire",
+        "semantic_goal": "Read all raw data files from the input directory",
+        "upstream_dependencies": [],
+        "preferred_capability_ids": [
+          "filesystem_read"
+        ],
+        "candidate_capability_ids": [
+          "filesystem_read",
+          "coding_agent"
+        ],
+        "side_effect_class": "none",
+        "requires_human_gate": false,
+        "requires_verification": false,
+        "unresolved_reasons": [],
+        "review_required": false,
+        "planner_confidence": 80,
+        "planner_notes": [],
+        "planner_metadata": {
+          "step_name": "read_all_raw_data_files_from_the_input_directory",
+          "materialization_status": "resolved",
+          "bound_capability": {
+            "selected_capability_id": "filesystem_read",
+            "candidate_ids": [
+              "filesystem_read",
+              "coding_agent"
+            ],
+            "coverage": "full",
+            "side_effect_class": "none",
+            "selection_source": "shape_llm",
+            "uncovered_step_kinds": []
+          },
+          "args": {
+            "available_tools": [],
+            "loop_config": {
+              "max_iterations": 1,
+              "max_duration_seconds": 30
+            },
+            "agentic": false
+          },
+          "system_prompt": "You are executing a acquire step named 'ingest input files'.",
+          "task_prompt": "Read all raw data files from the input directory"
+        }
+      },
+      {
+        "draft_node_id": "planner_node_2",
+        "step_name": "Parse each raw file into structured records and validate against expected schemas",
+        "node_name": "parse and validate input data",
+        "node_semantic_type": "transform",
+        "semantic_goal": "Parse each raw file into structured records and validate against expected schemas",
+        "upstream_dependencies": [
+          "planner_node_1"
+        ],
+        "preferred_capability_ids": [
+          "validate_schema"
+        ],
+        "candidate_capability_ids": [
+          "validate_schema",
+          "coding_agent"
+        ],
+        "side_effect_class": "none",
+        "requires_human_gate": false,
+        "requires_verification": false,
+        "unresolved_reasons": [],
+        "review_required": false,
+        "planner_confidence": 80,
+        "planner_notes": [
+          "fan_out_root"
+        ],
+        "planner_metadata": {
+          "step_name": "parse_each_raw_file_into_structured_records_and_validate_against_expected_schemas",
+          "materialization_status": "resolved",
+          "bound_capability": {
+            "selected_capability_id": "validate_schema",
+            "candidate_ids": [
+              "validate_schema",
+              "coding_agent"
+            ],
+            "coverage": "full",
+            "side_effect_class": "none",
+            "selection_source": "shape_llm",
+            "uncovered_step_kinds": []
+          },
+          "args": {
+            "available_tools": [],
+            "loop_config": {
+              "max_iterations": 1,
+              "max_duration_seconds": 30
+            },
+            "agentic": false
+          },
+          "system_prompt": "You are executing a transform step named 'parse and validate input data'.",
+          "task_prompt": "Parse each raw file into structured records and validate against expected schemas"
+        }
+      },
+      {
+        "draft_node_id": "planner_node_3",
+        "step_name": "Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk",
+        "node_name": "analyze inventory risk",
+        "node_semantic_type": "transform",
+        "semantic_goal": "Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk",
+        "upstream_dependencies": [
+          "planner_node_2"
+        ],
+        "preferred_capability_ids": [
+          "filesystem_read"
+        ],
+        "candidate_capability_ids": [
+          "filesystem_read",
+          "coding_agent"
+        ],
+        "side_effect_class": "none",
+        "requires_human_gate": false,
+        "requires_verification": false,
+        "unresolved_reasons": [],
+        "review_required": false,
+        "planner_confidence": 80,
+        "planner_notes": [],
+        "planner_metadata": {
+          "step_name": "analyze_master_data_inventory_consumption_demand_signals_and_lead_times_to_assess_inventory_risk",
+          "materialization_status": "resolved",
+          "bound_capability": {
+            "selected_capability_id": "filesystem_read",
+            "candidate_ids": [
+              "filesystem_read",
+              "coding_agent"
+            ],
+            "coverage": "full",
+            "side_effect_class": "none",
+            "selection_source": "shape_llm",
+            "uncovered_step_kinds": []
+          },
+          "args": {
+            "available_tools": [],
+            "loop_config": {
+              "max_iterations": 1,
+              "max_duration_seconds": 30
+            },
+            "agentic": false
+          },
+          "system_prompt": "You are executing a transform step named 'analyze inventory risk'.",
+          "task_prompt": "Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk"
+        }
+      },
+      {
+        "draft_node_id": "planner_node_4",
+        "step_name": "Forecast future demand using historical consumption and market demand signals",
+        "node_name": "forecast future demand",
+        "node_semantic_type": "transform",
+        "semantic_goal": "Forecast future demand using historical consumption and market demand signals",
+        "upstream_dependencies": [
+          "planner_node_2"
+        ],
+        "preferred_capability_ids": [
+          "filesystem_read"
+        ],
+        "candidate_capability_ids": [
+          "filesystem_read",
+          "coding_agent"
+        ],
+        "side_effect_class": "none",
+        "requires_human_gate": false,
+        "requires_verification": false,
+        "unresolved_reasons": [],
+        "review_required": false,
+        "planner_confidence": 80,
+        "planner_notes": [],
+        "planner_metadata": {
+          "step_name": "forecast_future_demand_using_historical_consumption_and_market_demand_signals",
+          "materialization_status": "resolved",
+          "bound_capability": {
+            "selected_capability_id": "filesystem_read",
+            "candidate_ids": [
+              "filesystem_read",
+              "coding_agent"
+            ],
+            "coverage": "full",
+            "side_effect_class": "none",
+            "selection_source": "shape_llm",
+            "uncovered_step_kinds": []
+          },
+          "args": {
+            "available_tools": [],
+            "loop_config": {
+              "max_iterations": 1,
+              "max_duration_seconds": 30
+            },
+            "agentic": false
+          },
+          "system_prompt": "You are executing a transform step named 'forecast future demand'.",
+          "task_prompt": "Forecast future demand using historical consumption and market demand signals"
+        }
+      },
+      {
+        "draft_node_id": "planner_node_5",
+        "step_name": "Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue",
+        "node_name": "generate replenishment decisions",
+        "node_semantic_type": "transform",
+        "semantic_goal": "Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue",
+        "upstream_dependencies": [
+          "planner_node_3",
+          "planner_node_4"
+        ],
+        "preferred_capability_ids": [
+          "filesystem_read"
+        ],
+        "candidate_capability_ids": [
+          "filesystem_read",
+          "coding_agent"
+        ],
+        "side_effect_class": "none",
+        "requires_human_gate": false,
+        "requires_verification": false,
+        "unresolved_reasons": [],
+        "review_required": false,
+        "planner_confidence": 80,
+        "planner_notes": [],
+        "planner_metadata": {
+          "step_name": "combine_risk_assessment_and_demand_forecast_to_make_replenishment_decisions_and_produce_a_ranked_queue",
+          "materialization_status": "partially_resolved",
+          "bound_capability": {
+            "selected_capability_id": "filesystem_read",
+            "candidate_ids": [
+              "filesystem_read",
+              "coding_agent"
+            ],
+            "coverage": "partial",
+            "side_effect_class": "none",
+            "selection_source": "shape_llm",
+            "uncovered_step_kinds": [
+              "rank"
+            ]
+          },
+          "args": {
+            "available_tools": [],
+            "loop_config": {
+              "max_iterations": 1,
+              "max_duration_seconds": 30
+            },
+            "agentic": false
+          },
+          "system_prompt": "You are executing a transform step named 'generate replenishment decisions'.",
+          "task_prompt": "Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue"
+        }
+      },
+      {
+        "draft_node_id": "planner_node_6",
+        "step_name": "Write the replenishment queue to the specified output CSV file",
+        "node_name": "persist output CSV",
+        "node_semantic_type": "act",
+        "semantic_goal": "Write the replenishment queue to the specified output CSV file",
+        "upstream_dependencies": [
+          "human_gate_before_planner_node_6"
+        ],
+        "preferred_capability_ids": [
+          "filesystem_write"
+        ],
+        "candidate_capability_ids": [
+          "filesystem_write",
+          "coding_agent"
+        ],
+        "side_effect_class": "none",
+        "requires_human_gate": false,
+        "requires_verification": false,
+        "unresolved_reasons": [],
+        "review_required": false,
+        "planner_confidence": 80,
+        "planner_notes": [],
+        "planner_metadata": {
+          "step_name": "write_the_replenishment_queue_to_the_specified_output_csv_file",
+          "materialization_status": "resolved",
+          "bound_capability": {
+            "selected_capability_id": "filesystem_write",
+            "candidate_ids": [
+              "filesystem_write",
+              "coding_agent"
+            ],
+            "coverage": "full",
+            "side_effect_class": "none",
+            "selection_source": "shape_llm",
+            "uncovered_step_kinds": []
+          },
+          "args": {
+            "available_tools": [],
+            "loop_config": {
+              "max_iterations": 1,
+              "max_duration_seconds": 30
+            },
+            "agentic": false
+          },
+          "system_prompt": "You are executing a act step named 'persist output CSV'.",
+          "task_prompt": "Write the replenishment queue to the specified output CSV file"
+        }
+      },
+      {
+        "draft_node_id": "human_gate_before_planner_node_6",
+        "step_name": "human_gate_before_planner_node_6",
+        "node_name": "Human gate before planner_node_6",
+        "node_semantic_type": "human_gate",
+        "semantic_goal": "Human review before proceeding to planner_node_6.",
+        "upstream_dependencies": [
+          "planner_node_5"
+        ],
+        "preferred_capability_ids": [
+          "human_review_gate"
+        ],
+        "candidate_capability_ids": [
+          "human_review_gate",
+          "general_agentic_reasoning"
+        ],
+        "side_effect_class": "none",
+        "requires_human_gate": true,
+        "requires_verification": false,
+        "unresolved_reasons": [],
+        "review_required": false,
+        "planner_confidence": 70,
+        "planner_notes": [
+          "auto_inserted:human_gate"
+        ],
+        "planner_metadata": {
+          "step_name": "human_gate_before_planner_node_6",
+          "materialization_status": "resolved",
+          "bound_capability": {
+            "selected_capability_id": "human_review_gate",
+            "candidate_ids": [
+              "human_review_gate",
+              "general_agentic_reasoning"
+            ],
+            "coverage": "full",
+            "side_effect_class": "none",
+            "selection_source": "bind_preferred",
+            "uncovered_step_kinds": []
+          },
+          "args": {
+            "available_tools": [],
+            "loop_config": {
+              "max_iterations": 1,
+              "max_duration_seconds": 30
+            },
+            "agentic": false
+          },
+          "system_prompt": "You are executing a human_gate step named 'Human gate before planner_node_6'.",
+          "task_prompt": "Human review before proceeding to planner_node_6."
+        }
+      },
+      {
+        "draft_node_id": "verify_after_planner_node_6",
+        "step_name": "verify_after_planner_node_6",
+        "node_name": "Verify after planner_node_6",
+        "node_semantic_type": "verify",
+        "semantic_goal": "Validate outputs of planner_node_6 before continuing.",
+        "upstream_dependencies": [
+          "planner_node_6"
+        ],
+        "preferred_capability_ids": [
+          "validate_schema"
+        ],
+        "candidate_capability_ids": [
+          "validate_schema",
+          "human_review_gate",
+          "terminal_command",
+          "repository_execution_surface_inspect",
+          "architecture_report_quality_gate",
+          "general_agentic_reasoning",
+          "coding_agent"
+        ],
+        "side_effect_class": "none",
+        "requires_human_gate": false,
+        "requires_verification": true,
+        "unresolved_reasons": [],
+        "review_required": false,
+        "planner_confidence": 70,
+        "planner_notes": [
+          "auto_inserted:verify"
+        ],
+        "planner_metadata": {
+          "step_name": "verify_after_planner_node_6",
+          "materialization_status": "resolved",
+          "bound_capability": {
+            "selected_capability_id": "validate_schema",
+            "candidate_ids": [
+              "validate_schema",
+              "human_review_gate",
+              "terminal_command",
+              "repository_execution_surface_inspect",
+              "architecture_report_quality_gate",
+              "general_agentic_reasoning",
+              "coding_agent"
+            ],
+            "coverage": "full",
+            "side_effect_class": "none",
+            "selection_source": "bind_preferred",
+            "uncovered_step_kinds": []
+          },
+          "args": {
+            "available_tools": [],
+            "loop_config": {
+              "max_iterations": 1,
+              "max_duration_seconds": 30
+            },
+            "agentic": false
+          },
+          "system_prompt": "You are executing a verify step named 'Verify after planner_node_6'.",
+          "task_prompt": "Validate outputs of planner_node_6 before continuing."
+        }
+      }
+    ],
+    "edge_drafts": [
+      {
+        "draft_edge_id": "planner_edge_1",
+        "edge_type": "data_flow",
+        "from_node_id": "planner_node_1",
+        "to_node_id": "planner_node_2",
+        "semantic_role": "evidence_dependency",
+        "payload_mapping": {
+          "raw_files": "raw_files"
+        },
+        "planner_metadata": {
+          "evidence_kind": "raw_files",
+          "edge_source": "evidence"
+        }
+      },
+      {
+        "draft_edge_id": "planner_edge_2",
+        "edge_type": "data_flow",
+        "from_node_id": "planner_node_2",
+        "to_node_id": "planner_node_3",
+        "semantic_role": "parallel_branch",
+        "payload_mapping": {
+          "parsed_records": "parsed_records"
+        },
+        "planner_metadata": {
+          "evidence_kind": "parsed_records",
+          "edge_source": "parallel_branch"
+        }
+      },
+      {
+        "draft_edge_id": "planner_edge_3",
+        "edge_type": "data_flow",
+        "from_node_id": "planner_node_2",
+        "to_node_id": "planner_node_4",
+        "semantic_role": "parallel_branch",
+        "payload_mapping": {
+          "parsed_records": "parsed_records"
+        },
+        "planner_metadata": {
+          "evidence_kind": "parsed_records",
+          "edge_source": "parallel_branch"
+        }
+      },
+      {
+        "draft_edge_id": "planner_edge_4",
+        "edge_type": "data_flow",
+        "from_node_id": "planner_node_3",
+        "to_node_id": "planner_node_5",
+        "semantic_role": "evidence_dependency",
+        "payload_mapping": {
+          "risk_assessment": "risk_assessment"
+        },
+        "planner_metadata": {
+          "evidence_kind": "risk_assessment",
+          "edge_source": "evidence"
+        }
+      },
+      {
+        "draft_edge_id": "planner_edge_5",
+        "edge_type": "data_flow",
+        "from_node_id": "planner_node_4",
+        "to_node_id": "planner_node_5",
+        "semantic_role": "evidence_dependency",
+        "payload_mapping": {
+          "demand_forecast": "demand_forecast"
+        },
+        "planner_metadata": {
+          "evidence_kind": "demand_forecast",
+          "edge_source": "evidence"
+        }
+      },
+      {
+        "draft_edge_id": "planner_edge_6_gate_pre",
+        "edge_type": "data_flow",
+        "from_node_id": "planner_node_5",
+        "to_node_id": "human_gate_before_planner_node_6",
+        "semantic_role": "evidence_dependency",
+        "payload_mapping": {
+          "replenishment_queue": "replenishment_queue"
+        },
+        "planner_metadata": {
+          "evidence_kind": "replenishment_queue",
+          "edge_source": "gate_control"
+        }
+      },
+      {
+        "draft_edge_id": "planner_edge_gate_human_gate_before_planner_node_6",
+        "edge_type": "control_flow",
+        "from_node_id": "human_gate_before_planner_node_6",
+        "to_node_id": "planner_node_6",
+        "semantic_role": "gate_control",
+        "payload_mapping": {},
+        "planner_metadata": {
+          "edge_source": "gate_control"
+        }
+      },
+      {
+        "draft_edge_id": "planner_edge_verify_verify_after_planner_node_6",
+        "edge_type": "control_flow",
+        "from_node_id": "planner_node_6",
+        "to_node_id": "verify_after_planner_node_6",
+        "semantic_role": "gate_control",
+        "payload_mapping": {},
+        "planner_metadata": {
+          "edge_source": "gate_control"
+        }
+      }
+    ],
+    "entry_node_ids": [
+      "planner_node_1"
+    ],
+    "exit_node_ids": [
+      "verify_after_planner_node_6"
+    ],
+    "verification_plan_draft": {
+      "verification_targets": [],
+      "verification_methods": [],
+      "required_evidence": [],
+      "postconditions": [],
+      "acceptance_rules": [],
+      "approval_requirements": [],
+      "failure_on_unverified": true,
+      "recheck_policy": "recheck_on_rerun",
+      "verification_binding_status": "draft"
+    },
+    "unresolved_items": [],
+    "unresolved_node_ids": [],
+    "capability_subset_summary": {
+      "sg_1": [
+        "filesystem_read",
+        "coding_agent"
+      ],
+      "sg_2": [
+        "validate_schema",
+        "coding_agent"
+      ],
+      "sg_3": [
+        "filesystem_read",
+        "coding_agent"
+      ],
+      "sg_4": [
+        "filesystem_read",
+        "coding_agent"
+      ],
+      "sg_5": [
+        "filesystem_read",
+        "coding_agent"
+      ],
+      "sg_6": [
+        "filesystem_write",
+        "coding_agent"
+      ]
+    },
+    "admissibility_summary": {
+      "primary_execution_regime": "workflow_build",
+      "max_automation_level": "full_workflow",
+      "build_admission_decision": "admit"
+    },
+    "planning_notes": [
+      "Planner v2: Bind + node-draft + enricher pipeline.",
+      "candidate_work_units are advisory enrichments only and do not define final graph structure.",
+      "Graph shape: dag.",
+      "Nodes: 8, Edges: 8."
+    ],
+    "planner_trace": {
+      "planner_version": "workflow_planner_v1",
+      "compile_context_version": "compile_context_v1",
+      "planning_intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "input_semantic_core_present": false,
+      "input_admissibility_present": true,
+      "input_capability_signature_count": 17,
+      "structural_source": "solvability.required_subgoals",
+      "candidate_work_unit_hint_count": 6,
+      "graph_closure_status": null,
+      "edge_source_default": "edge_source",
+      "phase_b_shape_used": true,
+      "phase_b_shape_trace": {
+        "raw_inserted_suggestions_sg": [
+          {
+            "kind": "human_gate",
+            "target_subgoal_id": "sg_6",
+            "reason": "sg_6 is a deliver/write subgoal; human gate recommended before persisting output CSV"
+          },
+          {
+            "kind": "verify",
+            "target_subgoal_id": "sg_6",
+            "reason": "sg_6 is a deliver/write subgoal; verification recommended after writing output CSV"
+          }
+        ],
+        "call_count": 1,
+        "llm_mode": "real",
+        "prompt_hash": "fe5894a3d0ef9c60",
+        "duration_ms": 8700,
+        "provider_key": "openai-compatible",
+        "model_name": "deepseek-chat",
+        "model_source": "env-defaults"
+      },
+      "phase_b_shape_fallback_reason": null,
+      "shape_llm_version": "workflow_planner_shape_llm_v1",
+      "phase_b_detected_conditionals": [],
+      "phase_c_trace": {
+        "evidence_flow": {
+          "accepted_hint_count": 6,
+          "rejected_hints": [],
+          "unbacked_consumers": [
+            "planner_node_1"
+          ],
+          "fallback_used": false
+        },
+        "constraint_enforcer": {
+          "gate_insertions": [
+            "human_gate_before_planner_node_6"
+          ],
+          "verify_insertions": [
+            "verify_after_planner_node_6"
+          ],
+          "forbidden_side_effect_violations": [],
+          "allowed_type_violations": []
+        },
+        "parallelism": {
+          "fan_out_groups": [
+            {
+              "root": "planner_node_2",
+              "branches": [
+                "planner_node_3",
+                "planner_node_4"
+              ]
+            }
+          ],
+          "rejected_hint_groups": []
+        },
+        "legality": {
+          "ok": true,
+          "violation_codes": [],
+          "fixed_notes": []
+        }
+      }
+    }
+  }
+}

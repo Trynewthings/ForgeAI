@@ -1,0 +1,10 @@
+supplier_id,supplier_name,region,contract_leadtime_days,latest_leadtime_days,on_time_rate,default_moq,quality_ppm,reliability_grade,last_delay_event
+S-001,上海液控科技,China-East,12,12,0.93,10,420,B,
+S-002,华东传感器,China-East,8,8,0.96,20,180,A,
+S-003,宁波液压件,China-East,6,7,0.91,30,520,B,2026-04-18 运输延迟 1 天
+S-004,苏州耗材工业,China-East,4,4,0.98,100,120,A,
+S-005,深圳自动化电子,China-South,14,15,0.89,8,650,B,2026-04-12 产线排产紧张
+S-006,常州电机制造,China-East,16,16,0.92,6,360,B,
+S-007,洛阳机械轴承,China-Central,10,13,0.86,20,780,C,2026-04-20 轴承热处理排队
+S-008,德国 Hydron GmbH,EU,21,35,0.72,5,900,D,2026-04-15 海运延迟，最新交期 +14 天
+S-009,停产件供应商,Legacy,21,30,0.5,5,1200,D,EOL 仅消耗库存，不建议新采

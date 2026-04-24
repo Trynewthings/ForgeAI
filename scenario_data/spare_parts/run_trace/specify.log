@@ -1,0 +1,183 @@
+wrote /Users/llk/agentsFactory/scenario_data/spare_parts/run_trace/05_node_specs.json  size=62880B
+
+spec_version     : node_execution_spec_v1
+spec count       : 6
+skipped_node_ids : ['human_gate_before_planner_node_6', 'verify_after_planner_node_6']
+profiled_files   : 7
+llm call_count   : 6
+
+== planner_node_1  (runtime_class=bounded_acquire) ==
+  semantic_goal     : Read all raw data files from the input directory
+  inputs.required   : 6
+      - demand_history_120d.csv  kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/demand_history_120d.csv
+        schema_hint: ['date', 'sku_id', 'warehouse', 'actual_consumption_qty', 'demand_including_lost_qty', 'market_index', 'planned_maintenance_flag', 'stockout_lost_qty', 'unit_replacement_price', 'source_channel']
+      - inventory_rt.csv         kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/inventory_rt.csv
+        schema_hint: ['sku_id', 'part_name', 'warehouse', 'category', 'criticality', 'lifecycle', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'on_hand', 'reserved', 'available_qty', 'inbound_approved', 'last_event_ts']
+      - market_signals.csv       kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/market_signals.csv
+        schema_hint: ['week_start', 'category', 'region', 'demand_index', 'maintenance_cycle_index', 'customer_backlog_index', 'competitor_supply_shock', 'note']
+      - real_time_events.csv     kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/real_time_events.csv
+        schema_hint: ['event_ts', 'event_id', 'event_type', 'sku_id', 'warehouse', 'qty_delta', 'source_system', 'reference_no', 'processed', 'note']
+      - sku_master.csv           kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/sku_master.csv
+        schema_hint: ['sku_id', 'part_name', 'category', 'criticality', 'unit', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'target_service_level', 'shelf_life_days', 'lifecycle', 'substitution_group', 'max_stock', 'base_daily_demand']
+      - supplier_performance.csv kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/supplier_performance.csv
+        schema_hint: ['supplier_id', 'supplier_name', 'region', 'contract_leadtime_days', 'latest_leadtime_days', 'on_time_rate', 'default_moq', 'quality_ppm', 'reliability_grade', 'last_delay_event']
+  output.primary    : raw_data_bundle          kind=dataset_collection
+        schema_hint: ['demand_history_120d', 'inventory_rt', 'market_signals', 'real_time_events', 'sku_master', 'supplier_performance']
+  business_rules    : 2
+      - [completeness] All required CSV files must be present and readable in the input directory.
+      - [data_integrity] Each file must be read in its entirety; no truncation or partial reads are allowed.
+  acceptance        : 3
+      - [presence] All six required CSV files are present and readable.
+      - [row_count] Each CSV file has at least one row of data (excluding header).
+      - [tabular_contract] The output bundle contains exactly six named datasets corresponding to the input files.
+  sketch            : 5 bullets
+      • Use Python's csv.DictReader to read each CSV file into a list of dictionaries.
+      • Store each dataset in a dictionary keyed by the file stem (e.g., 'demand_history_120d').
+      • Handle the optional README.md by reading it as a plain text string if present.
+      • Return the dictionary of datasets as the primary output bundle.
+      • Log the number of rows read per file for audit trail.
+
+== planner_node_2  (runtime_class=bounded_transform) ==
+  semantic_goal     : Parse each raw file into structured records and validate against expected schemas
+  inputs.required   : 6
+      - demand_history_120d      kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/demand_history_120d.csv
+        schema_hint: ['date', 'sku_id', 'warehouse', 'actual_consumption_qty', 'demand_including_lost_qty', 'market_index', 'planned_maintenance_flag', 'stockout_lost_qty', 'unit_replacement_price', 'source_channel']
+      - inventory_rt             kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/inventory_rt.csv
+        schema_hint: ['sku_id', 'part_name', 'warehouse', 'category', 'criticality', 'lifecycle', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'on_hand', 'reserved', 'available_qty', 'inbound_approved', 'last_event_ts']
+      - market_signals           kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/market_signals.csv
+        schema_hint: ['week_start', 'category', 'region', 'demand_index', 'maintenance_cycle_index', 'customer_backlog_index', 'competitor_supply_shock', 'note']
+      - real_time_events         kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/real_time_events.csv
+        schema_hint: ['event_ts', 'event_id', 'event_type', 'sku_id', 'warehouse', 'qty_delta', 'source_system', 'reference_no', 'processed', 'note']
+      - sku_master               kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/sku_master.csv
+        schema_hint: ['sku_id', 'part_name', 'category', 'criticality', 'unit', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'target_service_level', 'shelf_life_days', 'lifecycle', 'substitution_group', 'max_stock', 'base_daily_demand']
+      - supplier_performance     kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/supplier_performance.csv
+        schema_hint: ['supplier_id', 'supplier_name', 'region', 'contract_leadtime_days', 'latest_leadtime_days', 'on_time_rate', 'default_moq', 'quality_ppm', 'reliability_grade', 'last_delay_event']
+  output.primary    : validated_inputs         kind=dataset_collection
+        schema_hint: ['demand_history_120d', 'inventory_rt', 'market_signals', 'real_time_events', 'sku_master', 'supplier_performance']
+  business_rules    : 5
+      - [data_integrity] Each CSV file must have exactly the columns listed in its schema_hint; extra or missing columns cause rejection.
+      - [data_integrity] All date/time fields must be parseable as ISO 8601 or YYYY-MM-DD format; invalid values cause row rejection.
+      - [data_integrity] Numeric fields (e.g., qty, cost, price) must be convertible to float; non-numeric values cause row rejection.
+  acceptance        : 6
+      - [presence] All 6 input CSV files are present and readable.
+      - [tabular_contract] Each CSV file's columns match the schema_hint exactly (order-insensitive).
+      - [non_null] No null or empty values in sku_id fields across all files.
+  sketch            : 7 bullets
+      • Read each CSV file using a CSV parser with header detection.
+      • For each file, validate that the column set matches the expected schema_hint; reject files with mismatched columns.
+      • Parse date columns using a date parser; reject rows with unparseable dates.
+      • Parse numeric columns using float conversion; reject rows with non-numeric values.
+      • Check sku_id fields for null/empty; reject rows with missing sku_id.
+      • Validate event_type against the allowed enum list; reject rows with invalid values.
+
+== planner_node_3  (runtime_class=bounded_transform) ==
+  semantic_goal     : Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk
+  inputs.required   : 5
+      - sku_master               kind=dataset            src=planner_node_2
+        schema_hint: ['sku_id', 'part_name', 'category', 'criticality', 'unit', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'target_service_level', 'shelf_life_days', 'lifecycle', 'substitution_group', 'max_stock', 'base_daily_demand']
+      - inventory_rt             kind=dataset            src=planner_node_2
+        schema_hint: ['sku_id', 'part_name', 'warehouse', 'category', 'criticality', 'lifecycle', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'on_hand', 'reserved', 'available_qty', 'inbound_approved', 'last_event_ts']
+      - demand_history_120d      kind=dataset            src=planner_node_2
+        schema_hint: ['date', 'sku_id', 'warehouse', 'actual_consumption_qty', 'demand_including_lost_qty', 'market_index', 'planned_maintenance_flag', 'stockout_lost_qty', 'unit_replacement_price', 'source_channel']
+      - market_signals           kind=dataset            src=planner_node_2
+        schema_hint: ['week_start', 'category', 'region', 'demand_index', 'maintenance_cycle_index', 'customer_backlog_index', 'competitor_supply_shock', 'note']
+      - supplier_performance     kind=dataset            src=planner_node_2
+        schema_hint: ['supplier_id', 'supplier_name', 'region', 'contract_leadtime_days', 'latest_leadtime_days', 'on_time_rate', 'default_moq', 'quality_ppm', 'reliability_grade', 'last_delay_event']
+  output.primary    : inventory_risk_assessment kind=dataset           
+        schema_hint: ['sku_id', 'warehouse', 'risk_score', 'risk_category', 'days_until_stockout', 'recommended_reorder_qty', 'forecast_demand_30d', 'forecast_demand_60d', 'forecast_demand_90d', 'lead_time_risk', 'demand_volatility', 'criticality_score', 'analysis_timestamp']
+  business_rules    : 5
+      - [domain_policy] Risk score must be computed as a weighted combination of days until stockout, demand volatility, lead time reliability, and criticality. Weights: stockout_days 0.3, demand_volatility 0.25, lead_time_risk 0.25, criticality 0.2.
+      - [value_mapping] Risk category mapping: risk_score >= 0.7 -> 'High', 0.4 <= risk_score < 0.7 -> 'Medium', risk_score < 0.4 -> 'Low'.
+      - [domain_policy] Forecast demand for 30/60/90 days must use a time-series method (e.g., exponential smoothing or moving average) on actual_consumption_qty from demand_history_120d, adjusted by market_index and planned_maintenance_flag.
+  acceptance        : 6
+      - [row_count] Output dataset must contain exactly one row per (sku_id, warehouse) combination present in inventory_rt.
+      - [value_range] risk_score must be a float between 0 and 1 inclusive.
+      - [enum_membership] risk_category must be one of 'High', 'Medium', 'Low'.
+  sketch            : 6 bullets
+      • Load all five input datasets (sku_master, inventory_rt, demand_history_120d, market_signals, supplier_performance) from upstream node output.
+      • Merge datasets on sku_id and warehouse to create a unified analysis record per SKU-warehouse pair.
+      • Compute average daily consumption from last 30 days of demand_history_120d, adjusting for market_index and planned maintenance flags.
+      • Calculate days until stockout using available_qty and average daily consumption; compute demand volatility as coefficient of variation of daily consumption.
+      • Derive lead time risk from supplier_performance fields; compute weighted risk score and assign risk category.
+      • Generate forecast demand for 30/60/90 days using exponential smoothing on historical consumption; output final risk assessment dataset with all required fields.
+
+== planner_node_4  (runtime_class=bounded_transform) ==
+  semantic_goal     : Forecast future demand using historical consumption and market demand signals
+  inputs.required   : 3
+      - demand_history_120d      kind=csv                src=planner_node_2
+        schema_hint: ['date', 'sku_id', 'warehouse', 'actual_consumption_qty', 'demand_including_lost_qty', 'market_index', 'planned_maintenance_flag', 'stockout_lost_qty', 'unit_replacement_price', 'source_channel']
+      - market_signals           kind=csv                src=planner_node_2
+        schema_hint: ['week_start', 'category', 'region', 'demand_index', 'maintenance_cycle_index', 'customer_backlog_index', 'competitor_supply_shock', 'note']
+      - sku_master               kind=csv                src=planner_node_2
+        schema_hint: ['sku_id', 'part_name', 'category', 'criticality', 'unit', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'target_service_level', 'shelf_life_days', 'lifecycle', 'substitution_group', 'max_stock', 'base_daily_demand']
+  output.primary    : demand_forecast          kind=csv               
+        schema_hint: ['sku_id', 'warehouse', 'forecast_date', 'forecast_qty', 'forecast_upper_bound', 'forecast_lower_bound', 'confidence_level', 'method_used']
+  business_rules    : 4
+      - [completeness] Forecast must be generated per (sku_id, warehouse) pair using at least 30 days of historical data; if less than 30 days available, use base_daily_demand from sku_master as fallback.
+      - [value_mapping] Market demand_index and maintenance_cycle_index from market_signals must be applied as multiplicative factors to the baseline forecast for the corresponding category and region.
+      - [domain_policy] Forecast horizon must be 30 days from the current date (latest date in demand_history_120d).
+  acceptance        : 5
+      - [row_count] Output contains exactly one row per (sku_id, warehouse) per forecast day for the 30-day horizon.
+      - [value_range] All forecast_qty values are non-negative.
+      - [relational_integrity] Every sku_id in the output exists in the sku_master input.
+  sketch            : 6 bullets
+      • Load the three input datasets (demand_history_120d, market_signals, sku_master) from the upstream node's output.
+      • For each (sku_id, warehouse) pair, compute a baseline daily forecast using time-series decomposition (e.g., moving average or exponential smoothing) on actual_consumption_qty; if insufficient history, fall back to base_daily_demand from sku_master.
+      • Join with market_signals on category and region to apply demand_index and maintenance_cycle_index as multiplicative adjustments per week.
+      • Generate a 30-day forecast table with upper/lower bounds based on historical variability (e.g., standard deviation of forecast errors).
+      • Handle lifecycle-based exceptions: set forecast to 0 for discontinued/phase-out SKUs.
+      • Write the output CSV with columns: sku_id, warehouse, forecast_date, forecast_qty, forecast_upper_bound, forecast_lower_bound, confidence_level, method_used.
+
+== planner_node_5  (runtime_class=bounded_transform) ==
+  semantic_goal     : Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue
+  inputs.required   : 5
+      - inventory_rt             kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/inventory_rt.csv
+        schema_hint: ['sku_id', 'part_name', 'warehouse', 'category', 'criticality', 'lifecycle', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'on_hand', 'reserved', 'available_qty', 'inbound_approved', 'last_event_ts']
+      - sku_master               kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/sku_master.csv
+        schema_hint: ['sku_id', 'part_name', 'category', 'criticality', 'unit', 'unit_cost', 'supplier_id', 'lead_time_days', 'moq', 'reorder_multiple', 'target_service_level', 'shelf_life_days', 'lifecycle', 'substitution_group', 'max_stock', 'base_daily_demand']
+      - supplier_performance     kind=csv                src=/Users/llk/agentsFactory/scenario_data/spare_parts/input/supplier_performance.csv
+        schema_hint: ['supplier_id', 'supplier_name', 'region', 'contract_leadtime_days', 'latest_leadtime_days', 'on_time_rate', 'default_moq', 'quality_ppm', 'reliability_grade', 'last_delay_event']
+      - risk_assessment          kind=dataset            src=planner_node_3
+        schema_hint: ['sku_id', 'warehouse', 'risk_score', 'risk_category']
+      - demand_forecast          kind=dataset            src=planner_node_4
+        schema_hint: ['sku_id', 'warehouse', 'forecast_date', 'forecast_qty', 'confidence_interval_lower', 'confidence_interval_upper']
+  output.primary    : replenishment_queue      kind=csv               
+        schema_hint: ['sku_id', 'part_name', 'warehouse', 'replenishment_qty', 'priority_score', 'suggested_order_date', 'expected_delivery_date', 'supplier_id', 'reason_code']
+        locator_hint: /Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv
+  business_rules    : 4
+      - [domain_policy] Replenishment quantity must be a multiple of the reorder_multiple from sku_master, and at least the MOQ.
+      - [value_mapping] Priority score must be computed as a weighted function of risk_score, forecast_qty, and criticality (A > B > C).
+      - [domain_policy] Suggested order date must be no later than (expected stockout date - lead_time_days) to maintain target service level.
+  acceptance        : 5
+      - [presence] Output file replenishment_queue.csv exists and is non-empty.
+      - [tabular_contract] Output schema matches expected columns: sku_id, part_name, warehouse, replenishment_qty, priority_score, suggested_order_date, expected_delivery_date, supplier_id, reason_code.
+      - [value_range] All replenishment_qty values are positive integers and multiples of the corresponding reorder_multiple.
+  sketch            : 5 bullets
+      • Load all required input datasets (inventory_rt, sku_master, supplier_performance, risk_assessment, demand_forecast) into memory.
+      • Join datasets on sku_id and warehouse to create a unified view per SKU-warehouse combination.
+      • Apply business rules to compute reorder point, replenishment quantity (respecting MOQ and reorder_multiple), and priority score.
+      • Calculate suggested_order_date and expected_delivery_date using lead_time_days and forecasted stockout date.
+      • Sort the resulting records by priority_score descending and write the ranked queue to the output CSV file.
+
+== planner_node_6  (runtime_class=bounded_persist) ==
+  semantic_goal     : Write the replenishment queue to the specified output CSV file
+  inputs.required   : 1
+      - replenishment_queue      kind=dataset            src=human_gate_before_planner_node_6
+        schema_hint: ['sku_id', 'warehouse', 'replenish_qty', 'suggested_order_date', 'expected_arrival_date', 'priority', 'reason_code']
+  output.primary    : replenishment_queue.csv  kind=csv               
+        schema_hint: ['sku_id', 'warehouse', 'replenish_qty', 'suggested_order_date', 'expected_arrival_date', 'priority', 'reason_code']
+        locator_hint: /Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv
+  business_rules    : 2
+      - [data_integrity] Output file must be a valid CSV with header row matching the schema_hint.
+      - [completeness] All rows in the output must have non-null values for sku_id, warehouse, replenish_qty, suggested_order_date, expected_arrival_date, priority, and reason_code.
+  acceptance        : 3
+      - [presence] Output file exists at the specified delivery path.
+      - [tabular_contract] Output CSV has the correct header columns.
+      - [row_count] Output file contains at least one row.
+  sketch            : 5 bullets
+      • Receive the replenishment queue dataset from upstream (human_gate_before_planner_node_6).
+      • Open the output file path for writing, creating directories if needed.
+      • Write the CSV header line using the schema_hint column names.
+      • Iterate over each row in the dataset and write it as a CSV line.
+      • Flush and close the file, then confirm successful write.
+

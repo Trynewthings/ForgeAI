@@ -32,7 +32,14 @@ from app.schemas.front_chain import (
     FrontChainSessionSummary,
     FrontChainSessionTurnRequest,
     FrontChainSessionTurnResponse,
+    FrontChainSpecifyResponse,
     FrontChainStateResponse,
+)
+from app.services.node_spec.node_spec_service import NodeSpecFailure
+from app.services.node_spec.session_orchestration import (
+    NodeSpecPlannerOutputMissingError,
+    NodeSpecSessionNotFoundError,
+    specify_for_session,
 )
 from app.services.front_chain.front_chain_session_service import (
     FrontChainSessionNotFoundError,
@@ -222,6 +229,59 @@ def plan_front_chain_session(
         planner_version=row.planner_version or PLANNER_VERSION,
         compile_context_version=row.compile_version,
         planner_output=output.model_dump(mode="json"),
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/specify",
+    response_model=FrontChainSpecifyResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def specify_front_chain_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+) -> FrontChainSpecifyResponse:
+    """Node spec stage: run the per-node spec pass against the latest
+    planner-bearing state for this session.
+
+    The spec pass consumes the ``WorkflowPlannerOutput`` and
+    ``CompileContextResponse`` from the most recent planner-output-bearing
+    state, produces a ``NodeExecutionSpecBundle``, and persists it back
+    onto the same state row. Idempotent — rerunning overwrites the prior
+    bundle in place.
+
+    Fail-fast: if any node's spec cannot be produced (provider error,
+    unparseable output, or schema violation), the endpoint returns 502
+    and persists nothing. A half-spec'd bundle is worse than no bundle.
+    """
+    try:
+        serialized, row = specify_for_session(session_id, db=db)
+    except NodeSpecSessionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"front_chain session not found: {exc}",
+        ) from exc
+    except NodeSpecPlannerOutputMissingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "session has no planner_output yet — finish the plan "
+                f"stage before specifying (session_id={exc})"
+            ),
+        ) from exc
+    except NodeSpecFailure as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"node_spec_failed: {exc}",
+        ) from exc
+    db.commit()
+    return FrontChainSpecifyResponse(
+        session_id=session_id,
+        state_id=row.id,
+        project_id=row.project_id,
+        requirement_id=row.requirement_id,
+        node_specs_version=row.node_specs_version or "",
+        node_specs=serialized,
     )
 
 

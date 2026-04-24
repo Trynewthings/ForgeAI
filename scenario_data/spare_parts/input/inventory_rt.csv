@@ -1,0 +1,21 @@
+sku_id,part_name,warehouse,category,criticality,lifecycle,unit_cost,supplier_id,lead_time_days,moq,reorder_multiple,on_hand,reserved,available_qty,inbound_approved,last_event_ts
+P-001,伺服阀总成,WH-East-01,Hydraulic,A,Active,5200,S-001,12,10,10,18,10,8,0,2026-04-22T14:14:00
+P-002,压力传感器 0-40MPa,WH-East-01,Sensor,A,Active,860,S-002,7,20,10,190,25,165,60,2026-04-23T11:34:00
+P-003,位移传感器 100mm,WH-East-01,Sensor,B,Active,1240,S-002,9,15,5,80,8,72,25,2026-04-22T03:13:00
+P-004,液压油管 1.5m,WH-East-01,Hydraulic,B,Active,230,S-003,5,50,25,260,40,220,100,2026-04-23T12:10:00
+P-005,密封圈套件,WH-East-01,Consumable,A,Active,95,S-004,4,100,50,180,50,130,100,2026-04-23T08:09:00
+P-006,滤芯 10μm,WH-East-01,Consumable,B,Active,160,S-004,6,80,40,520,60,460,0,2026-04-21T18:21:00
+P-007,控制板卡 V3,WH-East-01,Electrical,A,Active,3400,S-005,18,8,4,24,6,18,12,2026-04-22T17:42:00
+P-008,备用电机 2.2kW,WH-East-01,Electrical,C,Active,1850,S-006,16,6,3,92,2,90,0,2026-04-18T21:18:00
+P-009,继电器模块,WH-East-01,Electrical,B,Active,280,S-005,10,30,10,85,12,73,20,2026-04-22T08:52:00
+P-010,接近开关 M18,WH-East-01,Sensor,B,Active,190,S-002,7,40,20,205,30,175,20,2026-04-23T18:48:00
+P-011,支撑轴承组件,WH-East-01,Mechanical,A,Active,1450,S-007,14,20,10,56,20,36,0,2026-04-23T18:22:00
+P-012,联轴器弹性体,WH-East-01,Mechanical,B,Active,120,S-007,8,60,30,250,35,215,60,2026-04-22T08:54:00
+P-013,编码器线缆 5m,WH-East-01,Electrical,B,Active,260,S-005,11,40,20,160,20,140,40,2026-04-22T10:29:00
+P-014,PLC 输入模块,WH-East-01,Electrical,A,Active,2200,S-005,20,8,4,18,6,12,8,2026-04-22T14:45:00
+P-015,进口比例阀,WH-East-01,Hydraulic,A,Active,7800,S-008,28,5,5,13,8,5,0,2026-04-23T17:25:00
+P-016,电磁阀线圈,WH-East-01,Hydraulic,B,Active,380,S-003,6,30,10,120,10,110,30,2026-04-21T22:59:00
+P-017,旧版通讯板 V1,WH-East-01,Electrical,C,EOL/Frozen,980,S-009,21,5,5,9,4,5,0,2026-04-11T12:44:00
+P-018,安全阀组件,WH-East-01,Hydraulic,A,Active,2600,S-003,9,12,6,62,14,48,12,2026-04-22T12:17:00
+P-019,导轨滑块,WH-East-01,Mechanical,B,Active,420,S-007,12,40,20,105,20,85,30,2026-04-23T18:49:00
+P-020,绝缘垫片,WH-East-01,Consumable,C,Active,18,S-004,3,500,100,4200,500,3700,0,2026-04-23T07:58:00

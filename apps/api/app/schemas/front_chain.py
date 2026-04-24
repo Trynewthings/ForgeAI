@@ -564,6 +564,24 @@ class FrontChainPlanResponse(BaseModel):
     planner_output: dict[str, Any]
 
 
+class FrontChainSpecifyResponse(BaseModel):
+    """Response returned by ``POST /front-chain/sessions/{id}/specify``.
+
+    The spec stage is idempotent per state row: each call overwrites
+    ``node_specs_json`` on the planner-output-bearing state in place. The
+    payload mirrors the ``NodeExecutionSpecBundle`` shape.
+    """
+
+    session_id: str
+    state_id: str
+    project_id: str
+    requirement_id: Optional[str] = None
+    node_specs_version: str
+    # Dict-shaped to match how planner_output is surfaced — authoritative
+    # schema is ``NodeExecutionSpecBundle`` in ``app.schemas.node_execution_spec``.
+    node_specs: dict[str, Any]
+
+
 class FrontChainCompileResponse(BaseModel):
     """Response returned by /front-chain/states/{state_id}/compile.
 

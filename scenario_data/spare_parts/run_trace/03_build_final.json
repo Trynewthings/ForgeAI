@@ -1,0 +1,83 @@
+{
+  "id": "bc408a6b-330c-4673-b65c-5ecb5dafc602",
+  "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
+  "blueprint_id": null,
+  "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+  "executable_id": "f94329ac-b013-4924-8d6d-05b4f8fddabf",
+  "active_job_id": "aa73a2a7-614a-4eb6-bff9-ad5e8032c7e8",
+  "active_job_status": "failed",
+  "build_version": "build-0001",
+  "status": "failed",
+  "build_options_json": {
+    "target": "spare_parts_scenario"
+  },
+  "manifest_snapshot_json": {},
+  "summary": null,
+  "error_message": "session_anchored_build_blocked: planner picked capabilities the slice cannot execute and cannot fall back to coding_agent. blocked_steps=['parse_each_raw_file_into_structured_records_and_validate_against_expected_schemas']",
+  "started_at": "2026-04-24T12:54:38.062250+00:00",
+  "ended_at": "2026-04-24T12:54:38.148500+00:00",
+  "created_at": "2026-04-24T12:54:37.082839+00:00",
+  "updated_at": "2026-04-24T12:54:38.145840+00:00",
+  "build_steps": [
+    {
+      "id": "7f0a1649-7c97-4dcc-b48b-877105a6800f",
+      "build_id": "bc408a6b-330c-4673-b65c-5ecb5dafc602",
+      "step_name": "analyze_source",
+      "step_order": 1,
+      "status": "pending",
+      "input_payload_json": {},
+      "output_payload_json": {},
+      "log_excerpt": null,
+      "token_usage_json": {},
+      "started_at": "",
+      "finished_at": "",
+      "created_at": "2026-04-24T12:54:37.082839+00:00",
+      "updated_at": "2026-04-24T12:54:37.082839+00:00"
+    },
+    {
+      "id": "04b90f33-3989-4335-99dd-858a4568c95f",
+      "build_id": "bc408a6b-330c-4673-b65c-5ecb5dafc602",
+      "step_name": "generate_manifest",
+      "step_order": 2,
+      "status": "pending",
+      "input_payload_json": {},
+      "output_payload_json": {},
+      "log_excerpt": null,
+      "token_usage_json": {},
+      "started_at": "",
+      "finished_at": "",
+      "created_at": "2026-04-24T12:54:37.082839+00:00",
+      "updated_at": "2026-04-24T12:54:37.082839+00:00"
+    },
+    {
+      "id": "b2a42dd6-60d8-4c27-9177-28a29870b660",
+      "build_id": "bc408a6b-330c-4673-b65c-5ecb5dafc602",
+      "step_name": "materialize_executable",
+      "step_order": 3,
+      "status": "pending",
+      "input_payload_json": {},
+      "output_payload_json": {},
+      "log_excerpt": null,
+      "token_usage_json": {},
+      "started_at": "",
+      "finished_at": "",
+      "created_at": "2026-04-24T12:54:37.082839+00:00",
+      "updated_at": "2026-04-24T12:54:37.082839+00:00"
+    },
+    {
+      "id": "fefe6f9f-5634-4c46-907d-f7a345cf742c",
+      "build_id": "bc408a6b-330c-4673-b65c-5ecb5dafc602",
+      "step_name": "finalize_executable",
+      "step_order": 4,
+      "status": "pending",
+      "input_payload_json": {},
+      "output_payload_json": {},
+      "log_excerpt": null,
+      "token_usage_json": {},
+      "started_at": "",
+      "finished_at": "",
+      "created_at": "2026-04-24T12:54:37.082839+00:00",
+      "updated_at": "2026-04-24T12:54:37.082839+00:00"
+    }
+  ]
+}

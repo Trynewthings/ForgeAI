@@ -93,6 +93,13 @@ class FrontChainState(Base):
     planner_output_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     planner_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
+    # Node spec pass — produced by the spec pass after planner. Turns the
+    # planner's vague per-node semantic_goal into a structured
+    # NodeExecutionSpecBundle (input/output contracts, business rules,
+    # acceptance criteria, etc). NULL until /specify runs for this state.
+    node_specs_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    node_specs_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     interpreter_version: Mapped[str] = mapped_column(String(64), nullable=False)
     validator_version: Mapped[str] = mapped_column(String(64), nullable=False)
 

@@ -1,0 +1,21 @@
+sku_id,part_name,category,criticality,unit,unit_cost,supplier_id,lead_time_days,moq,reorder_multiple,target_service_level,shelf_life_days,lifecycle,substitution_group,max_stock,base_daily_demand
+P-001,伺服阀总成,Hydraulic,A,pcs,5200,S-001,12,10,10,0.98,720,Active,VALVE-A,120,4.8
+P-002,压力传感器 0-40MPa,Sensor,A,pcs,860,S-002,7,20,10,0.97,1080,Active,SENSOR-P,300,8.5
+P-003,位移传感器 100mm,Sensor,B,pcs,1240,S-002,9,15,5,0.95,1080,Active,SENSOR-D,220,3.8
+P-004,液压油管 1.5m,Hydraulic,B,pcs,230,S-003,5,50,25,0.94,540,Active,HOSE-15,500,14.0
+P-005,密封圈套件,Consumable,A,sets,95,S-004,4,100,50,0.98,365,Active,SEAL-A,1000,22.0
+P-006,滤芯 10μm,Consumable,B,pcs,160,S-004,6,80,40,0.95,540,Active,FILTER-10,900,18.0
+P-007,控制板卡 V3,Electrical,A,pcs,3400,S-005,18,8,4,0.98,1460,Active,PCB-CTRL,80,1.6
+P-008,备用电机 2.2kW,Electrical,C,pcs,1850,S-006,16,6,3,0.9,1825,Active,MOTOR-22,70,0.55
+P-009,继电器模块,Electrical,B,pcs,280,S-005,10,30,10,0.95,1460,Active,RELAY-M,260,5.3
+P-010,接近开关 M18,Sensor,B,pcs,190,S-002,7,40,20,0.95,1080,Active,PROX-M18,400,9.2
+P-011,支撑轴承组件,Mechanical,A,sets,1450,S-007,14,20,10,0.98,1825,Active,BRG-SUP,240,3.2
+P-012,联轴器弹性体,Mechanical,B,pcs,120,S-007,8,60,30,0.94,720,Active,COUP-EL,600,10.5
+P-013,编码器线缆 5m,Electrical,B,pcs,260,S-005,11,40,20,0.95,1080,Active,CABLE-ENC,350,6.5
+P-014,PLC 输入模块,Electrical,A,pcs,2200,S-005,20,8,4,0.98,1460,Active,PLC-IN,70,1.2
+P-015,进口比例阀,Hydraulic,A,pcs,7800,S-008,28,5,5,0.99,1080,Active,VALVE-PROP,60,1.1
+P-016,电磁阀线圈,Hydraulic,B,pcs,380,S-003,6,30,10,0.95,720,Active,COIL-SV,250,4.8
+P-017,旧版通讯板 V1,Electrical,C,pcs,980,S-009,21,5,5,0.85,1460,EOL/Frozen,COM-V1,30,0.3
+P-018,安全阀组件,Hydraulic,A,pcs,2600,S-003,9,12,6,0.98,1080,Active,SAFE-VALVE,120,2.8
+P-019,导轨滑块,Mechanical,B,pcs,420,S-007,12,40,20,0.95,1825,Active,GUIDE-BLOCK,300,5.6
+P-020,绝缘垫片,Consumable,C,pcs,18,S-004,3,500,100,0.9,365,Active,INS-WASHER,5000,65.0

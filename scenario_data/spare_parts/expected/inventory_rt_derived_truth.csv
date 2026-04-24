@@ -1,0 +1,21 @@
+sku_id,forecast_daily_demand_28d,safety_stock,reorder_point,target_stock,days_of_supply,risk_status,recommended_order_qty,decision_mode,rule_hit
+P-001,7.43,63,153,257,1.0767160161507403,Stockout Risk,250,Human Approval,below reorder point
+P-002,8.49,42,102,221,19.434628975265017,Healthy,0,No Action,within policy
+P-003,3.79,16,51,104,18.99736147757256,Healthy,0,No Action,within policy
+P-004,15.76,36,115,336,13.959390862944163,Healthy,0,No Action,within policy
+P-005,23.92,67,163,498,5.434782608695651,Watch,300,Auto PO,days of supply under threshold
+P-006,20.3,55,177,461,22.660098522167488,Healthy,0,No Action,within policy
+P-007,1.69,22,53,77,10.650887573964498,Stockout Risk,48,Human Approval,below reorder point
+P-008,0.47,2,10,17,191.48936170212767,Overstock Risk,0,Freeze Purchase,over target
+P-009,4.96,23,73,143,14.717741935483872,Healthy,0,No Action,within policy
+P-010,9.04,29,93,219,19.35840707964602,Healthy,0,No Action,within policy
+P-011,7.91,78,189,300,4.551201011378002,Stockout Risk,270,Human Approval,below reorder point
+P-012,12.19,44,142,313,17.637407711238723,Healthy,0,No Action,within policy
+P-013,6.68,34,108,201,20.95808383233533,Healthy,0,No Action,within policy
+P-014,1.22,18,43,60,9.836065573770492,Stockout Risk,40,Human Approval,below reorder point
+P-015,1.8,36,87,112,2.7777777777777777,Stockout Risk,110,Human Approval,below reorder point
+P-016,5.93,17,53,136,18.54974704890388,Healthy,0,No Action,within policy
+P-017,0.54,3,15,22,9.25925925925926,No replenish - EOL,0,Freeze Purchase,lifecycle frozen
+P-018,3.45,22,54,102,13.91304347826087,Healthy,0,No Action,within policy
+P-019,6.65,36,116,209,12.781954887218044,Stockout Risk,100,Human Approval,below reorder point
+P-020,72.18,55,272,1283,51.2607370462732,Overstock Risk,0,Freeze Purchase,over target

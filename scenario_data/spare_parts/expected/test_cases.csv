@@ -1,0 +1,9 @@
+test_id,scenario,input_condition,expected_behavior,pass_criteria,data_location
+TC-01,快消关键件缺货风险：P-001,available + inbound < reorder_point，且 criticality=A,生成补货建议，若推荐量不超过 3×MOQ 则 Auto PO,Inventory_RT!U/W/V 显示 Stockout Risk/Auto PO/补货量>0；队列中出现 RQ,"Inventory_RT, Auto_Replenishment_Queue"
+TC-02,慢动件积压：P-008,available > target_stock × 1.35，历史需求低,识别 Overstock Risk，冻结采购，不生成 PO,risk_status=Overstock Risk；decision_mode=Freeze Purchase；recommended_order_qty=0,Inventory_RT
+TC-03,检修周期突增：P-011,Market_Signals 对 Mechanical 拉高，近 18 天历史需求翻倍,forecast 提升，触发补货；由于供应商可靠性 C/置信度低，转 Human Approval,Forecast_28D reason=maintenance_spike；队列 approval_mode=Human Approval,"Forecast_28D, Auto_Replenishment_Queue"
+TC-04,供应商延期：P-015,Supplier S-008 latest_leadtime_days=35，可靠性 D,触发高价值/低可靠风险，补货建议不得直接自动下单,Auto_Replenishment_Queue 中 P-015 approval_mode=Human Approval,"Supplier_Performance, Auto_Replenishment_Queue"
+TC-05,停产件：P-017,lifecycle=EOL/Frozen 且库存偏低,禁止自动补货，只允许消耗库存或替代件建议,risk_status=No replenish - EOL；decision_mode=Freeze Purchase；recommended_order_qty=0,"SKU_Master, Inventory_RT"
+TC-06,正常健康件：P-002/P-004,available + inbound 覆盖 reorder_point，DOS 合理,不生成补货动作,risk_status=Healthy 或 Watch；recommended_order_qty=0,Inventory_RT
+TC-07,实时事件回放,在 Real_Time_Events 增加 P-001 stock_out -10 并同步扣减 on_hand,风险级别应保持或升高，补货量应变大,修改 Inventory_RT!L 对应行后，V 推荐补货量上升,"Real_Time_Events, Inventory_RT"
+TC-08,可自动补货健康供应商：P-005,DOS<7 但未低于 reorder_point，criticality=A，供应商可靠，推荐量 <= 3×MOQ,进入 Auto PO，无需人工审批,Inventory_RT 中 P-005 decision_mode=Auto PO；队列中 approval_mode=Auto PO,"Inventory_RT, Auto_Replenishment_Queue"

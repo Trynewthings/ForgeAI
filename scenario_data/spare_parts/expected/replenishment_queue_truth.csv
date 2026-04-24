@@ -1,0 +1,11 @@
+queue_id,sku_id,part_name,supplier_id,supplier_name,trigger_type,risk_before,recommended_qty,order_qty_rounded,estimated_cost,approval_mode,expected_arrival_date,status,confidence,calculation_note
+RQ-001,P-001,伺服阀总成,S-001,上海液控科技,below_reorder_point,Stockout Risk,250,250,1300000,Human Approval,2026-05-06,Drafted,0.86,"available=8, inbound=0, reorder_point=153, target=257"
+RQ-002,P-005,密封圈套件,S-004,苏州耗材工业,dos_under_threshold,Watch,300,300,28500,Auto PO,2026-04-28,Drafted,0.86,"available=130, inbound=100, reorder_point=163, target=498"
+RQ-003,P-007,控制板卡 V3,S-005,深圳自动化电子,below_reorder_point,Stockout Risk,48,48,163200,Human Approval,2026-05-09,Drafted,0.86,"available=18, inbound=12, reorder_point=53, target=77"
+RQ-004,P-008,备用电机 2.2kW,S-006,常州电机制造,overstock_freeze,Overstock Risk,0,0,0,No PO,,Purchase Frozen,0.86,"available=90, inbound=0, reorder_point=10, target=17"
+RQ-005,P-011,支撑轴承组件,S-007,洛阳机械轴承,below_reorder_point,Stockout Risk,270,270,391500,Human Approval,2026-05-07,Drafted,0.6,"available=36, inbound=0, reorder_point=189, target=300"
+RQ-006,P-014,PLC 输入模块,S-005,深圳自动化电子,below_reorder_point,Stockout Risk,40,40,88000,Human Approval,2026-05-09,Drafted,0.86,"available=12, inbound=8, reorder_point=43, target=60"
+RQ-007,P-015,进口比例阀,S-008,德国 Hydron GmbH,below_reorder_point,Stockout Risk,110,110,858000,Human Approval,2026-05-29,Drafted,0.6,"available=5, inbound=0, reorder_point=87, target=112"
+RQ-008,P-017,旧版通讯板 V1,S-009,停产件供应商,lifecycle_frozen,No replenish - EOL,0,0,0,No PO,,Frozen,0.74,"available=5, inbound=0, reorder_point=15, target=22"
+RQ-009,P-019,导轨滑块,S-007,洛阳机械轴承,below_reorder_point,Stockout Risk,100,100,42000,Human Approval,2026-05-07,Drafted,0.74,"available=85, inbound=30, reorder_point=116, target=209"
+RQ-010,P-020,绝缘垫片,S-004,苏州耗材工业,overstock_freeze,Overstock Risk,0,0,0,No PO,,Purchase Frozen,0.86,"available=3700, inbound=0, reorder_point=272, target=1283"

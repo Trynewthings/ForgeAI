@@ -1,0 +1,2106 @@
+{
+  "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+  "status": "compilable",
+  "stages_run": [
+    "interpret",
+    "evaluate",
+    "compile"
+  ],
+  "latest_state": {
+    "id": "0069ce77-5d8b-458e-bd58-9995ece5f0f5",
+    "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
+    "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+    "requirement_id": null,
+    "preview_mode": false,
+    "parent_state_id": "c0fa8c48-90c2-4a81-bbcc-16ecb925a532",
+    "turn_number": 3,
+    "raw_intent": "基于配件主数据、实时库存、历史消耗、市场需求信号和供应商交期数据，对每个配件 SKU 进行库存风险判断、未来需求预测和补货决策，并生成可执行的补货队列，降低缺货与积压风险。\n\n输入数据目录：/Users/llk/agentsFactory/scenario_data/spare_parts/input/\n输出文件：/Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv",
+    "problem_formulation": {
+      "interpreted_problem_kind": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "target_object": "local_workspace",
+      "problem_status": "solvable",
+      "current_system_fit": "in_scope",
+      "planning_intent": {
+        "intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+        "label": "spare_parts_replenishment_analysis",
+        "target_object": "local_workspace",
+        "deliverable_contract": null,
+        "objective_family": "analysis",
+        "preferred_graph_shape": "unknown",
+        "parallelism_hint": "unknown",
+        "acquisition_strategy": "unknown",
+        "evidence_strategy": "generic",
+        "side_effect_budget": "unknown",
+        "required_capability_themes": [],
+        "must_preserve_artifact_delivery": true,
+        "reasoning_summary": "The user has specified the task (risk assessment, forecasting, replenishment decision) and the data sources (master data, inventory, consumption, demand signals, supplier lead times). Input directory and output file are concrete. No blocking issues."
+      },
+      "required_decisions": [],
+      "recommended_assumptions": [],
+      "blocking_axes": [],
+      "review_axes": [],
+      "blocking_reasons": [],
+      "clarification_plan": [],
+      "reasoning_summary": "The user has specified the task (risk assessment, forecasting, replenishment decision) and the data sources (master data, inventory, consumption, demand signals, supplier lead times). Input directory and output file are concrete. No blocking issues.",
+      "intent_clarity": "clear",
+      "interpreted_goal": "Analyze spare parts master data, real-time inventory, historical consumption, market demand signals, and supplier lead times to assess inventory risk, forecast future demand, make replenishment decisions, and generate an executable replenishment queue.",
+      "clarification_question": null
+    },
+    "input_closure": {
+      "target_object": "local_workspace",
+      "planning_intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "candidate_sources": [
+        {
+          "candidate_id": "src_1",
+          "locator_kind": "path",
+          "locator_value": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/",
+          "content_kind": "dataset",
+          "access_boundary": "workspace",
+          "acquisition_kind": "direct_read",
+          "confidence": 0.95,
+          "evidence": [
+            "User explicitly provided input directory path"
+          ]
+        }
+      ],
+      "resolved_source_kind": "directory",
+      "resolved_source_locator": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/",
+      "resolved_source_modality": "files (likely CSV, Excel, or similar tabular formats)",
+      "acquisition_path_kind": "direct_read",
+      "closure_requirements": [],
+      "blocking_axes": [],
+      "review_axes": [],
+      "closure_status": "input_closed",
+      "applicability": "required",
+      "reasoning_summary": "The user specified a concrete input directory. The system will read files from that directory. No ambiguity."
+    },
+    "output_closure": {
+      "deliverable_form": "dataset",
+      "delivery_target": "/Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv",
+      "output_modality": "csv",
+      "closure_requirements": [],
+      "blocking_axes": [],
+      "review_axes": [],
+      "closure_status": "output_closed",
+      "reasoning_summary": "User provided a concrete absolute file path with .csv extension. Deliverable form is a dataset (CSV)."
+    },
+    "merged_gaps": {
+      "blocking": [],
+      "review": [],
+      "prioritized_decisions": []
+    },
+    "top_questions": [],
+    "llm_trace_summary": {
+      "call_count": 1,
+      "interpreter_version": "front_chain_interpreter_v1",
+      "llm_mode": "real",
+      "provider_key": "openai-compatible",
+      "prompt_hash": "0c7b08698a993d2f",
+      "prompt_tokens": 1876,
+      "completion_tokens": 712,
+      "total_tokens": 2588,
+      "finish_reason": "stop",
+      "duration_ms": 9564
+    },
+    "interpreter_version": "front_chain_interpreter_v1",
+    "validator_version": "front_chain_partition_validator_v1",
+    "solvability": {
+      "problem_kind": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "planning_intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "solvability_status": "solvable",
+      "required_subgoals": [
+        {
+          "subgoal_id": "sg_1",
+          "label": "ingest input files",
+          "description": "Read all raw data files from the input directory",
+          "subgoal_kind": "acquire",
+          "required_capability_classes": [
+            "ingest"
+          ],
+          "input_evidence_kinds": [
+            "directory_path"
+          ],
+          "output_evidence_kinds": [
+            "raw_files"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_2",
+          "label": "parse and validate input data",
+          "description": "Parse each raw file into structured records and validate against expected schemas",
+          "subgoal_kind": "analyze",
+          "required_capability_classes": [
+            "transform",
+            "validate"
+          ],
+          "input_evidence_kinds": [
+            "raw_files"
+          ],
+          "output_evidence_kinds": [
+            "parsed_records"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_3",
+          "label": "analyze inventory risk",
+          "description": "Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk",
+          "subgoal_kind": "analyze",
+          "required_capability_classes": [
+            "transform"
+          ],
+          "input_evidence_kinds": [
+            "parsed_records"
+          ],
+          "output_evidence_kinds": [
+            "risk_assessment"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_4",
+          "label": "forecast future demand",
+          "description": "Forecast future demand using historical consumption and market demand signals",
+          "subgoal_kind": "analyze",
+          "required_capability_classes": [
+            "transform"
+          ],
+          "input_evidence_kinds": [
+            "parsed_records"
+          ],
+          "output_evidence_kinds": [
+            "demand_forecast"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_5",
+          "label": "generate replenishment decisions",
+          "description": "Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue",
+          "subgoal_kind": "synthesize",
+          "required_capability_classes": [
+            "transform",
+            "rank"
+          ],
+          "input_evidence_kinds": [
+            "risk_assessment",
+            "demand_forecast"
+          ],
+          "output_evidence_kinds": [
+            "replenishment_queue"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_6",
+          "label": "persist output CSV",
+          "description": "Write the replenishment queue to the specified output CSV file",
+          "subgoal_kind": "deliver",
+          "required_capability_classes": [
+            "persist"
+          ],
+          "input_evidence_kinds": [
+            "replenishment_queue"
+          ],
+          "output_evidence_kinds": [
+            "output_csv"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        }
+      ],
+      "capability_matches": [
+        {
+          "subgoal_id": "sg_1",
+          "required_capability_classes": [
+            "ingest"
+          ],
+          "matched_capability_ids": [
+            "fetch_url",
+            "repository_source_resolve",
+            "repository_inventory",
+            "web_search"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_2",
+          "required_capability_classes": [
+            "transform",
+            "validate"
+          ],
+          "matched_capability_ids": [
+            "parse_json",
+            "source_structure_extract",
+            "repository_relationship_map",
+            "deduplicate_items",
+            "validate_schema",
+            "repository_execution_surface_inspect",
+            "terminal_command",
+            "architecture_report_quality_gate"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 8 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_3",
+          "required_capability_classes": [
+            "transform"
+          ],
+          "matched_capability_ids": [
+            "parse_json",
+            "source_structure_extract",
+            "repository_relationship_map",
+            "deduplicate_items"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_4",
+          "required_capability_classes": [
+            "transform"
+          ],
+          "matched_capability_ids": [
+            "parse_json",
+            "source_structure_extract",
+            "repository_relationship_map",
+            "deduplicate_items"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_5",
+          "required_capability_classes": [
+            "transform",
+            "rank"
+          ],
+          "matched_capability_ids": [
+            "parse_json",
+            "source_structure_extract",
+            "repository_relationship_map",
+            "deduplicate_items",
+            "rank_candidates"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 5 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_6",
+          "required_capability_classes": [
+            "persist"
+          ],
+          "matched_capability_ids": [
+            "filesystem_write",
+            "write_artifact",
+            "research_briefing_render",
+            "repository_evidence_bundle"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+        }
+      ],
+      "unsatisfied_requirements": [],
+      "unsafe_requirements": [],
+      "required_reviews": [],
+      "graph_feasibility": {
+        "candidate_shape": "dag",
+        "representable": true,
+        "runtime_supported": true,
+        "policy_supported": true,
+        "blocking_reasons": []
+      },
+      "llm_candidate_used": true,
+      "llm_candidate_repaired": false,
+      "reasoning_summary": "The task splits into two independent analysis branches (risk assessment and demand forecasting) after parsing, which then converge for replenishment decisions. The output is persisted as CSV."
+    },
+    "execution_admissibility": {
+      "admissibility_status": "supported",
+      "admissibility_scope": "current_system_level",
+      "build_admission_decision": "admit",
+      "primary_execution_regime": "workflow_build",
+      "max_automation_level": "full_workflow",
+      "expected_deliverable_class": "report",
+      "confidence": 95,
+      "requires_human_review": false,
+      "reason_codes": [],
+      "summary": "Front-chain fully closed with complete capability coverage — admissible for autonomous workflow execution.",
+      "artifactability": {
+        "level": "full",
+        "expected_types": [],
+        "constraints": []
+      },
+      "workflowability": {
+        "level": "full_workflow",
+        "regime_candidates": [],
+        "primary_regime": "workflow_build",
+        "blockers": [],
+        "required_checkpoints": []
+      },
+      "required_human_checkpoints": [],
+      "risk_class": "low",
+      "capability_gaps": [],
+      "environment_requirements": [],
+      "blocking_assumptions": [],
+      "recommended_next_stage": "compile_context_assembly"
+    },
+    "solvability_llm_trace": {
+      "call_count": 1,
+      "interpreter_version": "front_chain_solvability_orchestrator_v1",
+      "llm_mode": "real",
+      "provider_key": "openai-compatible",
+      "prompt_hash": "e06dfc7155297827",
+      "prompt_tokens": 1560,
+      "completion_tokens": 760,
+      "total_tokens": 2320,
+      "finish_reason": "stop",
+      "duration_ms": 9629
+    },
+    "evaluation_version": "front_chain_evaluation_v1",
+    "compile_context": {
+      "compile_context_version": "compile_context_v1",
+      "requirement_id": null,
+      "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
+      "selected_blueprint_type": null,
+      "graph_closure_status": null,
+      "selected_template_id": null,
+      "problem_formulation": {
+        "interpreted_problem_kind": "multi-source data analysis and decision optimization for spare parts replenishment",
+        "target_object": "local_workspace",
+        "problem_status": "solvable",
+        "current_system_fit": "in_scope",
+        "planning_intent": {
+          "intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+          "label": "spare_parts_replenishment_analysis",
+          "target_object": "local_workspace",
+          "deliverable_contract": null,
+          "objective_family": "analysis",
+          "preferred_graph_shape": "unknown",
+          "parallelism_hint": "unknown",
+          "acquisition_strategy": "unknown",
+          "evidence_strategy": "generic",
+          "side_effect_budget": "unknown",
+          "required_capability_themes": [],
+          "must_preserve_artifact_delivery": true,
+          "reasoning_summary": "The user has specified the task (risk assessment, forecasting, replenishment decision) and the data sources (master data, inventory, consumption, demand signals, supplier lead times). Input directory and output file are concrete. No blocking issues."
+        },
+        "required_decisions": [],
+        "recommended_assumptions": [],
+        "blocking_axes": [],
+        "review_axes": [],
+        "blocking_reasons": [],
+        "clarification_plan": [],
+        "reasoning_summary": "The user has specified the task (risk assessment, forecasting, replenishment decision) and the data sources (master data, inventory, consumption, demand signals, supplier lead times). Input directory and output file are concrete. No blocking issues.",
+        "intent_clarity": "clear",
+        "interpreted_goal": "Analyze spare parts master data, real-time inventory, historical consumption, market demand signals, and supplier lead times to assess inventory risk, forecast future demand, make replenishment decisions, and generate an executable replenishment queue.",
+        "clarification_question": null
+      },
+      "input_closure": {
+        "target_object": "local_workspace",
+        "planning_intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+        "candidate_sources": [
+          {
+            "candidate_id": "src_1",
+            "locator_kind": "path",
+            "locator_value": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/",
+            "content_kind": "dataset",
+            "access_boundary": "workspace",
+            "acquisition_kind": "direct_read",
+            "confidence": 0.95,
+            "evidence": [
+              "User explicitly provided input directory path"
+            ]
+          }
+        ],
+        "resolved_source_kind": "directory",
+        "resolved_source_locator": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/",
+        "resolved_source_modality": "files (likely CSV, Excel, or similar tabular formats)",
+        "acquisition_path_kind": "direct_read",
+        "closure_requirements": [],
+        "blocking_axes": [],
+        "review_axes": [],
+        "closure_status": "input_closed",
+        "applicability": "required",
+        "reasoning_summary": "The user specified a concrete input directory. The system will read files from that directory. No ambiguity."
+      },
+      "output_closure": {
+        "deliverable_form": "dataset",
+        "delivery_target": "/Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv",
+        "output_modality": "csv",
+        "closure_requirements": [],
+        "blocking_axes": [],
+        "review_axes": [],
+        "closure_status": "output_closed",
+        "reasoning_summary": "User provided a concrete absolute file path with .csv extension. Deliverable form is a dataset (CSV)."
+      },
+      "solvability": {
+        "problem_kind": "multi-source data analysis and decision optimization for spare parts replenishment",
+        "planning_intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+        "solvability_status": "solvable",
+        "required_subgoals": [
+          {
+            "subgoal_id": "sg_1",
+            "label": "ingest input files",
+            "description": "Read all raw data files from the input directory",
+            "subgoal_kind": "acquire",
+            "required_capability_classes": [
+              "ingest"
+            ],
+            "input_evidence_kinds": [
+              "directory_path"
+            ],
+            "output_evidence_kinds": [
+              "raw_files"
+            ],
+            "human_review_required": false,
+            "graph_role": "transform"
+          },
+          {
+            "subgoal_id": "sg_2",
+            "label": "parse and validate input data",
+            "description": "Parse each raw file into structured records and validate against expected schemas",
+            "subgoal_kind": "analyze",
+            "required_capability_classes": [
+              "transform",
+              "validate"
+            ],
+            "input_evidence_kinds": [
+              "raw_files"
+            ],
+            "output_evidence_kinds": [
+              "parsed_records"
+            ],
+            "human_review_required": false,
+            "graph_role": "transform"
+          },
+          {
+            "subgoal_id": "sg_3",
+            "label": "analyze inventory risk",
+            "description": "Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk",
+            "subgoal_kind": "analyze",
+            "required_capability_classes": [
+              "transform"
+            ],
+            "input_evidence_kinds": [
+              "parsed_records"
+            ],
+            "output_evidence_kinds": [
+              "risk_assessment"
+            ],
+            "human_review_required": false,
+            "graph_role": "transform"
+          },
+          {
+            "subgoal_id": "sg_4",
+            "label": "forecast future demand",
+            "description": "Forecast future demand using historical consumption and market demand signals",
+            "subgoal_kind": "analyze",
+            "required_capability_classes": [
+              "transform"
+            ],
+            "input_evidence_kinds": [
+              "parsed_records"
+            ],
+            "output_evidence_kinds": [
+              "demand_forecast"
+            ],
+            "human_review_required": false,
+            "graph_role": "transform"
+          },
+          {
+            "subgoal_id": "sg_5",
+            "label": "generate replenishment decisions",
+            "description": "Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue",
+            "subgoal_kind": "synthesize",
+            "required_capability_classes": [
+              "transform",
+              "rank"
+            ],
+            "input_evidence_kinds": [
+              "risk_assessment",
+              "demand_forecast"
+            ],
+            "output_evidence_kinds": [
+              "replenishment_queue"
+            ],
+            "human_review_required": false,
+            "graph_role": "transform"
+          },
+          {
+            "subgoal_id": "sg_6",
+            "label": "persist output CSV",
+            "description": "Write the replenishment queue to the specified output CSV file",
+            "subgoal_kind": "deliver",
+            "required_capability_classes": [
+              "persist"
+            ],
+            "input_evidence_kinds": [
+              "replenishment_queue"
+            ],
+            "output_evidence_kinds": [
+              "output_csv"
+            ],
+            "human_review_required": false,
+            "graph_role": "transform"
+          }
+        ],
+        "capability_matches": [
+          {
+            "subgoal_id": "sg_1",
+            "required_capability_classes": [
+              "ingest"
+            ],
+            "matched_capability_ids": [
+              "fetch_url",
+              "repository_source_resolve",
+              "repository_inventory",
+              "web_search"
+            ],
+            "match_status": "matched",
+            "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+          },
+          {
+            "subgoal_id": "sg_2",
+            "required_capability_classes": [
+              "transform",
+              "validate"
+            ],
+            "matched_capability_ids": [
+              "parse_json",
+              "source_structure_extract",
+              "repository_relationship_map",
+              "deduplicate_items",
+              "validate_schema",
+              "repository_execution_surface_inspect",
+              "terminal_command",
+              "architecture_report_quality_gate"
+            ],
+            "match_status": "matched",
+            "reasoning": "Deterministic prefilter selected 8 candidate(s)."
+          },
+          {
+            "subgoal_id": "sg_3",
+            "required_capability_classes": [
+              "transform"
+            ],
+            "matched_capability_ids": [
+              "parse_json",
+              "source_structure_extract",
+              "repository_relationship_map",
+              "deduplicate_items"
+            ],
+            "match_status": "matched",
+            "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+          },
+          {
+            "subgoal_id": "sg_4",
+            "required_capability_classes": [
+              "transform"
+            ],
+            "matched_capability_ids": [
+              "parse_json",
+              "source_structure_extract",
+              "repository_relationship_map",
+              "deduplicate_items"
+            ],
+            "match_status": "matched",
+            "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+          },
+          {
+            "subgoal_id": "sg_5",
+            "required_capability_classes": [
+              "transform",
+              "rank"
+            ],
+            "matched_capability_ids": [
+              "parse_json",
+              "source_structure_extract",
+              "repository_relationship_map",
+              "deduplicate_items",
+              "rank_candidates"
+            ],
+            "match_status": "matched",
+            "reasoning": "Deterministic prefilter selected 5 candidate(s)."
+          },
+          {
+            "subgoal_id": "sg_6",
+            "required_capability_classes": [
+              "persist"
+            ],
+            "matched_capability_ids": [
+              "filesystem_write",
+              "write_artifact",
+              "research_briefing_render",
+              "repository_evidence_bundle"
+            ],
+            "match_status": "matched",
+            "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+          }
+        ],
+        "unsatisfied_requirements": [],
+        "unsafe_requirements": [],
+        "required_reviews": [],
+        "graph_feasibility": {
+          "candidate_shape": "dag",
+          "representable": true,
+          "runtime_supported": true,
+          "policy_supported": true,
+          "blocking_reasons": []
+        },
+        "llm_candidate_used": true,
+        "llm_candidate_repaired": false,
+        "reasoning_summary": "The task splits into two independent analysis branches (risk assessment and demand forecasting) after parsing, which then converge for replenishment decisions. The output is persisted as CSV."
+      },
+      "execution_admissibility": {
+        "admissibility_status": "supported",
+        "admissibility_scope": "current_system_level",
+        "build_admission_decision": "admit",
+        "primary_execution_regime": "workflow_build",
+        "max_automation_level": "full_workflow",
+        "expected_deliverable_class": "report",
+        "confidence": 95,
+        "requires_human_review": false,
+        "reason_codes": [],
+        "summary": "Front-chain fully closed with complete capability coverage — admissible for autonomous workflow execution.",
+        "artifactability": {
+          "level": "full",
+          "expected_types": [],
+          "constraints": []
+        },
+        "workflowability": {
+          "level": "full_workflow",
+          "regime_candidates": [],
+          "primary_regime": "workflow_build",
+          "blockers": [],
+          "required_checkpoints": []
+        },
+        "required_human_checkpoints": [],
+        "risk_class": "low",
+        "capability_gaps": [],
+        "environment_requirements": [],
+        "blocking_assumptions": [],
+        "recommended_next_stage": "compile_context_assembly"
+      },
+      "capability_envelope": {
+        "capability_signatures": [
+          {
+            "capability_id": "fetch_url",
+            "logical_step_kinds": [
+              "ingest"
+            ],
+            "accepted_input_kinds": [
+              "directory_path"
+            ],
+            "produced_output_kinds": [
+              "raw_files"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "repository_source_resolve",
+            "logical_step_kinds": [
+              "ingest"
+            ],
+            "accepted_input_kinds": [
+              "directory_path"
+            ],
+            "produced_output_kinds": [
+              "raw_files"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "repository_inventory",
+            "logical_step_kinds": [
+              "ingest"
+            ],
+            "accepted_input_kinds": [
+              "directory_path"
+            ],
+            "produced_output_kinds": [
+              "raw_files"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "web_search",
+            "logical_step_kinds": [
+              "ingest"
+            ],
+            "accepted_input_kinds": [
+              "directory_path"
+            ],
+            "produced_output_kinds": [
+              "raw_files"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "parse_json",
+            "logical_step_kinds": [
+              "transform",
+              "validate"
+            ],
+            "accepted_input_kinds": [
+              "raw_files"
+            ],
+            "produced_output_kinds": [
+              "parsed_records"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "source_structure_extract",
+            "logical_step_kinds": [
+              "transform",
+              "validate"
+            ],
+            "accepted_input_kinds": [
+              "raw_files"
+            ],
+            "produced_output_kinds": [
+              "parsed_records"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "repository_relationship_map",
+            "logical_step_kinds": [
+              "transform",
+              "validate"
+            ],
+            "accepted_input_kinds": [
+              "raw_files"
+            ],
+            "produced_output_kinds": [
+              "parsed_records"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "deduplicate_items",
+            "logical_step_kinds": [
+              "transform",
+              "validate"
+            ],
+            "accepted_input_kinds": [
+              "raw_files"
+            ],
+            "produced_output_kinds": [
+              "parsed_records"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "validate_schema",
+            "logical_step_kinds": [
+              "transform",
+              "validate"
+            ],
+            "accepted_input_kinds": [
+              "raw_files"
+            ],
+            "produced_output_kinds": [
+              "parsed_records"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "repository_execution_surface_inspect",
+            "logical_step_kinds": [
+              "transform",
+              "validate"
+            ],
+            "accepted_input_kinds": [
+              "raw_files"
+            ],
+            "produced_output_kinds": [
+              "parsed_records"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "terminal_command",
+            "logical_step_kinds": [
+              "transform",
+              "validate"
+            ],
+            "accepted_input_kinds": [
+              "raw_files"
+            ],
+            "produced_output_kinds": [
+              "parsed_records"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "architecture_report_quality_gate",
+            "logical_step_kinds": [
+              "transform",
+              "validate"
+            ],
+            "accepted_input_kinds": [
+              "raw_files"
+            ],
+            "produced_output_kinds": [
+              "parsed_records"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "rank_candidates",
+            "logical_step_kinds": [
+              "transform",
+              "rank"
+            ],
+            "accepted_input_kinds": [
+              "risk_assessment",
+              "demand_forecast"
+            ],
+            "produced_output_kinds": [
+              "replenishment_queue"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "filesystem_write",
+            "logical_step_kinds": [
+              "persist"
+            ],
+            "accepted_input_kinds": [
+              "replenishment_queue"
+            ],
+            "produced_output_kinds": [
+              "output_csv"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "write_artifact",
+            "logical_step_kinds": [
+              "persist"
+            ],
+            "accepted_input_kinds": [
+              "replenishment_queue"
+            ],
+            "produced_output_kinds": [
+              "output_csv"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "research_briefing_render",
+            "logical_step_kinds": [
+              "persist"
+            ],
+            "accepted_input_kinds": [
+              "replenishment_queue"
+            ],
+            "produced_output_kinds": [
+              "output_csv"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          },
+          {
+            "capability_id": "repository_evidence_bundle",
+            "logical_step_kinds": [
+              "persist"
+            ],
+            "accepted_input_kinds": [
+              "replenishment_queue"
+            ],
+            "produced_output_kinds": [
+              "output_csv"
+            ],
+            "preconditions": [],
+            "side_effect_class": "none",
+            "access_boundary": "unknown",
+            "evidence_emission": [],
+            "retryability": "safe",
+            "human_gate_requirement": "none",
+            "graph_support": [
+              "linear",
+              "dag"
+            ],
+            "runtime_adapter_kind": "unknown"
+          }
+        ]
+      },
+      "compile_constraints": {
+        "allowed_node_semantic_types": [
+          "acquire",
+          "transform",
+          "act",
+          "verify",
+          "human_gate"
+        ],
+        "forbidden_side_effect_classes": [],
+        "require_human_gate_before": [],
+        "require_verification_after": [],
+        "compile_notes": []
+      },
+      "candidate_work_units": [
+        {
+          "work_unit_id": "hint_1",
+          "label": "ingest input files",
+          "objective": "Read all raw data files from the input directory",
+          "concern_kind": "acquire",
+          "concern_tags": [
+            "transform",
+            "directory_path",
+            "raw_files"
+          ],
+          "required_capability_themes": [
+            "ingest"
+          ],
+          "supporting_subgoal_ids": [
+            "sg_1"
+          ],
+          "parallelism_hint": null,
+          "human_gate_hint": null
+        },
+        {
+          "work_unit_id": "hint_2",
+          "label": "parse and validate input data",
+          "objective": "Parse each raw file into structured records and validate against expected schemas",
+          "concern_kind": "analyze",
+          "concern_tags": [
+            "transform",
+            "raw_files",
+            "parsed_records"
+          ],
+          "required_capability_themes": [
+            "transform",
+            "validate"
+          ],
+          "supporting_subgoal_ids": [
+            "sg_2"
+          ],
+          "parallelism_hint": null,
+          "human_gate_hint": null
+        },
+        {
+          "work_unit_id": "hint_3",
+          "label": "analyze inventory risk",
+          "objective": "Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk",
+          "concern_kind": "analyze",
+          "concern_tags": [
+            "transform",
+            "parsed_records",
+            "risk_assessment"
+          ],
+          "required_capability_themes": [
+            "transform"
+          ],
+          "supporting_subgoal_ids": [
+            "sg_3"
+          ],
+          "parallelism_hint": null,
+          "human_gate_hint": null
+        },
+        {
+          "work_unit_id": "hint_4",
+          "label": "forecast future demand",
+          "objective": "Forecast future demand using historical consumption and market demand signals",
+          "concern_kind": "analyze",
+          "concern_tags": [
+            "transform",
+            "parsed_records",
+            "demand_forecast"
+          ],
+          "required_capability_themes": [
+            "transform"
+          ],
+          "supporting_subgoal_ids": [
+            "sg_4"
+          ],
+          "parallelism_hint": null,
+          "human_gate_hint": null
+        },
+        {
+          "work_unit_id": "hint_5",
+          "label": "generate replenishment decisions",
+          "objective": "Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue",
+          "concern_kind": "synthesize",
+          "concern_tags": [
+            "transform",
+            "risk_assessment",
+            "demand_forecast",
+            "replenishment_queue"
+          ],
+          "required_capability_themes": [
+            "transform",
+            "rank"
+          ],
+          "supporting_subgoal_ids": [
+            "sg_5"
+          ],
+          "parallelism_hint": null,
+          "human_gate_hint": null
+        },
+        {
+          "work_unit_id": "hint_6",
+          "label": "persist output CSV",
+          "objective": "Write the replenishment queue to the specified output CSV file",
+          "concern_kind": "deliver",
+          "concern_tags": [
+            "transform",
+            "replenishment_queue",
+            "output_csv"
+          ],
+          "required_capability_themes": [
+            "persist"
+          ],
+          "supporting_subgoal_ids": [
+            "sg_6"
+          ],
+          "parallelism_hint": null,
+          "human_gate_hint": null
+        }
+      ],
+      "compile_trace": {
+        "authority_source": "front_chain_v2",
+        "assembler_version": "compile_context_assembler_v1",
+        "state_id": "c0fa8c48-90c2-4a81-bbcc-16ecb925a532"
+      }
+    },
+    "compile_version": "front_chain_compile_v1",
+    "created_at": "2026-04-24T12:54:28.242757Z",
+    "updated_at": "2026-04-24T12:54:28.242757Z"
+  },
+  "compile_context": {
+    "compile_context_version": "compile_context_v1",
+    "requirement_id": null,
+    "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
+    "selected_blueprint_type": null,
+    "graph_closure_status": null,
+    "selected_template_id": null,
+    "problem_formulation": {
+      "interpreted_problem_kind": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "target_object": "local_workspace",
+      "problem_status": "solvable",
+      "current_system_fit": "in_scope",
+      "planning_intent": {
+        "intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+        "label": "spare_parts_replenishment_analysis",
+        "target_object": "local_workspace",
+        "deliverable_contract": null,
+        "objective_family": "analysis",
+        "preferred_graph_shape": "unknown",
+        "parallelism_hint": "unknown",
+        "acquisition_strategy": "unknown",
+        "evidence_strategy": "generic",
+        "side_effect_budget": "unknown",
+        "required_capability_themes": [],
+        "must_preserve_artifact_delivery": true,
+        "reasoning_summary": "The user has specified the task (risk assessment, forecasting, replenishment decision) and the data sources (master data, inventory, consumption, demand signals, supplier lead times). Input directory and output file are concrete. No blocking issues."
+      },
+      "required_decisions": [],
+      "recommended_assumptions": [],
+      "blocking_axes": [],
+      "review_axes": [],
+      "blocking_reasons": [],
+      "clarification_plan": [],
+      "reasoning_summary": "The user has specified the task (risk assessment, forecasting, replenishment decision) and the data sources (master data, inventory, consumption, demand signals, supplier lead times). Input directory and output file are concrete. No blocking issues.",
+      "intent_clarity": "clear",
+      "interpreted_goal": "Analyze spare parts master data, real-time inventory, historical consumption, market demand signals, and supplier lead times to assess inventory risk, forecast future demand, make replenishment decisions, and generate an executable replenishment queue.",
+      "clarification_question": null
+    },
+    "input_closure": {
+      "target_object": "local_workspace",
+      "planning_intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "candidate_sources": [
+        {
+          "candidate_id": "src_1",
+          "locator_kind": "path",
+          "locator_value": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/",
+          "content_kind": "dataset",
+          "access_boundary": "workspace",
+          "acquisition_kind": "direct_read",
+          "confidence": 0.95,
+          "evidence": [
+            "User explicitly provided input directory path"
+          ]
+        }
+      ],
+      "resolved_source_kind": "directory",
+      "resolved_source_locator": "/Users/llk/agentsFactory/scenario_data/spare_parts/input/",
+      "resolved_source_modality": "files (likely CSV, Excel, or similar tabular formats)",
+      "acquisition_path_kind": "direct_read",
+      "closure_requirements": [],
+      "blocking_axes": [],
+      "review_axes": [],
+      "closure_status": "input_closed",
+      "applicability": "required",
+      "reasoning_summary": "The user specified a concrete input directory. The system will read files from that directory. No ambiguity."
+    },
+    "output_closure": {
+      "deliverable_form": "dataset",
+      "delivery_target": "/Users/llk/agentsFactory/scenario_data/spare_parts/output/replenishment_queue.csv",
+      "output_modality": "csv",
+      "closure_requirements": [],
+      "blocking_axes": [],
+      "review_axes": [],
+      "closure_status": "output_closed",
+      "reasoning_summary": "User provided a concrete absolute file path with .csv extension. Deliverable form is a dataset (CSV)."
+    },
+    "solvability": {
+      "problem_kind": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "planning_intent_id": "multi-source data analysis and decision optimization for spare parts replenishment",
+      "solvability_status": "solvable",
+      "required_subgoals": [
+        {
+          "subgoal_id": "sg_1",
+          "label": "ingest input files",
+          "description": "Read all raw data files from the input directory",
+          "subgoal_kind": "acquire",
+          "required_capability_classes": [
+            "ingest"
+          ],
+          "input_evidence_kinds": [
+            "directory_path"
+          ],
+          "output_evidence_kinds": [
+            "raw_files"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_2",
+          "label": "parse and validate input data",
+          "description": "Parse each raw file into structured records and validate against expected schemas",
+          "subgoal_kind": "analyze",
+          "required_capability_classes": [
+            "transform",
+            "validate"
+          ],
+          "input_evidence_kinds": [
+            "raw_files"
+          ],
+          "output_evidence_kinds": [
+            "parsed_records"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_3",
+          "label": "analyze inventory risk",
+          "description": "Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk",
+          "subgoal_kind": "analyze",
+          "required_capability_classes": [
+            "transform"
+          ],
+          "input_evidence_kinds": [
+            "parsed_records"
+          ],
+          "output_evidence_kinds": [
+            "risk_assessment"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_4",
+          "label": "forecast future demand",
+          "description": "Forecast future demand using historical consumption and market demand signals",
+          "subgoal_kind": "analyze",
+          "required_capability_classes": [
+            "transform"
+          ],
+          "input_evidence_kinds": [
+            "parsed_records"
+          ],
+          "output_evidence_kinds": [
+            "demand_forecast"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_5",
+          "label": "generate replenishment decisions",
+          "description": "Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue",
+          "subgoal_kind": "synthesize",
+          "required_capability_classes": [
+            "transform",
+            "rank"
+          ],
+          "input_evidence_kinds": [
+            "risk_assessment",
+            "demand_forecast"
+          ],
+          "output_evidence_kinds": [
+            "replenishment_queue"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        },
+        {
+          "subgoal_id": "sg_6",
+          "label": "persist output CSV",
+          "description": "Write the replenishment queue to the specified output CSV file",
+          "subgoal_kind": "deliver",
+          "required_capability_classes": [
+            "persist"
+          ],
+          "input_evidence_kinds": [
+            "replenishment_queue"
+          ],
+          "output_evidence_kinds": [
+            "output_csv"
+          ],
+          "human_review_required": false,
+          "graph_role": "transform"
+        }
+      ],
+      "capability_matches": [
+        {
+          "subgoal_id": "sg_1",
+          "required_capability_classes": [
+            "ingest"
+          ],
+          "matched_capability_ids": [
+            "fetch_url",
+            "repository_source_resolve",
+            "repository_inventory",
+            "web_search"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_2",
+          "required_capability_classes": [
+            "transform",
+            "validate"
+          ],
+          "matched_capability_ids": [
+            "parse_json",
+            "source_structure_extract",
+            "repository_relationship_map",
+            "deduplicate_items",
+            "validate_schema",
+            "repository_execution_surface_inspect",
+            "terminal_command",
+            "architecture_report_quality_gate"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 8 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_3",
+          "required_capability_classes": [
+            "transform"
+          ],
+          "matched_capability_ids": [
+            "parse_json",
+            "source_structure_extract",
+            "repository_relationship_map",
+            "deduplicate_items"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_4",
+          "required_capability_classes": [
+            "transform"
+          ],
+          "matched_capability_ids": [
+            "parse_json",
+            "source_structure_extract",
+            "repository_relationship_map",
+            "deduplicate_items"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_5",
+          "required_capability_classes": [
+            "transform",
+            "rank"
+          ],
+          "matched_capability_ids": [
+            "parse_json",
+            "source_structure_extract",
+            "repository_relationship_map",
+            "deduplicate_items",
+            "rank_candidates"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 5 candidate(s)."
+        },
+        {
+          "subgoal_id": "sg_6",
+          "required_capability_classes": [
+            "persist"
+          ],
+          "matched_capability_ids": [
+            "filesystem_write",
+            "write_artifact",
+            "research_briefing_render",
+            "repository_evidence_bundle"
+          ],
+          "match_status": "matched",
+          "reasoning": "Deterministic prefilter selected 4 candidate(s)."
+        }
+      ],
+      "unsatisfied_requirements": [],
+      "unsafe_requirements": [],
+      "required_reviews": [],
+      "graph_feasibility": {
+        "candidate_shape": "dag",
+        "representable": true,
+        "runtime_supported": true,
+        "policy_supported": true,
+        "blocking_reasons": []
+      },
+      "llm_candidate_used": true,
+      "llm_candidate_repaired": false,
+      "reasoning_summary": "The task splits into two independent analysis branches (risk assessment and demand forecasting) after parsing, which then converge for replenishment decisions. The output is persisted as CSV."
+    },
+    "execution_admissibility": {
+      "admissibility_status": "supported",
+      "admissibility_scope": "current_system_level",
+      "build_admission_decision": "admit",
+      "primary_execution_regime": "workflow_build",
+      "max_automation_level": "full_workflow",
+      "expected_deliverable_class": "report",
+      "confidence": 95,
+      "requires_human_review": false,
+      "reason_codes": [],
+      "summary": "Front-chain fully closed with complete capability coverage — admissible for autonomous workflow execution.",
+      "artifactability": {
+        "level": "full",
+        "expected_types": [],
+        "constraints": []
+      },
+      "workflowability": {
+        "level": "full_workflow",
+        "regime_candidates": [],
+        "primary_regime": "workflow_build",
+        "blockers": [],
+        "required_checkpoints": []
+      },
+      "required_human_checkpoints": [],
+      "risk_class": "low",
+      "capability_gaps": [],
+      "environment_requirements": [],
+      "blocking_assumptions": [],
+      "recommended_next_stage": "compile_context_assembly"
+    },
+    "capability_envelope": {
+      "capability_signatures": [
+        {
+          "capability_id": "fetch_url",
+          "logical_step_kinds": [
+            "ingest"
+          ],
+          "accepted_input_kinds": [
+            "directory_path"
+          ],
+          "produced_output_kinds": [
+            "raw_files"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "repository_source_resolve",
+          "logical_step_kinds": [
+            "ingest"
+          ],
+          "accepted_input_kinds": [
+            "directory_path"
+          ],
+          "produced_output_kinds": [
+            "raw_files"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "repository_inventory",
+          "logical_step_kinds": [
+            "ingest"
+          ],
+          "accepted_input_kinds": [
+            "directory_path"
+          ],
+          "produced_output_kinds": [
+            "raw_files"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "web_search",
+          "logical_step_kinds": [
+            "ingest"
+          ],
+          "accepted_input_kinds": [
+            "directory_path"
+          ],
+          "produced_output_kinds": [
+            "raw_files"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "parse_json",
+          "logical_step_kinds": [
+            "transform",
+            "validate"
+          ],
+          "accepted_input_kinds": [
+            "raw_files"
+          ],
+          "produced_output_kinds": [
+            "parsed_records"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "source_structure_extract",
+          "logical_step_kinds": [
+            "transform",
+            "validate"
+          ],
+          "accepted_input_kinds": [
+            "raw_files"
+          ],
+          "produced_output_kinds": [
+            "parsed_records"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "repository_relationship_map",
+          "logical_step_kinds": [
+            "transform",
+            "validate"
+          ],
+          "accepted_input_kinds": [
+            "raw_files"
+          ],
+          "produced_output_kinds": [
+            "parsed_records"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "deduplicate_items",
+          "logical_step_kinds": [
+            "transform",
+            "validate"
+          ],
+          "accepted_input_kinds": [
+            "raw_files"
+          ],
+          "produced_output_kinds": [
+            "parsed_records"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "validate_schema",
+          "logical_step_kinds": [
+            "transform",
+            "validate"
+          ],
+          "accepted_input_kinds": [
+            "raw_files"
+          ],
+          "produced_output_kinds": [
+            "parsed_records"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "repository_execution_surface_inspect",
+          "logical_step_kinds": [
+            "transform",
+            "validate"
+          ],
+          "accepted_input_kinds": [
+            "raw_files"
+          ],
+          "produced_output_kinds": [
+            "parsed_records"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "terminal_command",
+          "logical_step_kinds": [
+            "transform",
+            "validate"
+          ],
+          "accepted_input_kinds": [
+            "raw_files"
+          ],
+          "produced_output_kinds": [
+            "parsed_records"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "architecture_report_quality_gate",
+          "logical_step_kinds": [
+            "transform",
+            "validate"
+          ],
+          "accepted_input_kinds": [
+            "raw_files"
+          ],
+          "produced_output_kinds": [
+            "parsed_records"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "rank_candidates",
+          "logical_step_kinds": [
+            "transform",
+            "rank"
+          ],
+          "accepted_input_kinds": [
+            "risk_assessment",
+            "demand_forecast"
+          ],
+          "produced_output_kinds": [
+            "replenishment_queue"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "filesystem_write",
+          "logical_step_kinds": [
+            "persist"
+          ],
+          "accepted_input_kinds": [
+            "replenishment_queue"
+          ],
+          "produced_output_kinds": [
+            "output_csv"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "write_artifact",
+          "logical_step_kinds": [
+            "persist"
+          ],
+          "accepted_input_kinds": [
+            "replenishment_queue"
+          ],
+          "produced_output_kinds": [
+            "output_csv"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "research_briefing_render",
+          "logical_step_kinds": [
+            "persist"
+          ],
+          "accepted_input_kinds": [
+            "replenishment_queue"
+          ],
+          "produced_output_kinds": [
+            "output_csv"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        },
+        {
+          "capability_id": "repository_evidence_bundle",
+          "logical_step_kinds": [
+            "persist"
+          ],
+          "accepted_input_kinds": [
+            "replenishment_queue"
+          ],
+          "produced_output_kinds": [
+            "output_csv"
+          ],
+          "preconditions": [],
+          "side_effect_class": "none",
+          "access_boundary": "unknown",
+          "evidence_emission": [],
+          "retryability": "safe",
+          "human_gate_requirement": "none",
+          "graph_support": [
+            "linear",
+            "dag"
+          ],
+          "runtime_adapter_kind": "unknown"
+        }
+      ]
+    },
+    "compile_constraints": {
+      "allowed_node_semantic_types": [
+        "acquire",
+        "transform",
+        "act",
+        "verify",
+        "human_gate"
+      ],
+      "forbidden_side_effect_classes": [],
+      "require_human_gate_before": [],
+      "require_verification_after": [],
+      "compile_notes": []
+    },
+    "candidate_work_units": [
+      {
+        "work_unit_id": "hint_1",
+        "label": "ingest input files",
+        "objective": "Read all raw data files from the input directory",
+        "concern_kind": "acquire",
+        "concern_tags": [
+          "transform",
+          "directory_path",
+          "raw_files"
+        ],
+        "required_capability_themes": [
+          "ingest"
+        ],
+        "supporting_subgoal_ids": [
+          "sg_1"
+        ],
+        "parallelism_hint": null,
+        "human_gate_hint": null
+      },
+      {
+        "work_unit_id": "hint_2",
+        "label": "parse and validate input data",
+        "objective": "Parse each raw file into structured records and validate against expected schemas",
+        "concern_kind": "analyze",
+        "concern_tags": [
+          "transform",
+          "raw_files",
+          "parsed_records"
+        ],
+        "required_capability_themes": [
+          "transform",
+          "validate"
+        ],
+        "supporting_subgoal_ids": [
+          "sg_2"
+        ],
+        "parallelism_hint": null,
+        "human_gate_hint": null
+      },
+      {
+        "work_unit_id": "hint_3",
+        "label": "analyze inventory risk",
+        "objective": "Analyze master data, inventory, consumption, demand signals, and lead times to assess inventory risk",
+        "concern_kind": "analyze",
+        "concern_tags": [
+          "transform",
+          "parsed_records",
+          "risk_assessment"
+        ],
+        "required_capability_themes": [
+          "transform"
+        ],
+        "supporting_subgoal_ids": [
+          "sg_3"
+        ],
+        "parallelism_hint": null,
+        "human_gate_hint": null
+      },
+      {
+        "work_unit_id": "hint_4",
+        "label": "forecast future demand",
+        "objective": "Forecast future demand using historical consumption and market demand signals",
+        "concern_kind": "analyze",
+        "concern_tags": [
+          "transform",
+          "parsed_records",
+          "demand_forecast"
+        ],
+        "required_capability_themes": [
+          "transform"
+        ],
+        "supporting_subgoal_ids": [
+          "sg_4"
+        ],
+        "parallelism_hint": null,
+        "human_gate_hint": null
+      },
+      {
+        "work_unit_id": "hint_5",
+        "label": "generate replenishment decisions",
+        "objective": "Combine risk assessment and demand forecast to make replenishment decisions and produce a ranked queue",
+        "concern_kind": "synthesize",
+        "concern_tags": [
+          "transform",
+          "risk_assessment",
+          "demand_forecast",
+          "replenishment_queue"
+        ],
+        "required_capability_themes": [
+          "transform",
+          "rank"
+        ],
+        "supporting_subgoal_ids": [
+          "sg_5"
+        ],
+        "parallelism_hint": null,
+        "human_gate_hint": null
+      },
+      {
+        "work_unit_id": "hint_6",
+        "label": "persist output CSV",
+        "objective": "Write the replenishment queue to the specified output CSV file",
+        "concern_kind": "deliver",
+        "concern_tags": [
+          "transform",
+          "replenishment_queue",
+          "output_csv"
+        ],
+        "required_capability_themes": [
+          "persist"
+        ],
+        "supporting_subgoal_ids": [
+          "sg_6"
+        ],
+        "parallelism_hint": null,
+        "human_gate_hint": null
+      }
+    ],
+    "compile_trace": {
+      "authority_source": "front_chain_v2",
+      "assembler_version": "compile_context_assembler_v1",
+      "state_id": "c0fa8c48-90c2-4a81-bbcc-16ecb925a532"
+    }
+  }
+}
