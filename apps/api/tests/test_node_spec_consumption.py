@@ -288,7 +288,10 @@ def test_n1_apply_spec_stamps_prompts_and_expected_outputs():
     expected = md[META_EXPECTED_OUTPUTS]
     assert expected[0]["name"] == "risk_table"
     assert expected[0]["locator"] == "/tmp/out.csv"
-    assert expected[0]["schema_hint"] == ["sku_id", "risk_level"]
+    # schema_hint is serialized as a comma-joined string for the
+    # downstream coding_agent ExpectedOutput contract (which requires
+    # str, not list).
+    assert expected[0]["schema_hint"] == "sku_id, risk_level"
 
 
 def test_n2_apply_spec_sets_agentic_when_runtime_class_is_agentic():

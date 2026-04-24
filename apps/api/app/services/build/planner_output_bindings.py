@@ -933,8 +933,90 @@ def bindings_from_planner_output(
     return steps, bindings
 
 
+def compute_session_anchored_locator_map(
+    *,
+    planner_output: WorkflowPlannerOutput,
+    compile_context: CompileContextResponse | None,
+    skipped_node_ids: list[str],
+) -> dict[str, dict[str, Optional[str]]]:
+    """Pre-compute the chained input/output locators each coding_agent
+    node will receive when bindings_from_planner_output runs.
+
+    Returned map: ``{node_id: {"input_locator": ..., "output_locator": ...}}``.
+
+    The build orchestration layer uses this to override
+    ``spec.output_contract.primary_output.locator_hint`` BEFORE the
+    enricher composes the task_prompt — so the prompt tells the
+    coding_agent the exact path the binding will later hand to the
+    runtime, avoiding the spec-vs-binding locator conflict that
+    otherwise causes step N+1 to fail with "intermediate file
+    not found".
+
+    Mirrors the algorithm inside ``bindings_from_planner_output``;
+    refactored to a standalone function so build can read the same
+    chain plumbing without re-emitting full bindings.
+    """
+    workspace = _derive_shared_workspace(compile_context)
+    output_locator = _derive_output_locator(compile_context)
+    source_locator = (
+        compile_context.input_closure.resolved_source_locator
+        if compile_context is not None
+        else None
+    )
+    skipped = set(skipped_node_ids)
+
+    scheduled_nodes = [
+        node
+        for node in planner_output.node_drafts
+        if node.draft_node_id not in skipped
+        and _selected_capability_id(node) not in _AUTO_INSERTED_SKIPPABLE_IDS
+    ]
+    coding_agent_node_ids = [
+        node.draft_node_id
+        for node in scheduled_nodes
+        if _selected_capability_id(node) == CODING_AGENT_CAPABILITY_ID
+    ]
+    coding_agent_order = {
+        node_id: index for index, node_id in enumerate(coding_agent_node_ids)
+    }
+
+    locator_map: dict[str, dict[str, Optional[str]]] = {}
+    for node in scheduled_nodes:
+        cap = _selected_capability_id(node)
+        if cap != CODING_AGENT_CAPABILITY_ID:
+            continue
+        idx = coding_agent_order[node.draft_node_id]
+        is_first = idx == 0
+        is_last = idx == len(coding_agent_node_ids) - 1
+
+        if is_first and source_locator and workspace:
+            ca_input = source_locator
+        elif not is_first and workspace:
+            ca_input = _intermediate_path(workspace=workspace, step_index=idx - 1)
+        else:
+            ca_input = None
+
+        remaining_writes = any(
+            _selected_capability_id(n) == FILESYSTEM_WRITE_CAPABILITY_ID
+            for n in scheduled_nodes[scheduled_nodes.index(node) + 1 :]
+        )
+        if is_last and not remaining_writes and output_locator:
+            ca_output = output_locator
+        elif workspace:
+            ca_output = _intermediate_path(workspace=workspace, step_index=idx)
+        else:
+            ca_output = None
+
+        locator_map[node.draft_node_id] = {
+            "input_locator": ca_input,
+            "output_locator": ca_output,
+        }
+    return locator_map
+
+
 __all__ = [
     "CODING_AGENT_CAPABILITY_ID",
     "build_step_dict",
     "bindings_from_planner_output",
+    "compute_session_anchored_locator_map",
 ]

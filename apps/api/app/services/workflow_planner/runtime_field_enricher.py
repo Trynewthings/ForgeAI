@@ -216,7 +216,15 @@ def apply_spec_to_node(
 
     node.planner_metadata[META_SYSTEM_PROMPT] = _compose_system_prompt(spec)
     node.planner_metadata[META_TASK_PROMPT] = _compose_task_prompt(spec)
-    node.planner_metadata[META_EXPECTED_OUTPUTS] = _compose_expected_outputs(spec)
+    # Only emit META_EXPECTED_OUTPUTS when the spec actually gives a
+    # locator. The downstream resolver REQUIRES every expected_outputs
+    # entry to have ``locator``; for in-memory chain steps (transform /
+    # analyze with no declared locator), the session-anchored binding
+    # already computes a chained intermediate path and stores it in
+    # config_hints — letting that win is the right call.
+    expected = _compose_expected_outputs(spec)
+    if expected:
+        node.planner_metadata[META_EXPECTED_OUTPUTS] = expected
     node.planner_metadata[META_SPEC_DRIVEN] = True
     return node
 
@@ -369,23 +377,43 @@ def _compose_task_prompt(spec: NodeExecutionSpec) -> str:
 
 
 def _compose_expected_outputs(spec: NodeExecutionSpec) -> list:
+    """Translate spec output_contract into the runtime's
+    ``ExpectedOutput`` shape.
+
+    The downstream consumer (``app.schemas.coding_agent.ExpectedOutput``)
+    expects ``schema_hint`` to be a single STRING — not a list. We
+    serialize the spec's list-of-fields into a comma-joined string so
+    the TaskContract validation passes and the prompt still gets the
+    field names.
+    """
+    def _join_schema(fields):
+        if not fields:
+            return None
+        return ", ".join(str(f) for f in fields if f)
+
     primary = spec.output_contract.primary_output
     entries = []
-    primary_entry: dict = {
-        "name": primary.name,
-        "kind": primary.kind,
-    }
     if primary.locator_hint:
-        primary_entry["locator"] = primary.locator_hint
-    if primary.schema_hint:
-        primary_entry["schema_hint"] = list(primary.schema_hint)
-    entries.append(primary_entry)
+        primary_entry: dict = {
+            "name": primary.name,
+            "kind": primary.kind,
+            "locator": primary.locator_hint,
+        }
+        primary_schema = _join_schema(primary.schema_hint)
+        if primary_schema:
+            primary_entry["schema_hint"] = primary_schema
+        entries.append(primary_entry)
     for sec in spec.output_contract.secondary_outputs:
-        entry: dict = {"name": sec.name, "kind": sec.kind}
-        if sec.locator_hint:
-            entry["locator"] = sec.locator_hint
-        if sec.schema_hint:
-            entry["schema_hint"] = list(sec.schema_hint)
+        if not sec.locator_hint:
+            continue
+        entry: dict = {
+            "name": sec.name,
+            "kind": sec.kind,
+            "locator": sec.locator_hint,
+        }
+        sec_schema = _join_schema(sec.schema_hint)
+        if sec_schema:
+            entry["schema_hint"] = sec_schema
         entries.append(entry)
     return entries
 

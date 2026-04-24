@@ -145,23 +145,55 @@ def _enforce_spec_gates(*, bundle, planner_output) -> None:
         )
 
 
-def _apply_specs_to_planner_output(*, planner_output, specs) -> None:
+def _apply_specs_to_planner_output(
+    *,
+    planner_output,
+    specs,
+    compile_context=None,
+    skipped_node_ids=None,
+) -> None:
     """Re-stamp each planner node's metadata from its NodeExecutionSpec.
 
+    Before enrichment, override each coding_agent spec's
+    ``primary_output.locator_hint`` with the chain-plumbing locator the
+    binding will assign at the next step. Without this, the spec-driven
+    task_prompt tells the agent to write to the spec-author's guessed
+    locator (often the input directory), but the binding's chained
+    intermediate path is what the NEXT step expects to read — they
+    conflict and step N+1 can't find its input.
+
     Mutates ``planner_output.node_drafts`` in place. Nodes without a
-    matching spec (typically auto-inserted gate / verify nodes) are
-    untouched — they keep the placeholder metadata stamped by the
-    planner's runtime_field_enricher.
+    matching spec (auto-inserted gate / verify) are untouched.
     """
+    from app.services.build.planner_output_bindings import (
+        compute_session_anchored_locator_map,
+    )
     from app.services.workflow_planner.runtime_field_enricher import (
         apply_spec_to_node,
     )
 
     spec_by_node_id = {s.node_id: s for s in specs}
+    locator_map: dict = {}
+    if compile_context is not None:
+        locator_map = compute_session_anchored_locator_map(
+            planner_output=planner_output,
+            compile_context=compile_context,
+            skipped_node_ids=list(skipped_node_ids or []),
+        )
+
     for node in planner_output.node_drafts:
         spec = spec_by_node_id.get(node.draft_node_id)
-        if spec is not None:
-            apply_spec_to_node(node=node, spec=spec)
+        if spec is None:
+            continue
+        # Authoritative locator override for chain plumbing — only when
+        # the binding has actually computed one for this node (i.e., it's
+        # a coding_agent in the session-anchored chain).
+        binding_locator = (locator_map.get(node.draft_node_id) or {}).get(
+            "output_locator"
+        )
+        if binding_locator:
+            spec.output_contract.primary_output.locator_hint = binding_locator
+        apply_spec_to_node(node=node, spec=spec)
 
 
 class BuildExecutionService:
@@ -318,6 +350,8 @@ class BuildExecutionService:
                 _apply_specs_to_planner_output(
                     planner_output=planner_output,
                     specs=spec_list,
+                    compile_context=compile_context_for_adapter,
+                    skipped_node_ids=list(node_specs_bundle.skipped_node_ids),
                 )
 
             # 2. Allocate executable + build dir (no blueprint_id here).
