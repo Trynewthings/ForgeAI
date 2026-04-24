@@ -72,6 +72,98 @@ from app.services.capabilities import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# node_spec integration helpers (used inside _execute_session_anchored_build)
+# ---------------------------------------------------------------------------
+
+
+def _load_node_specs_bundle(state_row):
+    """Parse ``state_row.node_specs_json`` into a NodeExecutionSpecBundle.
+
+    Returns None when the column is empty (older sessions that never ran
+    /specify) or when the payload fails to validate (defensive — we'd
+    rather build without specs than crash on stale rows).
+    """
+    raw = getattr(state_row, "node_specs_json", None)
+    if not raw:
+        return None
+    from app.schemas.node_execution_spec import NodeExecutionSpecBundle
+
+    try:
+        return NodeExecutionSpecBundle.model_validate(raw)
+    except Exception:  # noqa: BLE001 — defensive
+        logger.warning(
+            "build.node_specs.invalid_payload state_id=%s — proceeding without specs",
+            getattr(state_row, "id", None),
+        )
+        return None
+
+
+def _enforce_spec_gates(*, bundle, planner_output) -> None:
+    """Hard-block the build when spec-time validators report issues.
+
+    Two gates:
+      1. ``edge_contract_report.issues`` — cross-node spec inconsistency
+         (already produced by the spec pass; we just refuse to proceed).
+      2. ``capability_mismatch_validator`` — planner-vs-spec disagreement
+         on a node's compute class (computed here at build time, since
+         it depends on both planner output AND specs).
+
+    Both raise RuntimeError so the build's outer try/except marks the
+    build failed with a structured error_message.
+    """
+    edge_report = bundle.edge_contract_report
+    if edge_report and edge_report.issues:
+        rendered = "; ".join(
+            f"[{i.kind}] {i.from_node_id}->{i.to_node_id}: {i.detail}"
+            for i in edge_report.issues
+        )
+        raise RuntimeError(
+            f"session_anchored_build_blocked: spec edge_contract has "
+            f"{len(edge_report.issues)} unresolved issue(s). {rendered}"
+        )
+
+    from app.services.node_spec.capability_mismatch_validator import (
+        validate_capability_mismatch,
+    )
+
+    cap_report = validate_capability_mismatch(
+        planner_output=planner_output,
+        specs=list(bundle.specs),
+        skipped_node_ids=list(bundle.skipped_node_ids),
+    )
+    if cap_report.issues:
+        rendered = "; ".join(
+            f"[{i.kind}] node={i.node_id} picked={i.selected_capability_id} "
+            f"expected_class={i.expected_runtime_class} "
+            f"allowed={i.allowed_runtime_classes}"
+            for i in cap_report.issues
+        )
+        raise RuntimeError(
+            f"session_anchored_build_blocked: capability_mismatch validator "
+            f"reports {len(cap_report.issues)} issue(s). {rendered}"
+        )
+
+
+def _apply_specs_to_planner_output(*, planner_output, specs) -> None:
+    """Re-stamp each planner node's metadata from its NodeExecutionSpec.
+
+    Mutates ``planner_output.node_drafts`` in place. Nodes without a
+    matching spec (typically auto-inserted gate / verify nodes) are
+    untouched — they keep the placeholder metadata stamped by the
+    planner's runtime_field_enricher.
+    """
+    from app.services.workflow_planner.runtime_field_enricher import (
+        apply_spec_to_node,
+    )
+
+    spec_by_node_id = {s.node_id: s for s in specs}
+    for node in planner_output.node_drafts:
+        spec = spec_by_node_id.get(node.draft_node_id)
+        if spec is not None:
+            apply_spec_to_node(node=node, spec=spec)
+
+
 class BuildExecutionService:
     def __init__(self) -> None:
         self.delay_seconds = settings.build_step_delay_seconds
@@ -202,6 +294,32 @@ class BuildExecutionService:
                 except Exception:  # noqa: BLE001 — defensive
                     compile_context_for_adapter = None
 
+            # Load node_specs (optional). When present, build:
+            #   1) hard-blocks if edge_contract_report has issues,
+            #   2) hard-blocks if the planner-vs-spec capability
+            #      mismatch validator finds issues,
+            #   3) re-enriches each planner node's metadata from its
+            #      spec (so coding_agent gets a real task_prompt
+            #      instead of a placeholder),
+            #   4) passes specs into bindings_from_planner_output so
+            #      the verify obligation is derived from
+            #      acceptance_criteria.
+            # Missing node_specs is tolerated (older sessions that
+            # never ran /specify still build).
+            node_specs_bundle = _load_node_specs_bundle(state_row)
+            spec_list = (
+                list(node_specs_bundle.specs) if node_specs_bundle else []
+            )
+            if node_specs_bundle is not None:
+                _enforce_spec_gates(
+                    bundle=node_specs_bundle,
+                    planner_output=planner_output,
+                )
+                _apply_specs_to_planner_output(
+                    planner_output=planner_output,
+                    specs=spec_list,
+                )
+
             # 2. Allocate executable + build dir (no blueprint_id here).
             build_dir = (
                 ROOT_DIR / ".generated" / "executables" / build.project_id / build.build_version
@@ -221,7 +339,9 @@ class BuildExecutionService:
 
             # 3. Planner_output → (steps, bindings) via the step-4 adapter.
             steps, bindings = bindings_from_planner_output(
-                planner_output, compile_context=compile_context_for_adapter
+                planner_output,
+                compile_context=compile_context_for_adapter,
+                node_specs=spec_list or None,
             )
             runnable_binding_names = [
                 b.step_name for b in bindings if b.runnable

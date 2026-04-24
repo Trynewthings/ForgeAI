@@ -31,6 +31,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.schemas.executable_manifest import ExecutionPackageBinding
+from app.schemas.node_execution_spec import (
+    AcceptanceCriterion,
+    NodeExecutionSpec,
+)
 from app.schemas.requirement_compiler import CompileContextResponse
 from app.schemas.verification_obligation import (
     META_VERIFICATION_OBLIGATION,
@@ -403,31 +407,54 @@ def _derive_obligation(
     target_locator: Optional[str],
     target_is_fs_write: bool,
     interpreted_goal: Optional[str] = None,
+    target_spec: Optional[NodeExecutionSpec] = None,
 ) -> VerificationObligation:
-    """Default obligation for an auto-inserted verify node.
+    """Obligation for an auto-inserted verify node.
 
-    The planner today only signals *that* verification is required; it
-    doesn't yet describe *what* to check. The build layer fills in a
-    conservative deterministic obligation: the target's declared output
-    must exist at the declared locator, side-effect compliance must
-    hold against the workspace, and if the locator is CSV we also
-    assert a tabular contract with at least one row.
+    Two sources, in priority order:
 
-    A custom obligation can override this by being stamped on
-    ``planner_metadata[META_VERIFICATION_OBLIGATION]``; the adapter
-    passes it through verbatim.
+    1. ``planner_metadata[META_VERIFICATION_OBLIGATION]`` override —
+       the planner gets the last word when it bothered to emit one.
+    2. ``target_spec.acceptance_criteria`` (NEW) — when the target node
+       has a NodeExecutionSpec, its acceptance criteria become the
+       primary check source. Each criterion maps to a deterministic
+       check_type; criteria with kinds the verifier doesn't yet
+       implement are carried into the obligation description as
+       advisory notes (so they're auditable but don't fail the run with
+       "unknown check_type").
+    3. Conservative defaults — same as before: locator + exists +
+       (csv → tabular_contract) + side_effect + Tier 4 content_quality.
+
+    When a spec IS available, defaults (3) are still appended for the
+    structural hygiene checks (output_exists, side_effect_compliance,
+    content_quality_grade) — the spec adds *to* the floor, not
+    *replaces* it.
     """
     override = verify_node.planner_metadata.get(META_VERIFICATION_OBLIGATION)
     if isinstance(override, dict) and override:
         try:
             return VerificationObligation.model_validate(override)
         except Exception:
-            # Fall through to default on malformed override.
             pass
 
     checks: list[VerificationCheckSpec] = []
+    advisory_notes: list[str] = []
     obligation_id = f"obligation_{verify_node.draft_node_id}"
 
+    spec_csv_check_added = False
+    if target_spec is not None:
+        spec_checks, spec_advisory = _checks_from_spec(
+            spec=target_spec,
+            target_locator=target_locator,
+            obligation_id=obligation_id,
+        )
+        checks.extend(spec_checks)
+        advisory_notes.extend(spec_advisory)
+        spec_csv_check_added = any(
+            c.check_type == "tabular_contract" for c in spec_checks
+        )
+
+    # Always-on structural hygiene (locator + exists), regardless of spec.
     if target_locator:
         checks.append(
             VerificationCheckSpec(
@@ -443,7 +470,10 @@ def _derive_obligation(
                 params={"path": target_locator, "allow_empty": False},
             )
         )
-        if target_locator.lower().endswith(".csv"):
+        if (
+            not spec_csv_check_added
+            and target_locator.lower().endswith(".csv")
+        ):
             checks.append(
                 VerificationCheckSpec(
                     check_id=f"{obligation_id}_tabular",
@@ -464,13 +494,12 @@ def _derive_obligation(
         )
     )
 
-    # Tier 4 content quality. Only attach when the target is a write
-    # step (fs_write OR a coding_agent emitting a primary file) and we
-    # have a user-stated goal to grade against. Threshold 3/5 — anything
-    # the model rates "mostly right with visible defects" still passes;
-    # we want to catch the totally-wrong / hallucinated cases first.
+    # Tier 4 content quality — same gating as before.
     has_goal = bool(interpreted_goal and interpreted_goal.strip())
-    if has_goal and target_locator:
+    has_spec_quality_check = any(
+        c.check_type == "content_quality_grade" for c in checks
+    )
+    if has_goal and target_locator and not has_spec_quality_check:
         checks.append(
             VerificationCheckSpec(
                 check_id=f"{obligation_id}_content_quality",
@@ -483,6 +512,13 @@ def _derive_obligation(
             )
         )
 
+    description_parts = [
+        verify_node.semantic_goal or "Verify upstream output contract."
+    ]
+    if advisory_notes:
+        description_parts.append("Advisory acceptance criteria (not enforced):")
+        description_parts.extend(f"  - {note}" for note in advisory_notes)
+
     return VerificationObligation(
         obligation_id=obligation_id,
         obligation_type="output_contract" if target_is_fs_write else "output_contract",
@@ -490,12 +526,129 @@ def _derive_obligation(
         target_artifact_locator=target_locator,
         checks=checks,
         failure_policy="fail",
-        # An LLM-judged check is non-deterministic by nature. When it's
-        # part of the obligation, we relax the "deterministic_required"
-        # flag so downstream observability tags this verify as mixed.
         deterministic_required=not has_goal or not target_locator,
-        description=verify_node.semantic_goal or "Verify upstream output contract.",
+        description="\n".join(description_parts),
     )
+
+
+def _checks_from_spec(
+    *,
+    spec: NodeExecutionSpec,
+    target_locator: Optional[str],
+    obligation_id: str,
+) -> tuple[list[VerificationCheckSpec], list[str]]:
+    """Map ``spec.acceptance_criteria`` to verifier-supported checks.
+
+    Returns ``(checks, advisory_notes)`` — advisory_notes captures
+    criteria whose kind the deterministic verifier doesn't implement
+    today; they're recorded in the obligation description but don't
+    gate the run with an "unknown check_type" error.
+    """
+    checks: list[VerificationCheckSpec] = []
+    advisory: list[str] = []
+    primary = spec.output_contract.primary_output
+    locator_for_checks = (
+        target_locator or primary.locator_hint
+    )
+
+    for crit in spec.acceptance_criteria:
+        produced = _criterion_to_check(
+            crit=crit,
+            target_locator=locator_for_checks,
+            primary_schema_hint=list(primary.schema_hint or []),
+            obligation_id=obligation_id,
+        )
+        if produced is None:
+            advisory.append(f"[{crit.kind}] {crit.statement}")
+        else:
+            checks.append(produced)
+    return checks, advisory
+
+
+def _criterion_to_check(
+    *,
+    crit: AcceptanceCriterion,
+    target_locator: Optional[str],
+    primary_schema_hint: list,
+    obligation_id: str,
+) -> Optional[VerificationCheckSpec]:
+    """Produce a VerificationCheckSpec for criteria the verifier supports."""
+    base_id = f"{obligation_id}_spec_{crit.criterion_id}"
+
+    if crit.kind == "presence":
+        if not target_locator:
+            return None
+        return VerificationCheckSpec(
+            check_id=base_id,
+            check_type="output_exists",
+            params={
+                "path": target_locator,
+                "allow_empty": bool(crit.params.get("allow_empty", False)),
+            },
+        )
+    if crit.kind == "tabular_contract":
+        if not target_locator:
+            return None
+        params: dict = {
+            "path": target_locator,
+            "require_header": bool(crit.params.get("require_header", True)),
+        }
+        min_rows = crit.params.get("min_rows")
+        if isinstance(min_rows, int):
+            params["min_rows"] = min_rows
+        else:
+            params["min_rows"] = 1
+        # Pull required_headers from spec params or fall back to primary
+        # schema_hint when the criterion is implicitly "match the declared
+        # output schema".
+        required_headers = crit.params.get("required_headers")
+        if not required_headers and primary_schema_hint:
+            required_headers = list(primary_schema_hint)
+        if required_headers:
+            params["required_headers"] = list(required_headers)
+        return VerificationCheckSpec(
+            check_id=base_id,
+            check_type="tabular_contract",
+            params=params,
+        )
+    if crit.kind == "row_count":
+        if not target_locator:
+            return None
+        min_rows = crit.params.get("min", crit.params.get("min_rows", 1))
+        params = {
+            "path": target_locator,
+            "require_header": True,
+        }
+        if isinstance(min_rows, int):
+            params["min_rows"] = min_rows
+        max_rows = crit.params.get("max", crit.params.get("max_rows"))
+        if isinstance(max_rows, int):
+            params["max_rows"] = max_rows
+        return VerificationCheckSpec(
+            check_id=base_id,
+            check_type="tabular_contract",
+            params=params,
+        )
+    if crit.kind == "content_quality_grade":
+        if not target_locator:
+            return None
+        threshold = crit.params.get("threshold", 3)
+        params = {
+            "path": target_locator,
+            "interpreted_goal": crit.params.get(
+                "interpreted_goal", crit.statement
+            ),
+            "threshold": threshold,
+        }
+        return VerificationCheckSpec(
+            check_id=base_id,
+            check_type="content_quality_grade",
+            params=params,
+        )
+    # Kinds without a concrete verifier today (uniqueness, enum_membership,
+    # value_range, non_null, relational_integrity, other) are returned as
+    # None so the caller carries them as advisory.
+    return None
 
 
 def _verify_binding(
@@ -582,6 +735,7 @@ def bindings_from_planner_output(
     planner_output: WorkflowPlannerOutput,
     *,
     compile_context: CompileContextResponse | None = None,
+    node_specs: Optional[list[NodeExecutionSpec]] = None,
 ) -> tuple[list[dict[str, Any]], list[ExecutionPackageBinding]]:
     """Return ``(steps, bindings)`` suitable for the manifest resolver.
 
@@ -621,6 +775,11 @@ def bindings_from_planner_output(
         compile_context.problem_formulation.interpreted_goal
         if compile_context is not None and compile_context.problem_formulation
         else None
+    )
+    # Spec-driven obligation derivation: index specs by node_id so we can
+    # look up the target node's spec when emitting a verify binding.
+    spec_by_node_id: dict[str, NodeExecutionSpec] = (
+        {s.node_id: s for s in node_specs} if node_specs else {}
     )
 
     # Filter out the planner's auto-inserted gate / verify nodes for
@@ -737,11 +896,15 @@ def bindings_from_planner_output(
             target_is_fs_write = bool(
                 target_info and target_info["capability_id"] == FILESYSTEM_WRITE_CAPABILITY_ID
             )
+            target_spec = (
+                spec_by_node_id.get(target_draft_id) if target_draft_id else None
+            )
             obligation = _derive_obligation(
                 verify_node=node,
                 target_locator=target_locator,
                 target_is_fs_write=target_is_fs_write,
                 interpreted_goal=interpreted_goal,
+                target_spec=target_spec,
             )
             bindings.append(
                 _verify_binding(
