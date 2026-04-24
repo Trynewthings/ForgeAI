@@ -282,3 +282,158 @@ def test_domain_affinity_preserves_order_when_no_domain_detected() -> None:
     )["sg_1"]
     # No domain keywords in haystack → no demotion, narrower order kept.
     assert pool.candidate_pool.index("repo_tool") < pool.candidate_pool.index("other_tool")
+
+
+def _ctx_with_modality(
+    envelope: list[dict],
+    *,
+    input_source_modality: str | None = None,
+    input_locator_hint: str | None = None,
+) -> PlannerContext:
+    """Variant of ``_ctx`` that sets the compile-context-derived modality
+    fields used by the source-match rescorer."""
+    by_id = {str(e["capability_id"]): e for e in envelope}
+    return PlannerContext(
+        capability_envelope_raw=envelope,
+        capability_envelope_by_id=by_id,
+        forbidden_side_effect_classes=[],
+        step_kind_preferences={},
+        input_source_modality=input_source_modality,
+        input_locator_hint=input_locator_hint,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Modality filter — D1: keep JSON-only capabilities out of CSV pipelines.
+# The planner's Shape-LLM used to pick ``parse_json`` for CSV transforms
+# based on lexical match with "parse". Source-match rescoring now applies
+# across all subgoal kinds and drops hard-negative modality mismatches
+# when a neutral alternative exists.
+# ---------------------------------------------------------------------------
+
+
+def test_transform_pool_drops_json_only_cap_on_csv_pipeline() -> None:
+    """CSV pipeline + transform subgoal → JSON-only capability is dropped
+    from the candidate pool, leaving the modality-agnostic alternative."""
+    envelope = [
+        {
+            "capability_id": "parse_json",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "source_modalities_supported": ["json_string", "json"],
+            "tags": ["json", "parser"],
+        },
+        {
+            "capability_id": "coding_agent",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            # No source_modalities_supported → modality-agnostic (neutral).
+            "tags": ["generalist_fallback"],
+        },
+    ]
+    subgoal = _subgoal(
+        required_capability_classes=["transform"],
+        description="Parse the CSV records and aggregate by product_line.",
+    )
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx_with_modality(envelope, input_source_modality="csv"),
+    )["sg_1"]
+    assert "parse_json" not in pool.candidate_pool
+    assert "coding_agent" in pool.candidate_pool
+
+
+def test_transform_pool_keeps_json_only_cap_on_json_pipeline() -> None:
+    """JSON pipeline + transform subgoal → JSON-only capability stays
+    (and gets promoted ahead of the neutral alternative)."""
+    envelope = [
+        {
+            "capability_id": "parse_json",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "source_modalities_supported": ["json_string", "json"],
+            "tags": ["json", "parser"],
+        },
+        {
+            "capability_id": "coding_agent",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": ["generalist_fallback"],
+        },
+    ]
+    subgoal = _subgoal(
+        required_capability_classes=["transform"],
+        description="Transform the JSON records.",
+    )
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx_with_modality(envelope, input_source_modality="json"),
+    )["sg_1"]
+    assert "parse_json" in pool.candidate_pool
+    # Positive match beats neutral in ordering.
+    assert pool.candidate_pool.index("parse_json") < pool.candidate_pool.index("coding_agent")
+
+
+def test_transform_pool_leaves_pool_untouched_when_modality_unknown() -> None:
+    """No modality signal anywhere → rescorer is a no-op, no demotion."""
+    envelope = [
+        {
+            "capability_id": "parse_json",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "source_modalities_supported": ["json_string"],
+            "tags": ["json", "parser"],
+        },
+        {
+            "capability_id": "coding_agent",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "tags": ["generalist_fallback"],
+        },
+    ]
+    subgoal = _subgoal(
+        required_capability_classes=["transform"],
+        description="Some generic transform with no modality signal.",
+    )
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx_with_modality(envelope),  # no modality, no locator
+    )["sg_1"]
+    # Without a target modality we never demote — both candidates survive.
+    assert "parse_json" in pool.candidate_pool
+    assert "coding_agent" in pool.candidate_pool
+
+
+def test_transform_pool_keeps_negatives_when_no_alternative() -> None:
+    """If EVERY candidate advertises a mismatched modality, we don't empty
+    the pool — we leave them all and let Shape-LLM / preflight handle it."""
+    envelope = [
+        {
+            "capability_id": "parse_json",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "source_modalities_supported": ["json_string"],
+            "tags": [],
+        },
+        {
+            "capability_id": "parse_yaml",
+            "logical_step_kinds": ["transform"],
+            "supported_step_kinds": ["transform"],
+            "side_effect_class": "none",
+            "source_modalities_supported": ["yaml_file"],
+            "tags": [],
+        },
+    ]
+    subgoal = _subgoal(
+        required_capability_classes=["transform"],
+        description="Transform the CSV rows somehow.",
+    )
+    pool = PlannerCapabilityBinder().narrow_for_subgoals(
+        [subgoal], _ctx_with_modality(envelope, input_source_modality="csv"),
+    )["sg_1"]
+    # Both negative, nothing positive — don't empty the pool.
+    assert set(pool.candidate_pool) == {"parse_json", "parse_yaml"}

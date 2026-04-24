@@ -14,7 +14,6 @@ from app.core.enums import RunStatus, RunStepStatus
 from app.core.logging import log_event
 from app.db.models import Run, RunStep
 from app.db.models.entities import Artifact, TokenUsageLog
-from app.db.repositories.blueprint_repository import BlueprintRepository
 from app.db.repositories.executable_repository import ExecutableRepository
 from app.db.repositories.run_repository import RunRepository
 from app.db.repositories.run_step_repository import RunStepRepository
@@ -73,7 +72,6 @@ class RunExecutionService:
         db = SessionLocal()
         run_repository = RunRepository(db)
         run_step_repository = RunStepRepository(db)
-        blueprint_repository = BlueprintRepository(db)
         executable_repository = ExecutableRepository(db)
         runtime_profile_repository = RuntimeProfileRepository(db)
         artifact_repository = ArtifactRepository(db)
@@ -107,17 +105,8 @@ class RunExecutionService:
             requested_action = str(runtime_operation.get("requested_action") or "start")
             requested_step_name = runtime_operation.get("requested_step_name")
             approved_step_names = {str(item) for item in runtime_operation.get("approved_step_names", []) if str(item)}
-            # Session-anchored runs have no Blueprint. The remaining
-            # execution path only uses ``blueprint`` for informational
-            # fields on a few log events; downstream logic is driven by
-            # the parsed manifest + executable.
-            blueprint = (
-                blueprint_repository.get_by_id(run.blueprint_id)
-                if run.blueprint_id
-                else None
-            )
-            if run.blueprint_id and blueprint is None:
-                raise RuntimeError("Blueprint not found")
+            # Session-anchored runs have no Blueprint. Downstream logic
+            # is driven by the parsed manifest + executable.
             executable = executable_repository.get_by_id(run.executable_id) if run.executable_id else None
             runtime_profile = (
                 runtime_profile_repository.get_by_id(run.runtime_profile_id) if run.runtime_profile_id else None
@@ -325,7 +314,6 @@ class RunExecutionService:
                 logging.INFO,
                 "run.started",
                 run_id=run.id,
-                blueprint_id=run.blueprint_id,
                 executable_id=run.executable_id,
                 runtime_profile_id=run.runtime_profile_id,
                 execution_mode=execution_mode,
@@ -365,7 +353,7 @@ class RunExecutionService:
                     db=db,
                     run=run,
                     steps=steps,
-                    blueprint_type=blueprint.blueprint_type if blueprint is not None else "session_anchored",
+                    blueprint_type="session_anchored",
                     runtime_profile=runtime_profile,
                     resolved_plan=resolved_plan,
                     execution_mode=execution_mode,
@@ -394,7 +382,7 @@ class RunExecutionService:
             accumulated_outputs = list(scheduler_result.accumulated_outputs)
 
             summary_text = self._build_run_summary(
-                blueprint.name if blueprint is not None else "session_anchored_run",
+                "session_anchored_run",
                 accumulated_outputs,
                 execution_mode,
             )

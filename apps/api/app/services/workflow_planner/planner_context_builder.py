@@ -11,6 +11,11 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from app.schemas.requirement_compiler import CompileContextResponse
+from app.services.workflow_planner.slice_contract import (
+    filter_step_kind_preferences,
+    runnable_capability_id_set,
+    runnable_capability_ids,
+)
 
 
 @dataclass
@@ -54,6 +59,14 @@ class PlannerContext:
     input_acquisition_path_kind: Optional[str] = None
     output_deliverable_form: Optional[str] = None
     output_delivery_target: Optional[str] = None
+    # The runtime slice's executable allowlist. The planner LLM and the
+    # deterministic binder both honour this set so the choice space is
+    # equal to what runtime can actually invoke.
+    slice_runnable_capability_ids: list[str] = field(default_factory=list)
+    # Step-kind → preferred capability ids, projected through the slice
+    # filter. Each list keeps ``coding_agent`` reachable as the universal
+    # fallback for transform/ingest/summarize.
+    runnable_step_kind_preferences: dict[str, list[str]] = field(default_factory=dict)
 
 
 def build_planner_context(compile_context: CompileContextResponse) -> PlannerContext:
@@ -66,6 +79,25 @@ def build_planner_context(compile_context: CompileContextResponse) -> PlannerCon
     step_kind_preferences: dict[str, list[str]] = {}
     envelope_raw: list[dict[str, Any]] = []
     envelope_by_id: dict[str, dict[str, Any]] = {}
+
+    # Slice-runnable allowlist, scoped by this session's input applicability.
+    # Capabilities outside this set are stripped from the envelope +
+    # step_kind_preferences before the binder / narrower / LLM ever see
+    # them, so every downstream scoring decision operates on "what can
+    # actually run here" rather than "what exists in the registry".
+    # Keeps the deterministic planner's role honest — it disambiguates
+    # among runnable options instead of picking an unrunnable one that
+    # the build-side binder has to silently swap.
+    #
+    # When input_closure.applicability == "not_applicable" or there's no
+    # resolved source locator, ``filesystem_read`` is dropped as well —
+    # there's nothing on disk for it to read, so letting the scorer pick
+    # it for a transform step is actively wrong.
+    _has_input_source = (
+        compile_context.input_closure.applicability != "not_applicable"
+        and bool((compile_context.input_closure.resolved_source_locator or "").strip())
+    )
+    slice_allowlist = runnable_capability_id_set(has_input_source=_has_input_source)
 
     # Best-effort augmentation from the live capability registry: the
     # solvability envelope (``CapabilitySignature``) is a narrow projection
@@ -142,6 +174,11 @@ def build_planner_context(compile_context: CompileContextResponse) -> PlannerCon
         registry_extras_to_inject = []
 
     for signature in signatures:
+        # Skip capabilities the runtime slice can't execute. See the
+        # slice_allowlist note above — keeps the envelope / step_kind
+        # preferences aligned with "what can actually run here".
+        if slice_allowlist and signature.capability_id not in slice_allowlist:
+            continue
         for kind in signature.logical_step_kinds:
             if not kind:
                 continue
@@ -178,6 +215,9 @@ def build_planner_context(compile_context: CompileContextResponse) -> PlannerCon
     # filtered out) so the planner can still pick them when source-axis
     # alignment demands it.
     for extra in registry_extras_to_inject:
+        # Same slice gate as the signatures loop above.
+        if slice_allowlist and extra["capability_id"] not in slice_allowlist:
+            continue
         extra_enrichment = registry_enrichment.get(extra["capability_id"], {})
         if extra_enrichment:
             extra.update(
@@ -225,6 +265,13 @@ def build_planner_context(compile_context: CompileContextResponse) -> PlannerCon
         input_acquisition_path_kind=compile_context.input_closure.acquisition_path_kind,
         output_deliverable_form=compile_context.output_closure.deliverable_form,
         output_delivery_target=compile_context.output_closure.delivery_target,
+        slice_runnable_capability_ids=runnable_capability_ids(has_input_source=_has_input_source),
+        runnable_step_kind_preferences=filter_step_kind_preferences(
+            step_kind_preferences,
+            has_input_source=bool(
+                (compile_context.input_closure.resolved_source_locator or "").strip()
+            ),
+        ),
     )
 
 

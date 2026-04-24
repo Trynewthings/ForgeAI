@@ -167,17 +167,6 @@ def test_session_anchored_build_end_to_end(client, tmp_path, monkeypatch):
     assert build["blueprint_id"] is None
     build_id = build["id"]
 
-    # Cannot mix blueprint_id + session_id.
-    bad = client.post(
-        "/api/v1/builds",
-        json={
-            "project_id": project_id,
-            "session_id": session_id,
-            "blueprint_id": "whatever",
-        },
-    )
-    assert bad.status_code == 400, bad.text
-
     # ----- Acceptance 2 + 3: start + synchronously execute build -----
     started = client.post(f"/api/v1/builds/{build_id}/start")
     assert started.status_code == 200, started.text

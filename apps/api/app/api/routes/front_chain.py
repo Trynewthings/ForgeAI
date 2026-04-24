@@ -34,7 +34,6 @@ from app.schemas.front_chain import (
     FrontChainSessionTurnResponse,
     FrontChainStateResponse,
 )
-from app.services.build.build_planning_service import ExecutableBuildPlanningService
 from app.services.front_chain.front_chain_session_service import (
     FrontChainSessionNotFoundError,
     FrontChainSessionService,
@@ -48,6 +47,7 @@ from app.services.front_chain.front_chain_state_service import (
 from app.services.workflow_planner_service import (
     PLANNER_VERSION,
     WorkflowPlannerCompileContextMissingError,
+    WorkflowPlannerService,
     WorkflowPlannerSessionNotFoundError,
 )
 
@@ -192,15 +192,14 @@ def plan_front_chain_session(
     """Planning stage: run the workflow planner against the session's latest
     compiled authority.
 
-    Mounts ``WorkflowPlannerService.plan_for_session`` via
-    ``ExecutableBuildPlanningService``. The planner consumes the
-    ``CompileContextResponse`` stored on the most recent compilable
-    ``FrontChainState`` for this session — no Blueprint required. The
-    resulting ``WorkflowPlannerOutput`` is persisted back onto the same
-    state row so subsequent calls are idempotent.
+    The planner consumes the ``CompileContextResponse`` stored on the
+    most recent compilable ``FrontChainState`` for this session — no
+    Blueprint required. The resulting ``WorkflowPlannerOutput`` is
+    persisted back onto the same state row so subsequent calls are
+    idempotent.
     """
     try:
-        output, row = ExecutableBuildPlanningService(db).plan(session_id)
+        output, row = WorkflowPlannerService().plan_for_session(session_id, db=db)
     except WorkflowPlannerSessionNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

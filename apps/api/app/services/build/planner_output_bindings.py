@@ -55,12 +55,6 @@ FILESYSTEM_READ_CAPABILITY_ID = "filesystem_read"
 FILESYSTEM_WRITE_CAPABILITY_ID = "filesystem_write"
 VALIDATE_SCHEMA_CAPABILITY_ID = "validate_schema"
 
-_SESSION_RUNNABLE_IDS = {
-    CODING_AGENT_CAPABILITY_ID,
-    FILESYSTEM_READ_CAPABILITY_ID,
-    FILESYSTEM_WRITE_CAPABILITY_ID,
-}
-
 # The ``verify_after_<target>`` node id prefix that the planner's
 # constraint_enforcer uses. Used to parse the target node id when
 # deriving a verification obligation at adapter time.
@@ -79,13 +73,22 @@ _AUTO_INSERTED_SKIPPABLE_IDS = {
 
 
 def _selected_capability_id(node: WorkflowPlannerNodeDraft) -> str | None:
+    """Return the planner's chosen capability id.
+
+    Since ``planner_context_builder`` filters the capability envelope
+    down to the slice's runnable set before the binder sees it, the
+    planner's pick is already guaranteed to be slice-runnable — this
+    function returns it verbatim for the bindings dispatch. If upstream
+    ever regresses and a non-slice pick slips through, the dispatch
+    falls to ``_passthrough_unbound_binding`` and the build's
+    ``critical_blocked`` check fails loudly rather than silently
+    swapping to a generalist.
+    """
     bound = node.planner_metadata.get(META_BOUND_CAPABILITY) or {}
     if isinstance(bound, dict):
         cap = bound.get("selected_capability_id")
         if isinstance(cap, str) and cap:
             return cap
-    # Fall back to preferred_capability_ids[0] — enricher writes a size-1
-    # list after shape + binder resolution.
     if node.preferred_capability_ids:
         return str(node.preferred_capability_ids[0])
     return None
@@ -137,14 +140,52 @@ def _derive_shared_workspace(
     if compile_context is None:
         return None
     locator = (compile_context.input_closure.resolved_source_locator or "").strip()
-    if not locator:
-        return None
+    if not _looks_like_path(locator):
+        # Fallback: derive workspace from the OUTPUT locator's parent
+        # directory. For parameters-only intents (no input source) the
+        # only path-shaped artifact in the compile context is the
+        # delivery target — using its parent gives coding_agent a real
+        # place to write its intermediate file so the downstream
+        # filesystem_write step has something to read.
+        out_locator = (compile_context.output_closure.delivery_target or "").strip()
+        if not _looks_like_path(out_locator):
+            return None
+        out_path = Path(out_locator)
+        return str(out_path.parent if out_path.suffix else out_path)
     path = Path(locator)
     # If the locator has a file-like suffix, use its parent; otherwise
     # treat the locator itself as a directory.
     if path.suffix and not path.is_dir():
         return str(path.parent)
     return str(path)
+
+
+def _looks_like_path(locator: str) -> bool:
+    """Heuristic for "is this a real filesystem path or natural-language?"
+
+    Compile context sometimes emits a sentinel like "none" / "未指定", or
+    even the user's raw natural-language description, in
+    ``resolved_source_locator`` when no real input source exists. Using
+    those as a workspace root produces nonsense paths
+    (``/Users/llk/agentsFactory/用户描述：…``). Reject anything that
+    doesn't look like a path so the caller falls back to the per-step
+    default workspace.
+    """
+    if not locator:
+        return False
+    if locator.lower() in {"none", "n/a", "null", "未指定", "无", "n/a."}:
+        return False
+    # Path-shaped: starts with /, ./, ../, ~, or a Windows-style drive,
+    # or is a single bare filename of a sensible length.
+    if locator.startswith(("/", "./", "../", "~")):
+        return True
+    if len(locator) >= 3 and locator[1:3] == ":\\":
+        return True
+    # Bare filename: ASCII-ish, no whitespace, contains a dot (suffix)
+    # and is short. Anything else is rejected.
+    if " " not in locator and len(locator) <= 80 and "." in locator and locator.isascii():
+        return True
+    return False
 
 
 def _derive_output_locator(
@@ -361,6 +402,7 @@ def _derive_obligation(
     verify_node: WorkflowPlannerNodeDraft,
     target_locator: Optional[str],
     target_is_fs_write: bool,
+    interpreted_goal: Optional[str] = None,
 ) -> VerificationObligation:
     """Default obligation for an auto-inserted verify node.
 
@@ -422,6 +464,25 @@ def _derive_obligation(
         )
     )
 
+    # Tier 4 content quality. Only attach when the target is a write
+    # step (fs_write OR a coding_agent emitting a primary file) and we
+    # have a user-stated goal to grade against. Threshold 3/5 — anything
+    # the model rates "mostly right with visible defects" still passes;
+    # we want to catch the totally-wrong / hallucinated cases first.
+    has_goal = bool(interpreted_goal and interpreted_goal.strip())
+    if has_goal and target_locator:
+        checks.append(
+            VerificationCheckSpec(
+                check_id=f"{obligation_id}_content_quality",
+                check_type="content_quality_grade",
+                params={
+                    "path": target_locator,
+                    "interpreted_goal": interpreted_goal,
+                    "threshold": 3,
+                },
+            )
+        )
+
     return VerificationObligation(
         obligation_id=obligation_id,
         obligation_type="output_contract" if target_is_fs_write else "output_contract",
@@ -429,7 +490,10 @@ def _derive_obligation(
         target_artifact_locator=target_locator,
         checks=checks,
         failure_policy="fail",
-        deterministic_required=True,
+        # An LLM-judged check is non-deterministic by nature. When it's
+        # part of the obligation, we relax the "deterministic_required"
+        # flag so downstream observability tags this verify as mixed.
+        deterministic_required=not has_goal or not target_locator,
         description=verify_node.semantic_goal or "Verify upstream output contract.",
     )
 
@@ -551,6 +615,13 @@ def bindings_from_planner_output(
         if compile_context is not None
         else None
     )
+    # Tier 4: pull the user's stated intent so the verify obligation can
+    # carry it into the content_quality_grade check.
+    interpreted_goal = (
+        compile_context.problem_formulation.interpreted_goal
+        if compile_context is not None and compile_context.problem_formulation
+        else None
+    )
 
     # Filter out the planner's auto-inserted gate / verify nodes for
     # the session-anchored slice — see ``_AUTO_INSERTED_SKIPPABLE_IDS``.
@@ -670,6 +741,7 @@ def bindings_from_planner_output(
                 verify_node=node,
                 target_locator=target_locator,
                 target_is_fs_write=target_is_fs_write,
+                interpreted_goal=interpreted_goal,
             )
             bindings.append(
                 _verify_binding(

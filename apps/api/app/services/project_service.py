@@ -5,10 +5,8 @@ from sqlalchemy.orm import Session
 from app.core.enums import ProjectStatus
 from app.core.exceptions import AppException
 from app.db.models.entities import Project
-from app.repositories.build_task_repository import BuildTaskRepository
 from app.repositories.project_repository import ProjectRepository
 from app.schemas.project import (
-    BuildTaskListItem,
     ProjectCreateRequest,
     ProjectDetailResponse,
     ProjectListResponse,
@@ -25,7 +23,6 @@ class ProjectService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.project_repository = ProjectRepository(db)
-        self.build_task_repository = BuildTaskRepository(db)
         self.runtime_cleanup_service = ProjectRuntimeCleanupService(db)
 
     def create_project(self, payload: ProjectCreateRequest) -> ProjectResponse:
@@ -42,21 +39,9 @@ class ProjectService:
         project = self.project_repository.get_by_id(project_id, with_children=True)
         if project is None:
             raise AppException("Project not found", status_code=404)
-
-        build_tasks = sorted(project.build_tasks, key=lambda item: item.created_at, reverse=True)
-
         return ProjectDetailResponse(
             **self._serialize_project(project).model_dump(),
-            build_tasks=[
-                BuildTaskListItem(
-                    id=item.id,
-                    status=item.status,
-                    total_tokens=item.total_tokens,
-                    created_at=_iso(item.created_at),
-                    updated_at=_iso(item.updated_at),
-                )
-                for item in build_tasks
-            ],
+            build_tasks=[],
         )
 
     def delete_project(self, project_id: str) -> None:

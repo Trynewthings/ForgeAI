@@ -243,7 +243,7 @@ def _run_steps_in_order(
                 run_id=context.run.id,
                 run_step_id=step.id,
                 executable_id=context.run.executable_id,
-                artifact_type=f"{step.step_name}_output",
+                artifact_type=f"{step.step_name}_output"[:100],
                 storage_kind="inline",
                 path_or_content=output_payload.get("content") or output_payload.get("summary") or "",
                 metadata_json={
@@ -759,7 +759,7 @@ def _run_steps_dag(
                         run_id=context.run.id,
                         run_step_id=step.id,
                         executable_id=context.run.executable_id,
-                        artifact_type=f"{step.step_name}_output",
+                        artifact_type=f"{step.step_name}_output"[:100],
                         storage_kind="inline",
                         path_or_content=result.output_payload.get("content") or result.output_payload.get("summary") or "",
                         metadata_json={

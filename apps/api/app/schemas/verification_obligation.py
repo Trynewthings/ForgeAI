@@ -55,6 +55,12 @@ CheckType = Literal[
     "tabular_contract",
     "side_effect_compliance",
     "schema_format",
+    # Tier 4: LLM-judged content quality. Parameters: interpreted_goal,
+    # path, threshold (default 3 of 5). Returns failed when the grader's
+    # score is below threshold; the detail carries the grader's
+    # diagnosis so a human / future retry loop can react. Non-deterministic
+    # by nature — used in addition to (not instead of) structural checks.
+    "content_quality_grade",
 ]
 
 CheckStatus = Literal["passed", "failed", "error", "skipped"]

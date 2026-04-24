@@ -21,7 +21,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.core.logging import log_event
-from app.db.models import Blueprint, FrontChainState
+from app.db.models import FrontChainState
 from app.schemas.requirement_compiler import CompileContextResponse
 from app.schemas.solvability import SolvabilitySubgoal
 from app.schemas.workflow_native import VerificationPlan
@@ -167,51 +167,6 @@ class WorkflowPlannerService:
             persisted=persist,
         )
         return output, row
-
-    # ------------------------------------------------------------------
-    # Legacy blueprint entry (still used by build_execution_service)
-    # ------------------------------------------------------------------
-
-    def plan(self, blueprint: Blueprint) -> WorkflowPlannerOutput:
-        compile_context = self._extract_compile_context(blueprint)
-        if compile_context is None:
-            return WorkflowPlannerOutput(
-                draft_status="blocked",
-                planning_notes=[
-                    "Planner requires runtime_constraints_json.compile_context as its formal authority input.",
-                ],
-                unresolved_items=[
-                    WorkflowPlannerUnresolvedItem(
-                        item_id="missing_compile_context",
-                        item_kind="clarification_needed",
-                        severity="blocking",
-                        description="Blueprint is missing compile_context, so planner authority cannot be established.",
-                        suggested_resolution="Recompile the requirement and rebuild the blueprint from compile output.",
-                    )
-                ],
-            )
-        output = self.plan_from_compile_context(compile_context)
-        log_event(
-            logger,
-            logging.INFO,
-            "workflow_planner.planned",
-            blueprint_id=blueprint.id,
-            node_count=len(output.node_drafts),
-            edge_count=len(output.edge_drafts),
-            draft_status=output.draft_status,
-            unresolved_count=len(output.unresolved_items),
-        )
-        return output
-
-    def _extract_compile_context(self, blueprint: Blueprint) -> Optional[CompileContextResponse]:
-        rtc = blueprint.runtime_constraints_json or {}
-        payload = rtc.get("compile_context")
-        if not isinstance(payload, dict):
-            return None
-        try:
-            return CompileContextResponse.model_validate(payload)
-        except Exception:
-            return None
 
     # ------------------------------------------------------------------
     # Core pure entry

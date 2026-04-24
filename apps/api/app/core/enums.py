@@ -182,6 +182,11 @@ class BuildStatus(str, Enum):
 class RunStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    # API-only projection. The DB never persists this — the run row stays
+    # RUNNING when the runtime is blocked on an operator decision. The
+    # serializer derives this value from runtime_operation.operation_state
+    # so the frontend can branch on a single status field.
+    WAITING_FOR_INTERVENTION = "waiting_for_intervention"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

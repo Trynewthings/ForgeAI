@@ -532,17 +532,23 @@ def _rescore_by_source_match(
     ctx: "PlannerContext",
     by_id: dict[str, Any],
 ) -> list[str]:
-    """Rescore ``pool`` based on source-modality / source-kind alignment.
+    """Rescore ``pool`` based on source-modality alignment.
 
-    Only the acquire-family subgoal (the entry node) is rescored; downstream
-    transform/act nodes don't consume the input source directly so modality
-    alignment isn't meaningful there. The family guard keeps the policy
-    narrow and explainable.
+    Applies across ALL subgoal kinds (acquire/transform/synthesize/deliver).
+    Why: a capability like ``parse_json`` advertising
+    ``source_modalities_supported=["json_*"]`` should never show up in a
+    CSV pipeline, even on a downstream transform node — it simply can't
+    accept the upstream output. Without this filter the Shape-LLM can
+    lexically match "parse" to ``parse_json`` against a CSV aggregation
+    subgoal and produce an unrunnable plan (observed in UI acceptance).
+
+    Semantics are unchanged:
+        * declared modality matches target → +2 (promote)
+        * declared modality mismatches target → -1 (demoted, then dropped
+          when any positive match is present in the pool)
+        * no modality declared → 0 (neutral, untouched)
     """
     if len(pool) <= 1:
-        return pool
-    source_kind = (subgoal.subgoal_kind or "").strip().lower()
-    if source_kind != "acquire":
         return pool
 
     target_family = _modality_family(ctx.input_source_modality)
@@ -580,13 +586,16 @@ def _rescore_by_source_match(
         key=lambda pair: (-cap_score(pair[1])[0], pair[0]),
     )
     reordered = [pool[idx] for idx, _ in scored]
-    # Drop hard-negatives from the pool altogether when a positive-match
-    # alternative exists, so they can't be accidentally picked by a
-    # Shape-LLM index fallback.
-    positives = [cid for cid in reordered if cap_score(cid)[0] > 0]
-    if positives:
-        kept = [cid for cid in reordered if cap_score(cid)[0] >= 0]
-        return kept
+    # Drop hard-negatives whenever a non-negative alternative exists. This
+    # is the key filter for transform subgoals: ``coding_agent`` is
+    # modality-agnostic (neutral) and ``parse_json`` is JSON-only
+    # (negative against a CSV pipeline). With only neutrals + negatives
+    # the old "positives only" guard left negatives in the pool, so
+    # Shape-LLM could still pick an unrunnable capability.
+    non_negatives = [cid for cid in reordered if cap_score(cid)[0] >= 0]
+    negatives = [cid for cid in reordered if cap_score(cid)[0] < 0]
+    if non_negatives and negatives:
+        return non_negatives
     return reordered
 
 

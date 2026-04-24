@@ -102,6 +102,44 @@ is downstream of this gate. When intent_clarity != clear, you may still \
 populate closure axes on a best-effort basis, but the session will ask \
 the clarification_question FIRST — it takes priority.
 
+INPUT APPLICABILITY (input_closure_candidate.applicability):
+The input layer asks "where does the data live that the system must read?". \
+Some tasks have NO external input — the answer is computed from the model's \
+knowledge, the task parameters themselves, or pure logic. For these you \
+MUST set ``input_closure_candidate.applicability = "not_applicable"`` and \
+leave ``resolved_source_locator`` null. Examples:
+
+  * "Compute the 1-9 multiplication table" — pure computation, no input source.
+  * "Write a short intro to RAG using your knowledge" — synthesis, no input source.
+  * "Generate a UUID" / "Tell me what 2+2 is" — no input source.
+
+Set ``applicability = "required"`` (the default) only when the task names \
+or implies a data source (a file path, URL, repository, database, query, \
+or "the data the user uploaded"). When in doubt about whether something \
+counts as "data the user wants me to read", err on the side of \
+``required`` and ask via the source_locator axis.
+
+Do NOT use ``resolved_source_locator = "none"`` / "用户描述：…" / "当前目录" \
+as a workaround. Either the locator is a real path/URL or applicability \
+is not_applicable.
+
+OUTPUT DELIVERY TARGET (output_closure_candidate.delivery_target):
+``delivery_target`` names WHERE the final deliverable ends up. It must be \
+concrete enough that the runtime can write there without asking. Accept:
+
+  * An absolute filesystem path (e.g. ``/Users/x/report.md``).
+  * A relative path with a file extension (e.g. ``./reports/out.csv``).
+  * A URL / URI / mailto destination for network delivery.
+  * A user-addressed channel like ``user_chat`` or ``stdout`` for inline \
+    deliverables only.
+
+REJECT placeholder strings like ``"当前目录"``, ``"local_workspace"``, \
+``"user"``, ``"unspecified"``, or the user's natural-language \
+description. If the user didn't name a concrete destination and the \
+deliverable isn't inline, set ``closure_status = \
+"output_clarification_required"`` and surface ``delivery_target`` as a \
+blocking axis — do NOT fabricate a placeholder locator.
+
 Emit strictly valid JSON."""
 
 _USER_PROMPT_TEMPLATE = """Raw user intent:
@@ -150,6 +188,7 @@ _SCHEMA_HINT = """{
     "acquisition_path_kind": "direct_read|direct_inventory|checkout_then_inventory|fetch_then_ingest|unknown",
     "blocking_axes": ["..."],
     "closure_status": "input_clarification_required|input_proposable_with_review|input_closed",
+    "applicability": "required|not_applicable",
     "reasoning_summary": "..."
   },
   "output_closure_candidate": {

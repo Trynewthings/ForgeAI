@@ -247,6 +247,15 @@ CAPABILITIES: list[CapabilityDefinition] = [
         output_contract_summary="Parsed object graph or parsing errors.",
         execution_kind="python_function",
         runtime_adapter="builtin_python",
+        # ``parse_json`` only accepts JSON input; declaring the modality
+        # lets the planner's source-match rescorer drop it from the
+        # candidate pool when the pipeline's source modality is e.g. CSV.
+        # Without this tag, the Shape-LLM can lexically match "parse" in
+        # a subgoal description and pick parse_json for CSV work.
+        # NOTE: do NOT use ``json_file`` here — it's in the binder's
+        # _LOCAL_MODALITY_FAMILY and would alias to ``local`` alongside
+        # ``csv``, making a CSV pipeline look like a modality match.
+        source_modalities_supported=["json_string", "json", "json_text"],
         allowed_contexts=["authoring", "blueprint_planning", "build_planning", "runtime"],
         tags=["json", "parser"],
     ),

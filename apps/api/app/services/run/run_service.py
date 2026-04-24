@@ -379,6 +379,16 @@ class RunService:
     def _serialize(self, run: Run) -> RunResponse:
         runtime_operation = self._get_runtime_operation(run)
         runtime_scheduler = dict((run.resolved_config_snapshot_json or {}).get("runtime_scheduler") or {})
+        # When runtime is blocked on operator action the DB still holds RUNNING
+        # (so scheduler/recovery code that checks "running" keeps working) but
+        # the operation_state carries the real signal. Project it onto status
+        # for clients that branch on a single field.
+        status = run.status
+        if (
+            status == RunStatus.RUNNING.value
+            and runtime_operation.operation_state == "waiting_for_intervention"
+        ):
+            status = RunStatus.WAITING_FOR_INTERVENTION.value
         return RunResponse(
             id=run.id,
             project_id=run.project_id,
@@ -388,7 +398,7 @@ class RunService:
             active_job_id=run.active_job_id,
             active_job_status=run.active_job.status if run.active_job is not None else None,
             triggered_by=run.triggered_by,
-            status=run.status,
+            status=status,
             started_at=_iso(run.started_at),
             ended_at=_iso(run.ended_at),
             input_snapshot_json=run.input_snapshot_json or {},

@@ -25,6 +25,7 @@ from app.schemas.verification_obligation import (
 )
 
 from . import (
+    content_quality_grade as _content_quality_grade,
     output_exists as _output_exists,
     output_locator as _output_locator,
     side_effect_compliance as _side_effect_compliance,
@@ -60,6 +61,7 @@ _CHECK_DISPATCH: dict[str, CheckRunner] = {
     "output_exists": _output_exists.run,
     "tabular_contract": _tabular_contract.run,
     "side_effect_compliance": _side_effect_compliance.run,
+    "content_quality_grade": _content_quality_grade.run,
 }
 
 

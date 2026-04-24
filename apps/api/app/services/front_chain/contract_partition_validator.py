@@ -227,6 +227,7 @@ class ContractPartitionValidator:
             blocking_axes=list(input_payload.get("blocking_axes", []) or []),
             review_axes=list(input_payload.get("review_axes", []) or []),
             closure_status=input_payload.get("closure_status", "input_clarification_required"),
+            applicability=input_payload.get("applicability", "required"),
             reasoning_summary=input_payload.get("reasoning_summary"),
         )
 

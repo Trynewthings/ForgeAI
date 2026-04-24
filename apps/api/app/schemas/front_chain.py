@@ -132,6 +132,13 @@ class FrontChainInterpreterInputClosureCandidate(BaseModel):
         "input_proposable_with_review",
         "input_closed",
     ] = "input_clarification_required"
+    # The interpreter LLM may set this directly when the task semantically
+    # has no external input source (pure compute / synthesis from model
+    # knowledge). When set to ``not_applicable`` the deterministic
+    # contract_update_engine collapses the layer to closed; when left at
+    # ``required`` the synthesis-problem-kind heuristic still acts as a
+    # safety net.
+    applicability: Literal["required", "not_applicable"] = "required"
     reasoning_summary: Optional[str] = None
 
 
