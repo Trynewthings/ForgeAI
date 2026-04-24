@@ -1,0 +1,5 @@
+!! EDGE CONTRACT FAILED — bundle dumped to /Users/llk/agentsFactory/scenario_data/spare_parts/run_trace/05b_node_specs_edge_failed.json
+   checked_edges=6  skipped_edges=1  issues=1
+   [1] schema_mismatch           planner_node_2 → planner_node_4
+       dst input slot 'demand_history_120d' expects fields ['date', 'sku_id', 'warehouse', 'actual_consumption_qty', 'demand_including_lost_qty', 'market_index', 'planned_maintenance_flag', 'stockout_lost_qty', 'unit_replacement_price', 'source_channel'] that src planner_node_2 does NOT emit. src emits: ['demand_history_120d', 'inventory_rt', 'market_signals', 'real_time_events', 'sku_master', 'supplier_performance']. dst expects: ['date', 'sku_id', 'warehouse', 'actual_consumption_qty', 'demand_including_lost_qty', 'market_index', 'planned_maintenance_flag', 'stockout_lost_qty', 'unit_replacement_price', 'source_channel'].
+       missing_fields: ['date', 'sku_id', 'warehouse', 'actual_consumption_qty', 'demand_including_lost_qty', 'market_index', 'planned_maintenance_flag', 'stockout_lost_qty', 'unit_replacement_price', 'source_channel']

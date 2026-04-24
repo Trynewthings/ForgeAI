@@ -60,6 +60,14 @@ def main() -> int:
           f"skipped={edge_report.get('skipped_edges')}  "
           f"issues={len(edge_report.get('issues') or [])}  "
           f"PASSED={not edge_report.get('issues')}")
+    trace = serialized.get("llm_trace") or {}
+    print(f"llm calls        : {trace.get('call_count')}")
+    bundle_attempts = trace.get("bundle_retry_attempts") or []
+    print(f"bundle retries   : {len(bundle_attempts)} (cap={trace.get('bundle_max_retries')})")
+    for i, a in enumerate(bundle_attempts):
+        print(f"   [retry {i+1}] respec={a['respec_node_ids']}  "
+              f"issues_before={a['issues_before']} -> issues_after={a['issues_after']}  "
+              f"calls={a['per_attempt_calls']}")
     print(f"spec_version     : {serialized['spec_version']}")
     print(f"spec count       : {len(serialized['specs'])}")
     print(f"skipped_node_ids : {serialized['skipped_node_ids']}")

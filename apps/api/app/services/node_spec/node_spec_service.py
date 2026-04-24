@@ -5,14 +5,25 @@ Contract:
     * One LLM call per node that needs specification. Auto-inserted
       nodes (human_gate / verify) are skipped and listed in
       ``skipped_node_ids``.
-    * Fail-fast: if any LLM call fails (provider error, unparseable,
-      schema violation), raise. A half-spec'd bundle is worse than no
-      bundle — the whole point is "if we can't spec it, we can't
-      reliably execute it".
+    * Two retry layers:
+        - **Layer 1 (per-node)**: when a single node's LLM call returns
+          unparseable / schema-invalid content, retry that node up to
+          ``per_node_max_retries`` times. Each retry includes the
+          previous attempt's raw output + error so the LLM can self-
+          correct. Fail-fast only when retries are exhausted.
+        - **Layer 2 (bundle-level)**: after all per-node specs land,
+          run the edge-contract validator. If issues remain, identify
+          the affected nodes (src/dst of each issue), re-spec only
+          those nodes with issue context + the LATEST upstream/
+          downstream spec contracts as feedback. Repeat up to
+          ``bundle_max_retries`` times. If issues persist after
+          exhaustion, raise ``EdgeContractFailure`` carrying the
+          terminal bundle so callers can diagnose without re-running.
     * Mock mode produces a deterministic-tagged bundle: each non-skipped
       node gets a minimal-but-valid NodeExecutionSpec populated from the
       planner metadata + file profile. This keeps unit tests offline.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +31,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from pydantic import ValidationError
@@ -49,6 +60,7 @@ from app.services.node_spec.data_profiling_service import (
     DataProfilingResult,
     profile_locator,
 )
+from app.schemas.node_execution_spec import EdgeContractIssue
 from app.services.node_spec.edge_contract_validator import validate_edge_contracts
 from app.services.provider_runtime import (
     BaseProviderAdapter,
@@ -63,6 +75,10 @@ logger = logging.getLogger(__name__)
 
 _SKIPPABLE_CAPABILITY_IDS = {"human_review_gate"}
 _SKIPPABLE_SEMANTIC_TYPES = {"verify", "human_gate"}
+
+# Retry budgets — bounded to keep latency + cost predictable.
+_DEFAULT_PER_NODE_MAX_RETRIES = 1
+_DEFAULT_BUNDLE_MAX_RETRIES = 2
 
 
 class NodeSpecFailure(RuntimeError):
@@ -95,6 +111,28 @@ class _NodeContext:
     node: WorkflowPlannerNodeDraft
     upstream_nodes: list[WorkflowPlannerNodeDraft]
     downstream_nodes: list[WorkflowPlannerNodeDraft]
+
+
+@dataclass
+class _PerNodeRetryFeedback:
+    """Layer 1 retry context — previous attempt's raw output + error."""
+
+    attempt_index: int  # 0 = first retry (i.e., 2nd attempt overall)
+    raw_output: str
+    error_message: str
+
+
+@dataclass
+class _BundleRetryFeedback:
+    """Layer 2 retry context — cross-node validator issues + neighbour
+    specs. Lets the LLM see exactly what the upstream emits and what
+    the downstream expects, so it can adjust THIS node's contract to
+    bridge the gap rather than guess."""
+
+    attempt_index: int  # 0 = first bundle retry
+    upstream_specs: list[NodeExecutionSpec] = field(default_factory=list)
+    downstream_specs: list[NodeExecutionSpec] = field(default_factory=list)
+    issues_for_node: list[EdgeContractIssue] = field(default_factory=list)
 
 
 _SYSTEM_PROMPT = """You are the node specification agent. You convert \
@@ -190,10 +228,24 @@ class NodeSpecService:
         *,
         planner_output: WorkflowPlannerOutput,
         compile_context: CompileContextResponse,
+        per_node_max_retries: int = _DEFAULT_PER_NODE_MAX_RETRIES,
+        bundle_max_retries: int = _DEFAULT_BUNDLE_MAX_RETRIES,
     ) -> NodeExecutionSpecBundle:
-        """Run the spec pass over ``planner_output``.
+        """Run the spec pass over ``planner_output`` with bounded retry.
 
-        Raises ``NodeSpecFailure`` if any node's spec cannot be produced.
+        Two retry layers:
+          1. Per-node retry handled inside ``_spec_single_node``.
+          2. Bundle-level retry handled here: after every full spec pass
+             we run the edge contract validator; if it reports issues,
+             we re-spec ONLY the affected nodes with the validator's
+             diagnostic + the latest neighbour spec contracts as
+             feedback. Capped at ``bundle_max_retries``.
+
+        If the validator still reports issues after the cap, the bundle
+        is returned with ``edge_contract_report.issues`` populated; the
+        caller (session_orchestration) is responsible for raising
+        ``EdgeContractFailure`` so the pipeline blocks and surfaces the
+        diagnostic.
         """
         profiling_input_locator = (
             compile_context.input_closure.resolved_source_locator
@@ -216,55 +268,148 @@ class NodeSpecService:
             else:
                 to_spec.append(node)
 
-        specs: list[NodeExecutionSpec] = []
-        call_traces: list[dict[str, Any]] = []
-
         downstream_map: dict[str, list[str]] = {}
         for node in all_nodes:
             for upstream_id in node.upstream_dependencies or []:
                 downstream_map.setdefault(upstream_id, []).append(node.draft_node_id)
 
+        # ----- Initial pass: spec every non-skipped node -----
+        specs_by_id: dict[str, NodeExecutionSpec] = {}
+        call_traces: list[dict[str, Any]] = []
         for node in to_spec:
-            upstream_nodes = [
-                by_id[nid]
-                for nid in (node.upstream_dependencies or [])
-                if nid in by_id
-            ]
-            downstream_nodes = [
-                by_id[nid]
-                for nid in downstream_map.get(node.draft_node_id, [])
-                if nid in by_id
-            ]
-            ctx = _NodeContext(
-                node=node,
-                upstream_nodes=upstream_nodes,
-                downstream_nodes=downstream_nodes,
+            ctx = self._build_node_context(
+                node=node, by_id=by_id, downstream_map=downstream_map
             )
             spec, trace = self._spec_single_node(
                 ctx=ctx,
                 profiling=profiling,
                 compile_context=compile_context,
+                per_node_max_retries=per_node_max_retries,
             )
-            specs.append(spec)
+            specs_by_id[node.draft_node_id] = spec
             call_traces.append(trace)
 
         edge_report = validate_edge_contracts(
             planner_output=planner_output,
-            specs=specs,
+            specs=list(specs_by_id.values()),
             skipped_node_ids=skipped,
         )
 
+        # ----- Bundle retry: re-spec affected nodes on edge issues -----
+        bundle_attempts: list[dict[str, Any]] = []
+        for retry_idx in range(bundle_max_retries):
+            if not edge_report.issues:
+                break
+            affected_ids = _affected_node_ids(
+                issues=edge_report.issues, skipped=set(skipped)
+            )
+            if not affected_ids:
+                # All issues touched only skipped nodes — nothing to re-spec.
+                break
+
+            issues_by_node = _issues_per_node(edge_report.issues)
+            per_attempt_calls = 0
+            for node_id in affected_ids:
+                node = by_id.get(node_id)
+                if node is None:
+                    continue
+                ctx = self._build_node_context(
+                    node=node, by_id=by_id, downstream_map=downstream_map
+                )
+                feedback = _BundleRetryFeedback(
+                    attempt_index=retry_idx,
+                    upstream_specs=[
+                        specs_by_id[u.draft_node_id]
+                        for u in ctx.upstream_nodes
+                        if u.draft_node_id in specs_by_id
+                    ],
+                    downstream_specs=[
+                        specs_by_id[d.draft_node_id]
+                        for d in ctx.downstream_nodes
+                        if d.draft_node_id in specs_by_id
+                    ],
+                    issues_for_node=issues_by_node.get(node_id, []),
+                )
+                spec, trace = self._spec_single_node(
+                    ctx=ctx,
+                    profiling=profiling,
+                    compile_context=compile_context,
+                    bundle_feedback=feedback,
+                    per_node_max_retries=per_node_max_retries,
+                )
+                specs_by_id[node_id] = spec
+                call_traces.append(trace)
+                per_attempt_calls += 1
+
+            previous_issue_count = len(edge_report.issues)
+            edge_report = validate_edge_contracts(
+                planner_output=planner_output,
+                specs=list(specs_by_id.values()),
+                skipped_node_ids=skipped,
+            )
+            attempt_record = {
+                "attempt_index": retry_idx,
+                "respec_node_ids": list(affected_ids),
+                "issues_before": previous_issue_count,
+                "issues_after": len(edge_report.issues),
+                "per_attempt_calls": per_attempt_calls,
+            }
+            bundle_attempts.append(attempt_record)
+            logger.info(
+                "node_spec.bundle_retry attempt=%d nodes=%s issues_before=%d issues_after=%d",
+                retry_idx + 1,
+                list(affected_ids),
+                previous_issue_count,
+                len(edge_report.issues),
+            )
+            if not edge_report.issues:
+                break
+
+        # Preserve the planner's node order in the final list — easier
+        # to reason about downstream than insertion order.
+        ordered_specs = [
+            specs_by_id[n.draft_node_id]
+            for n in to_spec
+            if n.draft_node_id in specs_by_id
+        ]
+
         return NodeExecutionSpecBundle(
             spec_version=NODE_EXECUTION_SPEC_VERSION,
-            specs=specs,
+            specs=ordered_specs,
             skipped_node_ids=skipped,
             profiling_summary=profiling_summary,
             edge_contract_report=edge_report,
             llm_trace={
                 "call_count": len(call_traces),
                 "llm_mode": getattr(settings, "llm_mode", "mock"),
+                "per_node_max_retries": per_node_max_retries,
+                "bundle_max_retries": bundle_max_retries,
+                "bundle_retry_attempts": bundle_attempts,
                 "per_node": call_traces,
             },
+        )
+
+    def _build_node_context(
+        self,
+        *,
+        node: WorkflowPlannerNodeDraft,
+        by_id: dict,
+        downstream_map: dict,
+    ) -> _NodeContext:
+        upstream_nodes = [
+            by_id[nid]
+            for nid in (node.upstream_dependencies or [])
+            if nid in by_id
+        ]
+        downstream_nodes = [
+            by_id[nid]
+            for nid in downstream_map.get(node.draft_node_id, [])
+            if nid in by_id
+        ]
+        return _NodeContext(
+            node=node,
+            upstream_nodes=upstream_nodes,
+            downstream_nodes=downstream_nodes,
         )
 
     # ------------------------------------------------------------------
@@ -277,76 +422,194 @@ class NodeSpecService:
         ctx: _NodeContext,
         profiling: DataProfilingResult,
         compile_context: CompileContextResponse,
+        bundle_feedback: Optional[_BundleRetryFeedback] = None,
+        per_node_max_retries: int = _DEFAULT_PER_NODE_MAX_RETRIES,
     ) -> tuple[NodeExecutionSpec, dict[str, Any]]:
+        """Spec a single node with bounded per-node parse/schema retries.
+
+        ``bundle_feedback`` is Layer 2 — when set, the prompt also
+        includes neighbour spec contracts + issue context so the LLM
+        can fix cross-node mismatches deliberately. Layer 1 retry
+        loops INSIDE this call on parse / schema failures.
+        """
         llm_mode = getattr(settings, "llm_mode", "mock")
-        prompt_body = _build_prompt_body(
-            ctx=ctx, profiling=profiling, compile_context=compile_context
-        )
-        prompt_hash = hashlib.sha256(prompt_body.encode("utf-8")).hexdigest()[:16]
-        start_ms = int(time.monotonic() * 1000)
 
         if llm_mode == "mock":
-            spec = _mock_spec_for(ctx=ctx, profiling=profiling, compile_context=compile_context)
+            start_ms = int(time.monotonic() * 1000)
+            prompt_body = _build_prompt_body(
+                ctx=ctx,
+                profiling=profiling,
+                compile_context=compile_context,
+                bundle_feedback=bundle_feedback,
+            )
+            prompt_hash = hashlib.sha256(prompt_body.encode("utf-8")).hexdigest()[:16]
+            spec = _mock_spec_for(
+                ctx=ctx, profiling=profiling, compile_context=compile_context
+            )
             trace = {
                 "node_id": ctx.node.draft_node_id,
                 "llm_mode": "mock",
                 "prompt_hash": prompt_hash,
                 "duration_ms": max(0, int(time.monotonic() * 1000) - start_ms),
                 "provider_key": "mock_deterministic",
+                "attempts": 1,
+                "bundle_retry_attempt": (
+                    bundle_feedback.attempt_index if bundle_feedback else None
+                ),
             }
             return spec, trace
 
-        try:
-            adapter, runtime_config = self._adapter_factory(
-                overrides=_node_spec_overrides_from_settings()
+        per_node_feedback: Optional[_PerNodeRetryFeedback] = None
+        attempts: list[dict[str, Any]] = []
+
+        for attempt in range(per_node_max_retries + 1):
+            attempt_start_ms = int(time.monotonic() * 1000)
+            prompt_body = _build_prompt_body(
+                ctx=ctx,
+                profiling=profiling,
+                compile_context=compile_context,
+                bundle_feedback=bundle_feedback,
+                per_node_feedback=per_node_feedback,
             )
-            raw = _call_adapter(
-                adapter=adapter,
-                runtime_config=runtime_config,
-                prompt_body=prompt_body,
-            )
-        except ProviderCallError as exc:
-            raise NodeSpecFailure(
-                f"provider_error for node {ctx.node.draft_node_id}: {exc}",
-                node_id=ctx.node.draft_node_id,
-            ) from exc
+            prompt_hash = hashlib.sha256(prompt_body.encode("utf-8")).hexdigest()[:16]
 
-        try:
-            payload = _extract_json_object(raw)
-        except ValueError as exc:
-            raise NodeSpecFailure(
-                f"parse_error for node {ctx.node.draft_node_id}: {exc}; raw={raw[:500]!r}",
-                node_id=ctx.node.draft_node_id,
-            ) from exc
+            try:
+                adapter, runtime_config = self._adapter_factory(
+                    overrides=_node_spec_overrides_from_settings()
+                )
+                raw = _call_adapter(
+                    adapter=adapter,
+                    runtime_config=runtime_config,
+                    prompt_body=prompt_body,
+                )
+            except ProviderCallError as exc:
+                # Provider errors are usually transient infrastructure;
+                # don't burn retry budget — surface immediately.
+                raise NodeSpecFailure(
+                    f"provider_error for node {ctx.node.draft_node_id} "
+                    f"on attempt {attempt + 1}: {exc}",
+                    node_id=ctx.node.draft_node_id,
+                ) from exc
 
-        payload.setdefault("node_id", ctx.node.draft_node_id)
-        payload.setdefault("semantic_goal", ctx.node.semantic_goal or "")
-        _normalize_enum_fields(payload)
+            attempt_record: dict[str, Any] = {
+                "attempt_index": attempt,
+                "prompt_hash": prompt_hash,
+                "duration_ms": max(0, int(time.monotonic() * 1000) - attempt_start_ms),
+            }
 
-        try:
-            spec = NodeExecutionSpec.model_validate(payload)
-        except ValidationError as exc:
-            raise NodeSpecFailure(
-                f"schema_error for node {ctx.node.draft_node_id}: {exc}; payload={json.dumps(payload)[:500]}",
-                node_id=ctx.node.draft_node_id,
-            ) from exc
+            try:
+                payload = _extract_json_object(raw)
+            except ValueError as exc:
+                err_msg = f"parse_error: {exc}"
+                attempt_record["error"] = err_msg
+                attempts.append(attempt_record)
+                per_node_feedback = _PerNodeRetryFeedback(
+                    attempt_index=attempt,
+                    raw_output=raw[:2000],
+                    error_message=err_msg,
+                )
+                if attempt < per_node_max_retries:
+                    logger.info(
+                        "node_spec.per_node_retry node=%s attempt=%d reason=parse_error",
+                        ctx.node.draft_node_id,
+                        attempt + 1,
+                    )
+                    continue
+                raise NodeSpecFailure(
+                    f"parse_error for node {ctx.node.draft_node_id} after "
+                    f"{attempt + 1} attempt(s): {exc}; raw={raw[:500]!r}",
+                    node_id=ctx.node.draft_node_id,
+                ) from exc
 
-        trace = {
-            "node_id": ctx.node.draft_node_id,
-            "llm_mode": "real",
-            "prompt_hash": prompt_hash,
-            "duration_ms": max(0, int(time.monotonic() * 1000) - start_ms),
-            "provider_key": getattr(
-                adapter, "provider_key", runtime_config.provider if runtime_config else None
-            ),
-            "model_name": getattr(runtime_config, "model_name", None),
-        }
-        return spec, trace
+            payload.setdefault("node_id", ctx.node.draft_node_id)
+            payload.setdefault("semantic_goal", ctx.node.semantic_goal or "")
+            _normalize_enum_fields(payload)
+
+            try:
+                spec = NodeExecutionSpec.model_validate(payload)
+            except ValidationError as exc:
+                err_msg = f"schema_error: {exc}"
+                attempt_record["error"] = err_msg
+                attempts.append(attempt_record)
+                per_node_feedback = _PerNodeRetryFeedback(
+                    attempt_index=attempt,
+                    raw_output=json.dumps(payload, ensure_ascii=False)[:2000],
+                    error_message=err_msg,
+                )
+                if attempt < per_node_max_retries:
+                    logger.info(
+                        "node_spec.per_node_retry node=%s attempt=%d reason=schema_error",
+                        ctx.node.draft_node_id,
+                        attempt + 1,
+                    )
+                    continue
+                raise NodeSpecFailure(
+                    f"schema_error for node {ctx.node.draft_node_id} after "
+                    f"{attempt + 1} attempt(s): {exc}; "
+                    f"payload={json.dumps(payload)[:500]}",
+                    node_id=ctx.node.draft_node_id,
+                ) from exc
+
+            attempts.append(attempt_record)
+            trace = {
+                "node_id": ctx.node.draft_node_id,
+                "llm_mode": "real",
+                "prompt_hash": prompt_hash,
+                "duration_ms": max(0, int(time.monotonic() * 1000) - attempt_start_ms),
+                "provider_key": getattr(
+                    adapter, "provider_key",
+                    runtime_config.provider if runtime_config else None,
+                ),
+                "model_name": getattr(runtime_config, "model_name", None),
+                "attempts": len(attempts),
+                "per_node_retry_history": attempts if len(attempts) > 1 else None,
+                "bundle_retry_attempt": (
+                    bundle_feedback.attempt_index if bundle_feedback else None
+                ),
+            }
+            return spec, trace
+
+        # Defensive — loop should always either return or raise.
+        raise NodeSpecFailure(
+            f"unreachable retry exhaustion for node {ctx.node.draft_node_id}",
+            node_id=ctx.node.draft_node_id,
+        )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _affected_node_ids(*, issues: list, skipped: set) -> list[str]:
+    """Return the deduplicated, ordered list of non-skipped nodes whose
+    spec the bundle retry should re-generate.
+
+    Both src and dst of each issue are candidates — adjusting EITHER
+    end can resolve a schema_mismatch (expand src's emitted fields, or
+    narrow dst's expected fields). Including both lets the LLM pick the
+    minimal-change side.
+    """
+    seen: list[str] = []
+    in_set: set = set()
+    for issue in issues:
+        for nid in (issue.from_node_id, issue.to_node_id):
+            if nid in skipped or nid in in_set:
+                continue
+            in_set.add(nid)
+            seen.append(nid)
+    return seen
+
+
+def _issues_per_node(issues: list) -> dict:
+    """Group issues by every node they touch. A single edge issue is
+    indexed under both ends so the LLM, when re-specing either end,
+    sees the issue context that affects ITS contract."""
+    grouped: dict = {}
+    for issue in issues:
+        for nid in (issue.from_node_id, issue.to_node_id):
+            grouped.setdefault(nid, []).append(issue)
+    return grouped
 
 
 def _is_skippable(node: WorkflowPlannerNodeDraft) -> bool:
@@ -474,6 +737,8 @@ def _build_prompt_body(
     ctx: _NodeContext,
     profiling: DataProfilingResult,
     compile_context: CompileContextResponse,
+    bundle_feedback: Optional[_BundleRetryFeedback] = None,
+    per_node_feedback: Optional[_PerNodeRetryFeedback] = None,
 ) -> str:
     node = ctx.node
     pf = compile_context.problem_formulation
@@ -498,13 +763,68 @@ def _build_prompt_body(
         "upstream_context": [_node_summary(n) for n in ctx.upstream_nodes],
         "downstream_context": [_node_summary(n) for n in ctx.downstream_nodes],
     }
-    return (
+
+    # Layer 2: when retrying after edge_contract issues, attach the
+    # actual upstream/downstream spec contracts so the LLM can see
+    # exactly what fields the neighbours emit / expect.
+    if bundle_feedback is not None:
+        payload["bundle_retry_feedback"] = {
+            "attempt_index": bundle_feedback.attempt_index,
+            "guidance": (
+                "The previous attempt produced specs that the edge contract "
+                "validator rejected. Adjust THIS node's input_contract.required "
+                "and/or output_contract.primary_output so it bridges the "
+                "neighbour contracts shown below. Specifically: when the "
+                "issues mention 'schema_mismatch', either expand THIS node's "
+                "output schema_hint to include the fields downstream needs, "
+                "OR narrow THIS node's input schema_hint to fields upstream "
+                "actually emits. When the issues mention "
+                "'missing_input_reference', add a required input slot whose "
+                "source_hint matches the upstream node_id."
+            ),
+            "issues_touching_this_node": [
+                {
+                    "kind": issue.kind,
+                    "from_node_id": issue.from_node_id,
+                    "to_node_id": issue.to_node_id,
+                    "detail": issue.detail,
+                    "missing_fields": list(issue.missing_fields or []),
+                }
+                for issue in bundle_feedback.issues_for_node
+            ],
+            "upstream_specs_actual": [
+                _spec_summary_for_feedback(s) for s in bundle_feedback.upstream_specs
+            ],
+            "downstream_specs_actual": [
+                _spec_summary_for_feedback(s) for s in bundle_feedback.downstream_specs
+            ],
+        }
+
+    body_text = (
         "Produce a NodeExecutionSpec (strict JSON) for the target_node "
         "below. Use input_profiling verbatim when suggesting schema_hint "
         "for inputs that come from files. Use upstream_context to decide "
-        "source_hint when this node consumes an upstream output.\n\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+        "source_hint when this node consumes an upstream output."
     )
+
+    # Layer 1: when retrying after our OWN parse/schema failure, prepend
+    # a remediation block at the TOP of the prompt — the LLM should see
+    # the correction first, before the same payload it failed on.
+    if per_node_feedback is not None:
+        body_text = (
+            "RETRY — your previous attempt for this node was rejected.\n"
+            f"Attempt index: {per_node_feedback.attempt_index}\n"
+            f"Failure: {per_node_feedback.error_message}\n"
+            "Your previous output (truncated):\n"
+            "----------------------------------------\n"
+            f"{per_node_feedback.raw_output}\n"
+            "----------------------------------------\n"
+            "Produce STRICT JSON conforming to the NodeExecutionSpec "
+            "schema. Do not repeat the prior failure. No prose, no "
+            "markdown fences.\n\n"
+        ) + body_text
+
+    return body_text + "\n\n" + json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def _node_summary(node: WorkflowPlannerNodeDraft) -> dict[str, Any]:
@@ -513,6 +833,36 @@ def _node_summary(node: WorkflowPlannerNodeDraft) -> dict[str, Any]:
         "node_name": node.node_name,
         "semantic_goal": node.semantic_goal,
         "semantic_type": node.node_semantic_type,
+    }
+
+
+def _spec_summary_for_feedback(spec: NodeExecutionSpec) -> dict[str, Any]:
+    """Compact spec view for retry-feedback prompts.
+
+    We only include what the retry loop actually needs to bridge a
+    contract — full spec dump would balloon prompt size. Reading the
+    upstream's output_contract and the downstream's input_contract is
+    enough to pick the right fields.
+    """
+    primary = spec.output_contract.primary_output
+    return {
+        "node_id": spec.node_id,
+        "semantic_goal": spec.semantic_goal,
+        "input_contract.required": [
+            {
+                "name": s.name,
+                "kind": s.kind,
+                "schema_hint": list(s.schema_hint or []),
+                "source_hint": s.source_hint,
+            }
+            for s in spec.input_contract.required
+        ],
+        "output_contract.primary_output": {
+            "name": primary.name,
+            "kind": primary.kind,
+            "schema_hint": list(primary.schema_hint or []),
+            "locator_hint": primary.locator_hint,
+        },
     }
 
 

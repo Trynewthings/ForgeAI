@@ -275,6 +275,7 @@ def specify_front_chain_session(
     except EdgeContractFailure as exc:
         report = exc.bundle.edge_contract_report
         issues = [i.model_dump(mode="json") for i in (report.issues if report else [])]
+        trace = exc.bundle.llm_trace or {}
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -282,6 +283,12 @@ def specify_front_chain_session(
                 "checked_edges": report.checked_edges if report else 0,
                 "skipped_edges": report.skipped_edges if report else 0,
                 "issues": issues,
+                # Retry trace: shows callers which retries were attempted
+                # before giving up, so they can see whether the validator
+                # was making progress or hitting the same wall every time.
+                "bundle_retry_attempts": trace.get("bundle_retry_attempts") or [],
+                "bundle_max_retries": trace.get("bundle_max_retries"),
+                "per_node_max_retries": trace.get("per_node_max_retries"),
             },
         ) from exc
     except NodeSpecFailure as exc:
