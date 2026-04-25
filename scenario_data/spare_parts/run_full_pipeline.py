@@ -48,7 +48,15 @@ job_dispatch_service.JobDispatchService.dispatch = (
 )
 
 ROOT = Path("/Users/llk/agentsFactory/scenario_data/spare_parts")
-TRACE = ROOT / "run_trace"
+# IMPORTANT: trace dir lives OUTSIDE the chain workspace.
+# The runtime side_effect verifier walks rglob from the workspace
+# (which is the common ancestor of ROOT/input + ROOT/output, so it
+# IS ROOT itself) and any test-driver observability written under
+# that root looks like an undeclared write. Keeping run_trace as
+# a sibling of spare_parts/ keeps the verifier focused on real
+# data writes only.
+TRACE = ROOT.parent / "spare_parts_run_trace"
+TRACE.mkdir(parents=True, exist_ok=True)
 INPUT_DIR = ROOT / "input"
 OUTPUT_PATH = ROOT / "output" / "replenishment_queue.csv"
 TEST_CASES_CSV = ROOT / "expected" / "test_cases.csv"

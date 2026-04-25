@@ -4,10 +4,17 @@ Scans the workspace for files that weren't declared as artifact
 locators, flagging undeclared writes. Scoping:
 
 * Only files under ``workspace_dir`` are considered.
-* Input files (``declared_artifact_locators`` whose path exists and is
-  older than the run baseline) are always allowed.
+* Files whose mtime is at or before ``run_started_at_epoch`` are
+  treated as pre-existing baseline and skipped — this is what makes
+  the verifier safe to run against workspaces that contain inputs,
+  trace logs, and admin scripts alongside the run's actual outputs.
+  When no run start time is provided, the verifier falls back to the
+  legacy "any undeclared file is suspicious" behaviour.
+* Files under any ``declared_artifact_locators`` directory are
+  considered declared (so passing the input directory as a declared
+  locator covers all files under it).
 * Coding-agent scratch paths (``coding_agent_step_*``, ``script.*``)
-  are allowed by default — these are deterministic chain intermediates.
+  are allowed by default — deterministic chain intermediates.
 
 Params:
 
@@ -38,6 +45,10 @@ _DEFAULT_ALLOW_GLOBS = [
     ".sandbox/*",
     "*.sandbox_stdout",
     "*.sandbox_stderr",
+    # Log files are universally non-data side effects — admin tooling,
+    # driver tee output, sandbox debug. Allow them by default so the
+    # verifier focuses on actual data writes.
+    "*.log",
 ]
 
 
@@ -63,13 +74,41 @@ def run(spec: VerificationCheckSpec, context: "VerifierContext") -> VerifierChec
     allow_globs = list(_DEFAULT_ALLOW_GLOBS) + [
         str(g) for g in (spec.params.get("allow_glob") or [])
     ]
-    declared = {str(Path(loc).resolve()) for loc in context.declared_artifact_locators or [] if loc}
+    declared_files: set[str] = set()
+    declared_dirs: list[Path] = []
+    for loc in context.declared_artifact_locators or []:
+        if not loc:
+            continue
+        resolved = Path(loc).resolve()
+        if resolved.is_dir():
+            declared_dirs.append(resolved)
+        else:
+            declared_files.add(str(resolved))
+
+    # Baseline cutoff: the run started at this wall-clock epoch.
+    # Files with mtime at or before this are pre-existing and skipped
+    # entirely. Small negative buffer (1 s) absorbs filesystem-vs-
+    # python clock skew. When no baseline is provided, the cutoff is
+    # 0 (epoch), which makes every file potentially-suspicious — the
+    # legacy behaviour, preserved for tests that rely on it.
+    baseline_cutoff = (context.run_started_at_epoch or 0.0) - 1.0
 
     present_files = [p for p in workspace_path.rglob("*") if p.is_file()]
     unexpected: list[str] = []
+    skipped_pre_existing = 0
     for file_path in present_files:
-        resolved = str(file_path.resolve())
-        if resolved in declared:
+        try:
+            mtime = file_path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        if baseline_cutoff > 0.0 and mtime <= baseline_cutoff:
+            skipped_pre_existing += 1
+            continue
+        resolved_path = file_path.resolve()
+        resolved_str = str(resolved_path)
+        if resolved_str in declared_files:
+            continue
+        if any(_path_under(resolved_path, d) for d in declared_dirs):
             continue
         rel = file_path.relative_to(workspace_path)
         rel_str = str(rel)
@@ -77,16 +116,23 @@ def run(spec: VerificationCheckSpec, context: "VerifierContext") -> VerifierChec
             continue
         unexpected.append(rel_str)
 
+    base_evidence = {
+        "workspace_dir": str(workspace_path),
+        "declared_files": sorted(declared_files),
+        "declared_dirs": [str(d) for d in declared_dirs],
+        "skipped_pre_existing": skipped_pre_existing,
+        "run_started_at_epoch": context.run_started_at_epoch,
+    }
     if not unexpected:
         return VerifierCheckResult(
             check_id=spec.check_id,
             check_type=spec.check_type,
             status="passed",
-            detail=f"No undeclared writes under workspace '{workspace_path}'.",
-            evidence={
-                "workspace_dir": str(workspace_path),
-                "declared_locators": sorted(declared),
-            },
+            detail=(
+                f"No undeclared writes under workspace '{workspace_path}' "
+                f"(skipped {skipped_pre_existing} pre-existing files)."
+            ),
+            evidence=base_evidence,
         )
 
     status = "passed" if allow_extra_files else "failed"
@@ -99,9 +145,14 @@ def run(spec: VerificationCheckSpec, context: "VerifierContext") -> VerifierChec
         check_type=spec.check_type,
         status=status,
         detail=detail,
-        evidence={
-            "workspace_dir": str(workspace_path),
-            "unexpected_files": unexpected,
-            "declared_locators": sorted(declared),
-        },
+        evidence={**base_evidence, "unexpected_files": unexpected},
     )
+
+
+def _path_under(path: Path, parent: Path) -> bool:
+    """Return True iff ``path`` lives under ``parent``."""
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except (ValueError, OSError):
+        return False

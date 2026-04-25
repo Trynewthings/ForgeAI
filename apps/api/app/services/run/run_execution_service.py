@@ -873,10 +873,23 @@ class RunExecutionService:
             return output_payload, None, []
 
         if step_type == "verify":
+            verify_args = (
+                dict(step_definition.get("args"))
+                if isinstance(step_definition.get("args"), dict)
+                else {}
+            )
+            # Inject run-start epoch so side_effect_compliance can
+            # baseline-filter files that pre-existed the run. Build
+            # time can't know this; runtime is the right injection
+            # point.
+            if run.started_at is not None:
+                verify_args.setdefault(
+                    "run_started_at_epoch", run.started_at.timestamp()
+                )
             output_payload = execute_verify_workload(
                 step_name=step.step_name,
                 previous_outputs_by_step=previous_outputs_by_step,
-                args=step_definition.get("args") if isinstance(step_definition.get("args"), dict) else {},
+                args=verify_args,
             )
             verifier_status = (
                 (output_payload.get("structured_output") or {})

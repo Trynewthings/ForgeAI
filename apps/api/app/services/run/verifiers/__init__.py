@@ -42,6 +42,13 @@ class VerifierContext:
     declared_artifact_locators: list[str] = None  # type: ignore[assignment]
     target_step_output: Optional[dict[str, Any]] = None
     target_artifact_locator: Optional[str] = None
+    # Wall-clock timestamp of run start. The side-effect verifier uses
+    # this to distinguish files this run actually wrote from files that
+    # pre-existed (inputs, scripts, prior-run artifacts). Without it,
+    # rglob on a workspace that contains pre-existing files flags
+    # everything as "undeclared". Optional — verifiers that don't care
+    # about run start ignore it.
+    run_started_at_epoch: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.declared_artifact_locators is None:

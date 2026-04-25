@@ -250,6 +250,100 @@ def test_side_effect_compliance_fails_on_undeclared_write(tmp_path: Path) -> Non
     assert any("leaked_secrets.txt" in issue for issue in result.blocking_issues)
 
 
+def test_side_effect_compliance_skips_pre_existing_files_via_baseline(
+    tmp_path: Path,
+) -> None:
+    """Files whose mtime is at-or-before run_started_at_epoch are
+    pre-existing and ignored. Without the baseline they'd be flagged."""
+    import time
+
+    # Pre-existing files (inputs, scripts, traces) — created before
+    # the run. Their mtime is "now-ish" minus some seconds.
+    (tmp_path / "input.csv").write_text("a\n1\n", encoding="utf-8")
+    (tmp_path / "admin_script.py").write_text("# admin", encoding="utf-8")
+    (tmp_path / "old_trace.log").write_text("log", encoding="utf-8")
+    pre_run_epoch = time.time()
+    # Sleep enough to give the run-time files a clearly later mtime
+    # than the baseline cutoff (verifier subtracts a 1s buffer).
+    time.sleep(2.0)
+    # Run starts here. The agent writes a declared output:
+    declared = tmp_path / "declared.csv"
+    declared.write_text("x\n1\n", encoding="utf-8")
+    # And… NOTHING ELSE. So unexpected_files should be empty.
+    obl = _obligation(
+        checks=[VerificationCheckSpec(
+            check_id="c_sec",
+            check_type="side_effect_compliance",
+            params={},
+        )],
+    )
+    ctx = VerifierContext(
+        obligation=obl,
+        workspace_dir=tmp_path,
+        declared_artifact_locators=[str(declared)],
+        run_started_at_epoch=pre_run_epoch + 1.0,  # well after baseline files were written
+    )
+    result = run_verifier(obl, ctx)
+    assert result.status == "passed", result.blocking_issues
+    cr = result.check_results[0]
+    assert cr.evidence["skipped_pre_existing"] >= 3
+
+
+def test_side_effect_compliance_still_catches_undeclared_run_time_writes(
+    tmp_path: Path,
+) -> None:
+    """Files written DURING the run that aren't declared are still flagged."""
+    import time
+
+    pre_run_epoch = time.time()
+    time.sleep(2.0)
+    declared = tmp_path / "declared.csv"
+    declared.write_text("x\n1\n", encoding="utf-8")
+    leak = tmp_path / "leak.txt"
+    leak.write_text("oops", encoding="utf-8")
+    obl = _obligation(
+        checks=[VerificationCheckSpec(
+            check_id="c_sec",
+            check_type="side_effect_compliance",
+            params={},
+        )],
+    )
+    ctx = VerifierContext(
+        obligation=obl,
+        workspace_dir=tmp_path,
+        declared_artifact_locators=[str(declared)],
+        run_started_at_epoch=pre_run_epoch + 1.0,
+    )
+    result = run_verifier(obl, ctx)
+    assert result.status == "failed"
+    assert any("leak.txt" in issue for issue in result.blocking_issues)
+
+
+def test_side_effect_compliance_treats_directory_locator_as_allowed(
+    tmp_path: Path,
+) -> None:
+    """When declared_artifact_locators contains a directory, every file
+    under it is allowed (covers passing input directories)."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "a.csv").write_text("a\n", encoding="utf-8")
+    (input_dir / "b.csv").write_text("b\n", encoding="utf-8")
+    obl = _obligation(
+        checks=[VerificationCheckSpec(
+            check_id="c_sec",
+            check_type="side_effect_compliance",
+            params={},
+        )],
+    )
+    ctx = VerifierContext(
+        obligation=obl,
+        workspace_dir=tmp_path,
+        declared_artifact_locators=[str(input_dir)],
+    )
+    result = run_verifier(obl, ctx)
+    assert result.status == "passed"
+
+
 def test_side_effect_compliance_warn_mode_still_passes(tmp_path: Path) -> None:
     (tmp_path / "extra.log").write_text("log", encoding="utf-8")
     obl = _obligation(

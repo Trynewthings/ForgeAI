@@ -1,0 +1,263 @@
+{
+  "id": "abf36773-ee3d-432a-9377-de8be879d764",
+  "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
+  "blueprint_id": null,
+  "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+  "executable_id": "fe78d9dd-8b25-43fd-9274-e939960f1807",
+  "active_job_id": "c873f96f-fc0b-4103-979f-fe5cad5b824a",
+  "active_job_status": "completed",
+  "build_version": "build-0017",
+  "status": "completed",
+  "build_options_json": {
+    "target": "spare_parts_full_pipeline"
+  },
+  "manifest_snapshot_json": {
+    "manifest_version": "0.1",
+    "executable_id": "fe78d9dd-8b25-43fd-9274-e939960f1807",
+    "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+    "build_version": "build-0017",
+    "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
+    "blueprint_id": null,
+    "executable_type": "workflow",
+    "compatibility": {
+      "mode": "session_anchored_c_slice"
+    },
+    "package": {
+      "bindings": "bindings.json",
+      "runtime_entry": "runtime_entry.json",
+      "package_metadata": "package_metadata.json",
+      "asset_index": null
+    },
+    "entrypoint": {
+      "kind": "steps_file",
+      "path": "steps.json",
+      "handler": null
+    },
+    "schemas": {
+      "input": "input.schema.json",
+      "output": "output.schema.json",
+      "config": "runtime.defaults.json"
+    },
+    "execution": {
+      "strategy": "sequential",
+      "steps_source": "steps.json",
+      "nodes_source": null,
+      "retry_policy_ref": null,
+      "timeout_seconds": null
+    },
+    "runtime": {
+      "default_env": {},
+      "env_required": []
+    },
+    "artifacts": {
+      "spec_file": null,
+      "default_outputs": [
+        "run_summary",
+        "step_output"
+      ]
+    },
+    "observability": {
+      "trace_enabled": true,
+      "step_logs": true,
+      "token_usage": true,
+      "metrics": []
+    },
+    "files": [
+      {
+        "path": "manifest.json",
+        "kind": "manifest"
+      },
+      {
+        "path": "steps.json",
+        "kind": "generated"
+      },
+      {
+        "path": "bindings.json",
+        "kind": "generated"
+      },
+      {
+        "path": "runtime_entry.json",
+        "kind": "generated"
+      },
+      {
+        "path": "package_metadata.json",
+        "kind": "generated"
+      },
+      {
+        "path": "input.schema.json",
+        "kind": "generated"
+      },
+      {
+        "path": "output.schema.json",
+        "kind": "generated"
+      },
+      {
+        "path": "runtime.defaults.json",
+        "kind": "generated"
+      }
+    ],
+    "metadata": {
+      "session_anchored_source": {
+        "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+        "planner_state_id": "0069ce77-5d8b-458e-bd58-9995ece5f0f5",
+        "planner_version": "workflow_planner_v1"
+      },
+      "session_anchored_binding_summary": {
+        "runnable_steps": [
+          "read_all_raw_data_files_from_the_input_directory",
+          "parse_each_raw_file_into_structured_records_and_validate_against_expected_schemas",
+          "analyze_master_data_inventory_consumption_demand_signals_and_lead_times_to_assess_inventory_risk",
+          "forecast_future_demand_using_historical_consumption_and_market_demand_signals",
+          "combine_risk_assessment_and_demand_forecast_to_make_replenishment_decisions_and_produce_a_ranked_queue",
+          "write_the_replenishment_queue_to_the_specified_output_csv_file",
+          "verify_after_planner_node_6"
+        ],
+        "blocked_steps": []
+      }
+    }
+  },
+  "summary": "Session-anchored build: 7 runnable / 0 blocked coding_agent-slice steps.",
+  "error_message": null,
+  "started_at": "2026-04-25T03:47:55.720377+00:00",
+  "ended_at": "2026-04-25T03:47:57.627981+00:00",
+  "created_at": "2026-04-25T03:47:55.589140+00:00",
+  "updated_at": "2026-04-25T03:47:57.631337+00:00",
+  "build_steps": [
+    {
+      "id": "827a9a6c-f046-4f8b-8c8b-3e0b7ed8c674",
+      "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+      "step_name": "analyze_source",
+      "step_order": 1,
+      "status": "completed",
+      "input_payload_json": {
+        "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+        "build_version": "build-0017"
+      },
+      "output_payload_json": {
+        "step_name": "analyze_source",
+        "runnable_bindings": [
+          "read_all_raw_data_files_from_the_input_directory",
+          "parse_each_raw_file_into_structured_records_and_validate_against_expected_schemas",
+          "analyze_master_data_inventory_consumption_demand_signals_and_lead_times_to_assess_inventory_risk",
+          "forecast_future_demand_using_historical_consumption_and_market_demand_signals",
+          "combine_risk_assessment_and_demand_forecast_to_make_replenishment_decisions_and_produce_a_ranked_queue",
+          "write_the_replenishment_queue_to_the_specified_output_csv_file",
+          "verify_after_planner_node_6"
+        ],
+        "blocked_bindings": []
+      },
+      "log_excerpt": "[completed] analyze_source (session_anchored)",
+      "token_usage_json": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "started_at": "2026-04-25T03:47:55.765082+00:00",
+      "finished_at": "2026-04-25T03:47:55.769696+00:00",
+      "created_at": "2026-04-25T03:47:55.589140+00:00",
+      "updated_at": "2026-04-25T03:47:55.767490+00:00"
+    },
+    {
+      "id": "d6b037ae-a7a5-4f0f-b609-765a724b24ab",
+      "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+      "step_name": "generate_manifest",
+      "step_order": 2,
+      "status": "completed",
+      "input_payload_json": {
+        "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+        "build_version": "build-0017"
+      },
+      "output_payload_json": {
+        "step_name": "generate_manifest",
+        "runnable_bindings": [
+          "read_all_raw_data_files_from_the_input_directory",
+          "parse_each_raw_file_into_structured_records_and_validate_against_expected_schemas",
+          "analyze_master_data_inventory_consumption_demand_signals_and_lead_times_to_assess_inventory_risk",
+          "forecast_future_demand_using_historical_consumption_and_market_demand_signals",
+          "combine_risk_assessment_and_demand_forecast_to_make_replenishment_decisions_and_produce_a_ranked_queue",
+          "write_the_replenishment_queue_to_the_specified_output_csv_file",
+          "verify_after_planner_node_6"
+        ],
+        "blocked_bindings": []
+      },
+      "log_excerpt": "[completed] generate_manifest (session_anchored)",
+      "token_usage_json": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "started_at": "2026-04-25T03:47:56.189945+00:00",
+      "finished_at": "2026-04-25T03:47:56.239077+00:00",
+      "created_at": "2026-04-25T03:47:55.589140+00:00",
+      "updated_at": "2026-04-25T03:47:56.217156+00:00"
+    },
+    {
+      "id": "000d1cd4-352c-4e0e-9d5d-4c2869a68125",
+      "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+      "step_name": "materialize_executable",
+      "step_order": 3,
+      "status": "completed",
+      "input_payload_json": {
+        "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+        "build_version": "build-0017"
+      },
+      "output_payload_json": {
+        "step_name": "materialize_executable",
+        "runnable_bindings": [
+          "read_all_raw_data_files_from_the_input_directory",
+          "parse_each_raw_file_into_structured_records_and_validate_against_expected_schemas",
+          "analyze_master_data_inventory_consumption_demand_signals_and_lead_times_to_assess_inventory_risk",
+          "forecast_future_demand_using_historical_consumption_and_market_demand_signals",
+          "combine_risk_assessment_and_demand_forecast_to_make_replenishment_decisions_and_produce_a_ranked_queue",
+          "write_the_replenishment_queue_to_the_specified_output_csv_file",
+          "verify_after_planner_node_6"
+        ],
+        "blocked_bindings": []
+      },
+      "log_excerpt": "[completed] materialize_executable (session_anchored)",
+      "token_usage_json": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "started_at": "2026-04-25T03:47:56.646574+00:00",
+      "finished_at": "2026-04-25T03:47:56.743371+00:00",
+      "created_at": "2026-04-25T03:47:55.589140+00:00",
+      "updated_at": "2026-04-25T03:47:56.682463+00:00"
+    },
+    {
+      "id": "68c08717-d2a6-419a-8414-cc09a53a1b15",
+      "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+      "step_name": "finalize_executable",
+      "step_order": 4,
+      "status": "completed",
+      "input_payload_json": {
+        "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
+        "build_version": "build-0017"
+      },
+      "output_payload_json": {
+        "step_name": "finalize_executable",
+        "runnable_bindings": [
+          "read_all_raw_data_files_from_the_input_directory",
+          "parse_each_raw_file_into_structured_records_and_validate_against_expected_schemas",
+          "analyze_master_data_inventory_consumption_demand_signals_and_lead_times_to_assess_inventory_risk",
+          "forecast_future_demand_using_historical_consumption_and_market_demand_signals",
+          "combine_risk_assessment_and_demand_forecast_to_make_replenishment_decisions_and_produce_a_ranked_queue",
+          "write_the_replenishment_queue_to_the_specified_output_csv_file",
+          "verify_after_planner_node_6"
+        ],
+        "blocked_bindings": []
+      },
+      "log_excerpt": "[completed] finalize_executable (session_anchored)",
+      "token_usage_json": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      },
+      "started_at": "2026-04-25T03:47:57.153456+00:00",
+      "finished_at": "2026-04-25T03:47:57.193543+00:00",
+      "created_at": "2026-04-25T03:47:55.589140+00:00",
+      "updated_at": "2026-04-25T03:47:57.190635+00:00"
+    }
+  ]
+}

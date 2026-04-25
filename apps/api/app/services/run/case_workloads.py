@@ -2942,12 +2942,22 @@ def execute_verify_workload(
         if isinstance(candidate, str) and candidate:
             target_artifact_locator = candidate
 
+    # Run start epoch: side_effect_compliance uses this to skip files
+    # that pre-existed the run (inputs, traces, scripts). Without it
+    # the verifier flags every file under the workspace.
+    raw_started_at = args.get("run_started_at_epoch")
+    try:
+        run_started_at_epoch = float(raw_started_at) if raw_started_at is not None else None
+    except (TypeError, ValueError):
+        run_started_at_epoch = None
+
     context = VerifierContext(
         obligation=obligation,
         workspace_dir=Path(str(workspace_dir)) if workspace_dir else None,
         declared_artifact_locators=[str(loc) for loc in declared if loc],
         target_step_output=target_step_output if isinstance(target_step_output, dict) else None,
         target_artifact_locator=target_artifact_locator,
+        run_started_at_epoch=run_started_at_epoch,
     )
     result = run_verifier(obligation, context)
     completed = result.status in {"passed"}
