@@ -99,18 +99,35 @@ def _load_node_specs_bundle(state_row):
         return None
 
 
-def _enforce_spec_gates(*, bundle, planner_output) -> None:
+def _enforce_spec_gates(
+    *,
+    bundle,
+    planner_output,
+    compile_context=None,
+    max_repair_attempts: int = 1,
+) -> dict:
     """Hard-block the build when spec-time validators report issues.
 
     Two gates:
       1. ``edge_contract_report.issues`` — cross-node spec inconsistency
          (already produced by the spec pass; we just refuse to proceed).
       2. ``capability_mismatch_validator`` — planner-vs-spec disagreement
-         on a node's compute class (computed here at build time, since
-         it depends on both planner output AND specs).
+         on a node's compute class OR I/O shape (computed here at build
+         time, since it depends on both planner output AND specs).
 
-    Both raise RuntimeError so the build's outer try/except marks the
-    build failed with a structured error_message.
+    On a capability_mismatch, the build first tries an auto-repair
+    pass (``capability_repair.repair_capability_picks``) which rebinds
+    each offending node deterministically. After up to
+    ``max_repair_attempts`` rounds of repair → re-validate, surviving
+    issues hard-block the build.
+
+    Returns a dict describing what happened:
+        {
+            "repair_attempts": [...],      # list[CapabilityRepairAttempt]
+            "planner_output_modified": bool,
+        }
+    so the caller can persist the repaired planner_output back to
+    FrontChainState (the planner's emission was mutated in place).
     """
     edge_report = bundle.edge_contract_report
     if edge_report and edge_report.issues:
@@ -126,12 +143,50 @@ def _enforce_spec_gates(*, bundle, planner_output) -> None:
     from app.services.node_spec.capability_mismatch_validator import (
         validate_capability_mismatch,
     )
+    from app.services.workflow_planner.capability_repair import (
+        repair_capability_picks,
+    )
+
+    repair_attempts: list = []
+    planner_output_modified = False
 
     cap_report = validate_capability_mismatch(
         planner_output=planner_output,
         specs=list(bundle.specs),
         skipped_node_ids=list(bundle.skipped_node_ids),
+        compile_context=compile_context,
     )
+
+    for attempt_idx in range(max_repair_attempts):
+        if not cap_report.issues:
+            break
+        log_event(
+            logger,
+            logging.INFO,
+            "build.capability_repair.attempt",
+            attempt=attempt_idx + 1,
+            issue_count=len(cap_report.issues),
+            issue_kinds=sorted({i.kind for i in cap_report.issues}),
+        )
+        repair_report = repair_capability_picks(
+            planner_output=planner_output,
+            specs=list(bundle.specs),
+            issues=cap_report.issues,
+        )
+        repair_attempts.extend(repair_report.attempts)
+        if repair_report.made_any_change:
+            planner_output_modified = True
+        if not repair_report.made_any_change:
+            # No progress was possible — break out of the retry loop;
+            # the post-loop block below will raise.
+            break
+        cap_report = validate_capability_mismatch(
+            planner_output=planner_output,
+            specs=list(bundle.specs),
+            skipped_node_ids=list(bundle.skipped_node_ids),
+            compile_context=compile_context,
+        )
+
     if cap_report.issues:
         rendered = "; ".join(
             f"[{i.kind}] node={i.node_id} picked={i.selected_capability_id} "
@@ -139,10 +194,31 @@ def _enforce_spec_gates(*, bundle, planner_output) -> None:
             f"allowed={i.allowed_runtime_classes}"
             for i in cap_report.issues
         )
+        repaired_part = (
+            f" (after {len(repair_attempts)} repair attempt(s))"
+            if repair_attempts
+            else ""
+        )
         raise RuntimeError(
             f"session_anchored_build_blocked: capability_mismatch validator "
-            f"reports {len(cap_report.issues)} issue(s). {rendered}"
+            f"reports {len(cap_report.issues)} issue(s){repaired_part}. {rendered}"
         )
+
+    return {
+        "repair_attempts": [
+            {
+                "node_id": a.node_id,
+                "issue_kind": a.issue_kind,
+                "expected_runtime_class": a.expected_runtime_class,
+                "original_capability": a.original_capability,
+                "new_capability": a.new_capability,
+                "repair_source": a.repair_source,
+                "rationale": a.rationale,
+            }
+            for a in repair_attempts
+        ],
+        "planner_output_modified": planner_output_modified,
+    }
 
 
 def _apply_specs_to_planner_output(
@@ -343,10 +419,45 @@ class BuildExecutionService:
                 list(node_specs_bundle.specs) if node_specs_bundle else []
             )
             if node_specs_bundle is not None:
-                _enforce_spec_gates(
+                gate_outcome = _enforce_spec_gates(
                     bundle=node_specs_bundle,
                     planner_output=planner_output,
+                    compile_context=compile_context_for_adapter,
                 )
+                # Persist the repaired planner_output back to the
+                # state row so subsequent build attempts (or a UI
+                # listing) see the corrected capability picks. The
+                # repair_attempts list goes into a sidecar key so
+                # observability can show the audit trail without
+                # mutating the planner emission's shape.
+                if gate_outcome.get("planner_output_modified"):
+                    state_row.planner_output_json = planner_output.model_dump(
+                        mode="json"
+                    )
+                    repair_trace = list(
+                        (state_row.planner_output_json.get("planner_metadata") or {}).get(
+                            "capability_repair_attempts"
+                        )
+                        or []
+                    )
+                    repair_trace.extend(gate_outcome.get("repair_attempts") or [])
+                    pmeta = dict(
+                        state_row.planner_output_json.get("planner_metadata") or {}
+                    )
+                    pmeta["capability_repair_attempts"] = repair_trace
+                    state_row.planner_output_json["planner_metadata"] = pmeta
+                    from sqlalchemy.orm.attributes import flag_modified
+
+                    flag_modified(state_row, "planner_output_json")
+                    db.add(state_row)
+                    db.flush()
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "build.capability_repair.persisted",
+                        build_id=build.id,
+                        repair_count=len(gate_outcome.get("repair_attempts") or []),
+                    )
                 _apply_specs_to_planner_output(
                     planner_output=planner_output,
                     specs=spec_list,

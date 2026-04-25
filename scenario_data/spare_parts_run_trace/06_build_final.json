@@ -1,21 +1,21 @@
 {
-  "id": "abf36773-ee3d-432a-9377-de8be879d764",
+  "id": "caa417f4-badb-4c16-bde5-f1050a7019f5",
   "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
   "blueprint_id": null,
   "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
-  "executable_id": "fe78d9dd-8b25-43fd-9274-e939960f1807",
-  "active_job_id": "c873f96f-fc0b-4103-979f-fe5cad5b824a",
+  "executable_id": "ecbb4954-e861-4ebf-9894-584da5f03786",
+  "active_job_id": "4ce5f20f-e4a8-4fe5-a0dd-008d7ff3f96d",
   "active_job_status": "completed",
-  "build_version": "build-0017",
+  "build_version": "build-0019",
   "status": "completed",
   "build_options_json": {
     "target": "spare_parts_full_pipeline"
   },
   "manifest_snapshot_json": {
     "manifest_version": "0.1",
-    "executable_id": "fe78d9dd-8b25-43fd-9274-e939960f1807",
-    "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
-    "build_version": "build-0017",
+    "executable_id": "ecbb4954-e861-4ebf-9894-584da5f03786",
+    "build_id": "caa417f4-badb-4c16-bde5-f1050a7019f5",
+    "build_version": "build-0019",
     "project_id": "013b6e0e-3925-44b6-b901-542af5cacf78",
     "blueprint_id": null,
     "executable_type": "workflow",
@@ -118,20 +118,20 @@
   },
   "summary": "Session-anchored build: 7 runnable / 0 blocked coding_agent-slice steps.",
   "error_message": null,
-  "started_at": "2026-04-25T03:47:55.720377+00:00",
-  "ended_at": "2026-04-25T03:47:57.627981+00:00",
-  "created_at": "2026-04-25T03:47:55.589140+00:00",
-  "updated_at": "2026-04-25T03:47:57.631337+00:00",
+  "started_at": "2026-04-25T04:05:33.202719+00:00",
+  "ended_at": "2026-04-25T04:05:35.096915+00:00",
+  "created_at": "2026-04-25T04:05:33.079859+00:00",
+  "updated_at": "2026-04-25T04:05:35.102708+00:00",
   "build_steps": [
     {
-      "id": "827a9a6c-f046-4f8b-8c8b-3e0b7ed8c674",
-      "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+      "id": "5fddd76a-d91a-472f-95ae-311d4eb277d0",
+      "build_id": "caa417f4-badb-4c16-bde5-f1050a7019f5",
       "step_name": "analyze_source",
       "step_order": 1,
       "status": "completed",
       "input_payload_json": {
         "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
-        "build_version": "build-0017"
+        "build_version": "build-0019"
       },
       "output_payload_json": {
         "step_name": "analyze_source",
@@ -152,20 +152,20 @@
         "completion_tokens": 0,
         "total_tokens": 0
       },
-      "started_at": "2026-04-25T03:47:55.765082+00:00",
-      "finished_at": "2026-04-25T03:47:55.769696+00:00",
-      "created_at": "2026-04-25T03:47:55.589140+00:00",
-      "updated_at": "2026-04-25T03:47:55.767490+00:00"
+      "started_at": "2026-04-25T04:05:33.252085+00:00",
+      "finished_at": "2026-04-25T04:05:33.262387+00:00",
+      "created_at": "2026-04-25T04:05:33.079859+00:00",
+      "updated_at": "2026-04-25T04:05:33.260100+00:00"
     },
     {
-      "id": "d6b037ae-a7a5-4f0f-b609-765a724b24ab",
-      "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+      "id": "afc62138-7e86-4a0d-8b0e-2bee58211c6c",
+      "build_id": "caa417f4-badb-4c16-bde5-f1050a7019f5",
       "step_name": "generate_manifest",
       "step_order": 2,
       "status": "completed",
       "input_payload_json": {
         "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
-        "build_version": "build-0017"
+        "build_version": "build-0019"
       },
       "output_payload_json": {
         "step_name": "generate_manifest",
@@ -186,20 +186,20 @@
         "completion_tokens": 0,
         "total_tokens": 0
       },
-      "started_at": "2026-04-25T03:47:56.189945+00:00",
-      "finished_at": "2026-04-25T03:47:56.239077+00:00",
-      "created_at": "2026-04-25T03:47:55.589140+00:00",
-      "updated_at": "2026-04-25T03:47:56.217156+00:00"
+      "started_at": "2026-04-25T04:05:33.684048+00:00",
+      "finished_at": "2026-04-25T04:05:33.730581+00:00",
+      "created_at": "2026-04-25T04:05:33.079859+00:00",
+      "updated_at": "2026-04-25T04:05:33.711070+00:00"
     },
     {
-      "id": "000d1cd4-352c-4e0e-9d5d-4c2869a68125",
-      "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+      "id": "00a15c65-e200-4acd-99a8-ce4518ac8564",
+      "build_id": "caa417f4-badb-4c16-bde5-f1050a7019f5",
       "step_name": "materialize_executable",
       "step_order": 3,
       "status": "completed",
       "input_payload_json": {
         "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
-        "build_version": "build-0017"
+        "build_version": "build-0019"
       },
       "output_payload_json": {
         "step_name": "materialize_executable",
@@ -220,20 +220,20 @@
         "completion_tokens": 0,
         "total_tokens": 0
       },
-      "started_at": "2026-04-25T03:47:56.646574+00:00",
-      "finished_at": "2026-04-25T03:47:56.743371+00:00",
-      "created_at": "2026-04-25T03:47:55.589140+00:00",
-      "updated_at": "2026-04-25T03:47:56.682463+00:00"
+      "started_at": "2026-04-25T04:05:34.137903+00:00",
+      "finished_at": "2026-04-25T04:05:34.220865+00:00",
+      "created_at": "2026-04-25T04:05:33.079859+00:00",
+      "updated_at": "2026-04-25T04:05:34.174089+00:00"
     },
     {
-      "id": "68c08717-d2a6-419a-8414-cc09a53a1b15",
-      "build_id": "abf36773-ee3d-432a-9377-de8be879d764",
+      "id": "08dc31ed-9137-4b05-b230-32c12c1504a0",
+      "build_id": "caa417f4-badb-4c16-bde5-f1050a7019f5",
       "step_name": "finalize_executable",
       "step_order": 4,
       "status": "completed",
       "input_payload_json": {
         "session_id": "eb2105c0-caa6-4a66-b42a-f888baeca2f5",
-        "build_version": "build-0017"
+        "build_version": "build-0019"
       },
       "output_payload_json": {
         "step_name": "finalize_executable",
@@ -254,10 +254,10 @@
         "completion_tokens": 0,
         "total_tokens": 0
       },
-      "started_at": "2026-04-25T03:47:57.153456+00:00",
-      "finished_at": "2026-04-25T03:47:57.193543+00:00",
-      "created_at": "2026-04-25T03:47:55.589140+00:00",
-      "updated_at": "2026-04-25T03:47:57.190635+00:00"
+      "started_at": "2026-04-25T04:05:34.630529+00:00",
+      "finished_at": "2026-04-25T04:05:34.667170+00:00",
+      "created_at": "2026-04-25T04:05:33.079859+00:00",
+      "updated_at": "2026-04-25T04:05:34.664488+00:00"
     }
   ]
 }

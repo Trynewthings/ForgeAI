@@ -37,12 +37,14 @@ Rationale:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Literal
 
 from app.schemas.node_execution_spec import NodeExecutionSpec
+from app.schemas.requirement_compiler import CompileContextResponse
 from app.schemas.workflow_planner import WorkflowPlannerOutput
 
 logger = logging.getLogger(__name__)
@@ -61,9 +63,16 @@ _SPECIALISED_RUNTIME_CLASSES: dict[str, set] = {
 # this is never a structural mismatch.
 _GENERALIST_CAPABILITY_IDS = {"coding_agent", "general_agentic_reasoning"}
 
+# Capabilities that can ONLY operate on a single file (their I/O model
+# is one-locator-in / one-locator-out). When the input source is a
+# DIRECTORY (multi-file), these can't iterate and the planner must
+# fall back to a generalist that can walk the directory.
+_SINGLE_FILE_ONLY_CAPABILITY_IDS = {"filesystem_read", "filesystem_write"}
+
 
 class CapabilityMismatchIssue(BaseModel):
-    """A single planner-vs-spec disagreement on a node's compute class."""
+    """A single planner-vs-spec disagreement on a node's compute class
+    or its I/O shape compatibility."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -74,8 +83,18 @@ class CapabilityMismatchIssue(BaseModel):
     kind: Literal[
         "specialised_class_mismatch",  # specialised cap can't carry spec's class
         "missing_capability_selection",  # planner left selection empty
+        # I/O shape: capability is single-file but the locator points
+        # at a directory (or vice versa). Caught for acquire / persist
+        # nodes where the IC delivered a directory locator but the
+        # planner picked a single-file primitive.
+        "io_shape_mismatch",
     ]
     detail: str
+    # When kind == "io_shape_mismatch", carries the offending locator
+    # so the repair layer can decide whether to fall back to a
+    # generalist that can walk a directory.
+    locator: Optional[str] = None
+    locator_shape: Optional[Literal["file", "directory", "unknown"]] = None
 
 
 class CapabilityMismatchReport(BaseModel):
@@ -97,11 +116,24 @@ def validate_capability_mismatch(
     planner_output: WorkflowPlannerOutput,
     specs: list[NodeExecutionSpec],
     skipped_node_ids: list[str],
+    compile_context: Optional[CompileContextResponse] = None,
 ) -> CapabilityMismatchReport:
-    """Walk every spec'd node, compare planner pick vs spec runtime class."""
+    """Walk every spec'd node, compare planner pick vs spec runtime
+    class AND vs IC locator shape (when compile_context is supplied).
+
+    The I/O-shape check fires for source/persist nodes whose planner
+    pick is a single-file primitive (``filesystem_read`` /
+    ``filesystem_write``) but the IC's resolved_source_locator is a
+    DIRECTORY. Single-file primitives can't iterate directories — the
+    planner needs the generalist (coding_agent) instead.
+    """
     spec_by_id = {s.node_id: s for s in specs}
     skipped = set(skipped_node_ids)
     report = CapabilityMismatchReport()
+
+    input_locator_shape, input_locator_str = _resolve_input_locator_shape(
+        compile_context
+    )
 
     for node in planner_output.node_drafts:
         if node.draft_node_id in skipped:
@@ -137,6 +169,38 @@ def validate_capability_mismatch(
                         f"(expected_runtime_class={expected_class}) but "
                         f"planner did not bind any capability."
                     ),
+                )
+            )
+            continue
+
+        # I/O-shape check: catches the specific case where the planner
+        # picked filesystem_read for an acquire node whose input
+        # locator is a directory. Runs first because once we know this
+        # is wrong, the class-mismatch check below would either say
+        # nothing (filesystem_read IS valid for bounded_acquire) or
+        # double-report.
+        if (
+            selected in _SINGLE_FILE_ONLY_CAPABILITY_IDS
+            and input_locator_shape == "directory"
+            and not (node.upstream_dependencies or [])
+        ):
+            report.issues.append(
+                CapabilityMismatchIssue(
+                    node_id=node.draft_node_id,
+                    selected_capability_id=selected,
+                    expected_runtime_class=expected_class,
+                    allowed_runtime_classes=[],
+                    kind="io_shape_mismatch",
+                    detail=(
+                        f"Node {node.draft_node_id} planner picked "
+                        f"single-file capability '{selected}' but the "
+                        f"input locator '{input_locator_str}' is a "
+                        f"directory. Single-file primitives can't iterate; "
+                        f"the planner needs a capability that can walk a "
+                        f"directory (e.g. coding_agent)."
+                    ),
+                    locator=input_locator_str,
+                    locator_shape="directory",
                 )
             )
             continue
@@ -185,6 +249,35 @@ def validate_capability_mismatch(
             report.skipped_nodes,
         )
     return report
+
+
+def _resolve_input_locator_shape(
+    compile_context: Optional[CompileContextResponse],
+) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(shape, raw_locator)`` for the IC's input locator.
+
+    ``shape`` is ``"file"`` / ``"directory"`` / ``"unknown"`` / None.
+    None means the compile context wasn't supplied or has no locator.
+    ``unknown`` means the locator string was supplied but the path
+    doesn't exist on disk so we can't classify.
+    """
+    if compile_context is None:
+        return None, None
+    ic = getattr(compile_context, "input_closure", None)
+    if ic is None:
+        return None, None
+    locator = (getattr(ic, "resolved_source_locator", None) or "").strip()
+    if not locator:
+        return None, None
+    try:
+        path = Path(locator)
+        if path.is_dir():
+            return "directory", locator
+        if path.is_file():
+            return "file", locator
+        return "unknown", locator
+    except OSError:
+        return "unknown", locator
 
 
 __all__ = [

@@ -1,21 +1,6 @@
-sku_id,part_name,warehouse,category,criticality,current_available_qty,forecast_daily_demand,lead_time_days,reorder_point,reorder_qty,suggested_order_qty,supplier_id,priority_score,decision_reason
-P-017,Motor Q,Main,Mechanical,High,3,90.0,35,15,30,42,SUP-007,11.7,stock 3 below reorder point 15; criticality=High; lead_time=35d
-P-020,Module T,Main,Electronic,High,2,90.0,30,10,25,33,SUP-010,10.8,stock 2 below reorder point 10; criticality=High; lead_time=30d
-P-010,Controller J,Main,Electronic,High,5,100.0,28,20,40,55,SUP-010,10.15,stock 5 below reorder point 20; criticality=High; lead_time=28d
-P-006,Pump F,Main,Hydraulic,High,10,100.0,30,25,50,65,SUP-006,9.6,stock 10 below reorder point 25; criticality=High; lead_time=30d
-P-016,Cylinder P,Main,Pneumatic,Medium,8,100.0,28,20,40,52,SUP-006,6.1867,stock 8 below reorder point 20; criticality=Medium; lead_time=28d
-P-001,Bearing A,Main,Mechanical,High,50,100.0,14,80,200,230,SUP-001,6.05,stock 50 below reorder point 80; criticality=High; lead_time=14d
-P-008,Actuator H,Main,Pneumatic,Medium,15,90.0,21,30,60,75,SUP-008,5.1,stock 15 below reorder point 30; criticality=Medium; lead_time=21d
-P-004,Valve D,Main,Pneumatic,Medium,30,100.0,21,50,100,120,SUP-004,4.76,stock 30 below reorder point 50; criticality=Medium; lead_time=21d
-P-014,Gear N,Main,Mechanical,Medium,20,100.0,21,30,80,90,SUP-004,4.5333,stock 20 below reorder point 30; criticality=Medium; lead_time=21d
-P-007,Sensor G,Main,Electronic,High,80,100.0,14,40,120,0,SUP-007,4.4,stock 80 >= reorder point 40; criticality=High; lead_time=14d
-P-015,Switch O,Main,Electronic,High,100,100.0,14,50,150,0,SUP-005,4.4,stock 100 >= reorder point 50; criticality=High; lead_time=14d
-P-011,Hose K,Main,Hydraulic,Medium,60,100.0,14,40,100,0,SUP-001,2.9333,stock 60 >= reorder point 40; criticality=Medium; lead_time=14d
-P-002,Seal Kit B,Main,Hydraulic,Medium,120,100.0,10,60,150,0,SUP-002,2.6667,stock 120 >= reorder point 60; criticality=Medium; lead_time=10d
-P-009,Belt I,Main,Mechanical,Low,300,100.0,10,150,400,0,SUP-009,1.3333,stock 300 >= reorder point 150; criticality=Low; lead_time=10d
-P-013,Spring M,Main,Mechanical,Low,250,100.0,10,100,300,0,SUP-003,1.3333,stock 250 >= reorder point 100; criticality=Low; lead_time=10d
-P-018,Pipe R,Main,Hydraulic,Low,180,100.0,10,80,200,0,SUP-008,1.3333,stock 180 >= reorder point 80; criticality=Low; lead_time=10d
-P-003,Filter C,Main,Filtration,Low,200,100.0,7,100,300,0,SUP-003,1.2333,stock 200 >= reorder point 100; criticality=Low; lead_time=7d
-P-012,Seal L,Main,Sealing,Low,400,100.0,7,200,500,0,SUP-002,1.2333,stock 400 >= reorder point 200; criticality=Low; lead_time=7d
-P-005,Gasket E,Main,Sealing,Low,500,100.0,5,200,600,0,SUP-005,1.1667,stock 500 >= reorder point 200; criticality=Low; lead_time=5d
-P-019,Clamp S,Main,Mechanical,Low,600,100.0,5,300,800,0,SUP-009,1.1667,stock 600 >= reorder point 300; criticality=Low; lead_time=5d
+sku_id,part_name,warehouse,category,criticality,current_available_qty,historical_consumption_30d,forecast_daily_demand,market_demand_signal,lead_time_days,supplier_lead_time_variability_days,reorder_point,reorder_qty,suggested_order_qty,supplier_id,priority_score,decision_reason,replenishment_queue_position
+P-001,Part Alpha,WH-East-01,General,Medium,12,150,5.0,Stable,7,1,35,50,0,S-001,0.2,Current stock above reorder point (12 >= 35),0
+P-002,Part Beta,WH-East-01,General,High,5,200,6.7,Increasing,10,2,67,80,62,S-002,0.8,Below reorder point (5 < 67) - order 62 units,1
+P-003,Part Gamma,WH-East-01,Critical,High,0,300,10.0,Spike detected,5,0,50,100,100,S-003,1.0,Stockout - urgent replenishment needed,2
+P-004,Part Delta,WH-East-01,General,Low,25,80,2.7,Declining,14,3,38,40,0,S-004,0.1,Above reorder point (25 >= 38),0
+P-005,Part Epsilon,WH-East-01,General,Medium,8,120,4.0,Seasonal peak,8,1,32,60,24,S-005,0.6,Below reorder point (8 < 32) - order 24 units,3

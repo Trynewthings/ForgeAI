@@ -591,7 +591,9 @@ def test_b1_build_hard_blocks_on_edge_contract_issues():
         _enforce_spec_gates(bundle=bundle, planner_output=_planner(nodes, [("A", "B")]))
 
 
-def test_b2_build_hard_blocks_on_capability_mismatch():
+def test_b2_build_repairs_capability_mismatch_then_proceeds():
+    """Task 7: capability_mismatch on a transform node is auto-repaired
+    to coding_agent. The build proceeds; repair attempts are returned."""
     from app.services.build.build_execution_service import _enforce_spec_gates
 
     nodes = [
@@ -602,8 +604,20 @@ def test_b2_build_hard_blocks_on_capability_mismatch():
         skipped_node_ids=[],
         edge_contract_report=EdgeContractReport(checked_edges=0),
     )
-    with pytest.raises(RuntimeError, match="capability_mismatch"):
-        _enforce_spec_gates(bundle=bundle, planner_output=_planner(nodes, []))
+    planner = _planner(nodes, [])
+    outcome = _enforce_spec_gates(bundle=bundle, planner_output=planner)
+    # The repair re-bound n_compute from filesystem_read to coding_agent.
+    assert outcome["planner_output_modified"] is True
+    assert len(outcome["repair_attempts"]) == 1
+    a = outcome["repair_attempts"][0]
+    assert a["node_id"] == "n_compute"
+    assert a["original_capability"] == "filesystem_read"
+    assert a["new_capability"] == "coding_agent"
+    assert a["repair_source"] == "deterministic_generalist"
+    # And the in-memory planner_output reflects the change.
+    bound = planner.node_drafts[0].planner_metadata["bound_capability"]
+    assert bound["selected_capability_id"] == "coding_agent"
+    assert bound["selection_source"] == "capability_repair"
 
 
 def test_b3_build_proceeds_when_bundle_is_none():
