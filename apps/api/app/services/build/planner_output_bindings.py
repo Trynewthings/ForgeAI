@@ -132,36 +132,64 @@ def build_step_dict(node: WorkflowPlannerNodeDraft) -> dict[str, Any]:
 def _derive_shared_workspace(
     compile_context: CompileContextResponse | None,
 ) -> Optional[str]:
-    """Derive a shared workspace directory from the compile context's
-    input locator.
+    """Derive a shared workspace directory rooted high enough to cover
+    BOTH the input locator and the output delivery target.
 
-    When the input locator points at a file (e.g. ``/tmp/ws/orders.csv``),
-    the workspace is its parent directory (``/tmp/ws``). For directory
-    locators we use them as-is. Returns None when no locator is known —
-    the caller falls back to the coding_agent's default per-step
-    workspace, which means the cross-step chain won't share files.
+    The runtime sandbox enforces ``allow_write_dir`` for any path the
+    chain touches; if the workspace is just the input directory, the
+    final ``filesystem_write`` step can't reach a sibling ``output/``
+    folder. Using the common ancestor of input + output locators
+    keeps every chain step inside one writable root.
+
+    Falls back gracefully:
+        * if neither locator is path-shaped → return None
+        * if only one is → use that one's parent (suffix-aware)
+        * if both are → return their longest common parent directory
     """
     if compile_context is None:
         return None
-    locator = (compile_context.input_closure.resolved_source_locator or "").strip()
-    if not _looks_like_path(locator):
-        # Fallback: derive workspace from the OUTPUT locator's parent
-        # directory. For parameters-only intents (no input source) the
-        # only path-shaped artifact in the compile context is the
-        # delivery target — using its parent gives coding_agent a real
-        # place to write its intermediate file so the downstream
-        # filesystem_write step has something to read.
-        out_locator = (compile_context.output_closure.delivery_target or "").strip()
-        if not _looks_like_path(out_locator):
-            return None
-        out_path = Path(out_locator)
-        return str(out_path.parent if out_path.suffix else out_path)
+    in_locator = (compile_context.input_closure.resolved_source_locator or "").strip()
+    out_locator = (compile_context.output_closure.delivery_target or "").strip()
+
+    in_dir = _path_to_directory(in_locator)
+    out_dir = _path_to_directory(out_locator)
+
+    if in_dir and out_dir:
+        common = _common_directory(in_dir, out_dir)
+        if common:
+            return common
+    return in_dir or out_dir
+
+
+def _path_to_directory(locator: str) -> Optional[str]:
+    """Convert a locator into the directory it lives under, or None
+    when the locator isn't path-shaped."""
+    if not locator or not _looks_like_path(locator):
+        return None
     path = Path(locator)
-    # If the locator has a file-like suffix, use its parent; otherwise
-    # treat the locator itself as a directory.
     if path.suffix and not path.is_dir():
         return str(path.parent)
     return str(path)
+
+
+def _common_directory(a: str, b: str) -> Optional[str]:
+    """Longest common parent directory of two absolute paths."""
+    pa = Path(a).resolve(strict=False)
+    pb = Path(b).resolve(strict=False)
+    parts_a = pa.parts
+    parts_b = pb.parts
+    common: list[str] = []
+    for x, y in zip(parts_a, parts_b):
+        if x != y:
+            break
+        common.append(x)
+    if not common:
+        return None
+    # ``Path.parts`` for an absolute POSIX path begins with "/" so
+    # rejoining handles roots correctly.
+    if common[0] == "/":
+        return str(Path(*common))
+    return str(Path(*common))
 
 
 def _looks_like_path(locator: str) -> bool:

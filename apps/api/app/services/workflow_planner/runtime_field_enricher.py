@@ -402,6 +402,11 @@ def _compose_expected_outputs(spec: NodeExecutionSpec) -> list:
         primary_schema = _join_schema(primary.schema_hint)
         if primary_schema:
             primary_entry["schema_hint"] = primary_schema
+        # Strict required_fields list — fed into the runtime contract
+        # verifier so the coding_agent can't rename / hallucinate
+        # field names. Empty list → no strict check; advisory hint only.
+        if primary.schema_hint:
+            primary_entry["required_fields"] = list(primary.schema_hint)
         entries.append(primary_entry)
     for sec in spec.output_contract.secondary_outputs:
         if not sec.locator_hint:
@@ -414,6 +419,8 @@ def _compose_expected_outputs(spec: NodeExecutionSpec) -> list:
         sec_schema = _join_schema(sec.schema_hint)
         if sec_schema:
             entry["schema_hint"] = sec_schema
+        if sec.schema_hint:
+            entry["required_fields"] = list(sec.schema_hint)
         entries.append(entry)
     return entries
 

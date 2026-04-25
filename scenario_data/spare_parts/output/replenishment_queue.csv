@@ -1,0 +1,101 @@
+sku_id,part_name,warehouse,category,criticality,current_available_qty,forecast_daily_demand,lead_time_days,reorder_point,reorder_qty,suggested_order_qty,supplier_id,priority_score,decision_reason
+P-002,Hydraulic Pump B,WH-East,Hydraulics,High,8,9.16,10,137.4,183.2,183.2,SUP-001,5.83,Current stock 8 below reorder point 137.4; order 183.2
+P-002,Hydraulic Pump B,WH-Main,Hydraulics,High,8,9.16,10,137.4,183.2,183.2,SUP-001,5.83,Current stock 8 below reorder point 137.4; order 183.2
+P-002,Hydraulic Pump B,WH-North,Hydraulics,High,8,9.16,10,137.4,183.2,183.2,SUP-001,5.83,Current stock 8 below reorder point 137.4; order 183.2
+P-002,Hydraulic Pump B,WH-South,Hydraulics,High,8,9.16,10,137.4,183.2,183.2,SUP-001,5.83,Current stock 8 below reorder point 137.4; order 183.2
+P-002,Hydraulic Pump B,WH-West,Hydraulics,High,8,9.16,10,137.4,183.2,183.2,SUP-001,5.83,Current stock 8 below reorder point 137.4; order 183.2
+P-001,Hydraulic Pump A,WH-North,Hydraulics,High,25,17.96,14,377.2,502.9,502.9,SUP-001,5.8,Current stock 25 below reorder point 377.2; order 502.9
+P-001,Hydraulic Pump A,WH-South,Hydraulics,High,25,17.96,14,377.2,502.9,502.9,SUP-001,5.8,Current stock 25 below reorder point 377.2; order 502.9
+P-001,Hydraulic Pump A,WH-West,Hydraulics,High,25,17.96,14,377.2,502.9,502.9,SUP-001,5.8,Current stock 25 below reorder point 377.2; order 502.9
+P-001,Hydraulic Pump A,WH-East,Hydraulics,High,25,13.52,14,284.0,378.7,378.7,SUP-001,5.74,Current stock 25 below reorder point 284.0; order 378.7
+P-001,Hydraulic Pump A,WH-Main,Hydraulics,High,25,13.52,14,284.0,378.7,378.7,SUP-001,5.74,Current stock 25 below reorder point 284.0; order 378.7
+P-005,Control Valve,WH-East,Valves,High,15,8.81,12,158.6,211.4,211.4,SUP-001,5.72,Current stock 15 below reorder point 158.6; order 211.4
+P-005,Control Valve,WH-Main,Valves,High,15,8.81,12,158.6,211.4,211.4,SUP-001,5.72,Current stock 15 below reorder point 158.6; order 211.4
+P-005,Control Valve,WH-North,Valves,High,15,8.81,12,158.6,211.4,211.4,SUP-001,5.72,Current stock 15 below reorder point 158.6; order 211.4
+P-005,Control Valve,WH-South,Valves,High,15,8.81,12,158.6,211.4,211.4,SUP-001,5.72,Current stock 15 below reorder point 158.6; order 211.4
+P-005,Control Valve,WH-West,Valves,High,15,8.81,12,158.6,211.4,211.4,SUP-001,5.72,Current stock 15 below reorder point 158.6; order 211.4
+P-011,Part P-011,WH-East,General,Medium,0,9.03,7,94.8,126.4,126.4,SUP-000,4.0,Current stock 0 below reorder point 94.8; order 126.4
+P-011,Part P-011,WH-Main,General,Medium,0,9.03,7,94.8,126.4,126.4,SUP-000,4.0,Current stock 0 below reorder point 94.8; order 126.4
+P-011,Part P-011,WH-North,General,Medium,0,9.03,7,94.8,126.4,126.4,SUP-000,4.0,Current stock 0 below reorder point 94.8; order 126.4
+P-011,Part P-011,WH-South,General,Medium,0,9.03,7,94.8,126.4,126.4,SUP-000,4.0,Current stock 0 below reorder point 94.8; order 126.4
+P-011,Part P-011,WH-West,General,Medium,0,9.03,7,94.8,126.4,126.4,SUP-000,4.0,Current stock 0 below reorder point 94.8; order 126.4
+P-012,Part P-012,WH-East,General,Medium,0,5.9,7,61.9,82.6,82.6,SUP-000,4.0,Current stock 0 below reorder point 61.9; order 82.6
+P-012,Part P-012,WH-Main,General,Medium,0,5.9,7,61.9,82.6,82.6,SUP-000,4.0,Current stock 0 below reorder point 61.9; order 82.6
+P-012,Part P-012,WH-North,General,Medium,0,5.9,7,61.9,82.6,82.6,SUP-000,4.0,Current stock 0 below reorder point 61.9; order 82.6
+P-012,Part P-012,WH-South,General,Medium,0,5.9,7,61.9,82.6,82.6,SUP-000,4.0,Current stock 0 below reorder point 61.9; order 82.6
+P-012,Part P-012,WH-West,General,Medium,0,5.9,7,61.9,82.6,82.6,SUP-000,4.0,Current stock 0 below reorder point 61.9; order 82.6
+P-013,Part P-013,WH-East,General,Medium,0,5.97,7,62.7,83.6,83.6,SUP-000,4.0,Current stock 0 below reorder point 62.7; order 83.6
+P-013,Part P-013,WH-Main,General,Medium,0,5.97,7,62.7,83.6,83.6,SUP-000,4.0,Current stock 0 below reorder point 62.7; order 83.6
+P-013,Part P-013,WH-North,General,Medium,0,5.97,7,62.7,83.6,83.6,SUP-000,4.0,Current stock 0 below reorder point 62.7; order 83.6
+P-013,Part P-013,WH-South,General,Medium,0,5.98,7,62.8,83.7,83.7,SUP-000,4.0,Current stock 0 below reorder point 62.8; order 83.7
+P-013,Part P-013,WH-West,General,Medium,0,5.98,7,62.8,83.7,83.7,SUP-000,4.0,Current stock 0 below reorder point 62.8; order 83.7
+P-014,Part P-014,WH-East,General,Medium,0,9.33,7,98.0,130.7,130.7,SUP-000,4.0,Current stock 0 below reorder point 98.0; order 130.7
+P-014,Part P-014,WH-Main,General,Medium,0,9.33,7,98.0,130.7,130.7,SUP-000,4.0,Current stock 0 below reorder point 98.0; order 130.7
+P-014,Part P-014,WH-North,General,Medium,0,9.33,7,98.0,130.7,130.7,SUP-000,4.0,Current stock 0 below reorder point 98.0; order 130.7
+P-014,Part P-014,WH-South,General,Medium,0,12.24,7,128.5,171.3,171.3,SUP-000,4.0,Current stock 0 below reorder point 128.5; order 171.3
+P-014,Part P-014,WH-West,General,Medium,0,12.27,7,128.8,171.8,171.8,SUP-000,4.0,Current stock 0 below reorder point 128.8; order 171.8
+P-015,Part P-015,WH-East,General,Medium,0,13.88,7,145.7,194.3,194.3,SUP-000,4.0,Current stock 0 below reorder point 145.7; order 194.3
+P-015,Part P-015,WH-Main,General,Medium,0,13.88,7,145.7,194.3,194.3,SUP-000,4.0,Current stock 0 below reorder point 145.7; order 194.3
+P-015,Part P-015,WH-North,General,Medium,0,18.32,7,192.4,256.5,256.5,SUP-000,4.0,Current stock 0 below reorder point 192.4; order 256.5
+P-015,Part P-015,WH-South,General,Medium,0,18.32,7,192.4,256.5,256.5,SUP-000,4.0,Current stock 0 below reorder point 192.4; order 256.5
+P-015,Part P-015,WH-West,General,Medium,0,18.32,7,192.4,256.5,256.5,SUP-000,4.0,Current stock 0 below reorder point 192.4; order 256.5
+P-016,Part P-016,WH-East,General,Medium,0,6.02,7,63.2,84.2,84.2,SUP-000,4.0,Current stock 0 below reorder point 63.2; order 84.2
+P-016,Part P-016,WH-Main,General,Medium,0,6.02,7,63.2,84.2,84.2,SUP-000,4.0,Current stock 0 below reorder point 63.2; order 84.2
+P-016,Part P-016,WH-North,General,Medium,0,6.02,7,63.2,84.2,84.2,SUP-000,4.0,Current stock 0 below reorder point 63.2; order 84.2
+P-016,Part P-016,WH-South,General,Medium,0,6.02,7,63.2,84.2,84.2,SUP-000,4.0,Current stock 0 below reorder point 63.2; order 84.2
+P-016,Part P-016,WH-West,General,Medium,0,6.03,7,63.3,84.4,84.4,SUP-000,4.0,Current stock 0 below reorder point 63.3; order 84.4
+P-017,Part P-017,WH-East,General,Medium,0,6.02,7,63.2,84.2,84.2,SUP-000,4.0,Current stock 0 below reorder point 63.2; order 84.2
+P-017,Part P-017,WH-Main,General,Medium,0,6.02,7,63.2,84.2,84.2,SUP-000,4.0,Current stock 0 below reorder point 63.2; order 84.2
+P-017,Part P-017,WH-North,General,Medium,0,6.02,7,63.2,84.2,84.2,SUP-000,4.0,Current stock 0 below reorder point 63.2; order 84.2
+P-017,Part P-017,WH-South,General,Medium,0,6.03,7,63.3,84.5,84.5,SUP-000,4.0,Current stock 0 below reorder point 63.3; order 84.5
+P-017,Part P-017,WH-West,General,Medium,0,13.29,7,139.5,186.0,186.0,SUP-000,4.0,Current stock 0 below reorder point 139.5; order 186.0
+P-018,Part P-018,WH-East,General,Medium,0,9.55,7,100.3,133.7,133.7,SUP-000,4.0,Current stock 0 below reorder point 100.3; order 133.7
+P-018,Part P-018,WH-Main,General,Medium,0,9.55,7,100.3,133.7,133.7,SUP-000,4.0,Current stock 0 below reorder point 100.3; order 133.7
+P-018,Part P-018,WH-North,General,Medium,0,9.55,7,100.3,133.7,133.7,SUP-000,4.0,Current stock 0 below reorder point 100.3; order 133.7
+P-018,Part P-018,WH-South,General,Medium,0,9.55,7,100.3,133.7,133.7,SUP-000,4.0,Current stock 0 below reorder point 100.3; order 133.7
+P-018,Part P-018,WH-West,General,Medium,0,9.55,7,100.3,133.7,133.7,SUP-000,4.0,Current stock 0 below reorder point 100.3; order 133.7
+P-019,Part P-019,WH-East,General,Medium,0,6.0,7,63.0,84.0,84.0,SUP-000,4.0,Current stock 0 below reorder point 63.0; order 84.0
+P-019,Part P-019,WH-Main,General,Medium,0,6.0,7,63.0,84.0,84.0,SUP-000,4.0,Current stock 0 below reorder point 63.0; order 84.0
+P-019,Part P-019,WH-North,General,Medium,0,6.0,7,63.0,84.0,84.0,SUP-000,4.0,Current stock 0 below reorder point 63.0; order 84.0
+P-019,Part P-019,WH-South,General,Medium,0,6.0,7,63.0,84.0,84.0,SUP-000,4.0,Current stock 0 below reorder point 63.0; order 84.0
+P-019,Part P-019,WH-West,General,Medium,0,6.0,7,63.0,84.0,84.0,SUP-000,4.0,Current stock 0 below reorder point 63.0; order 84.0
+P-020,Part P-020,WH-East,General,Medium,0,3.0,7,31.5,42.0,42.0,SUP-000,4.0,Current stock 0 below reorder point 31.5; order 42.0
+P-020,Part P-020,WH-Main,General,Medium,0,3.0,7,31.5,42.0,42.0,SUP-000,4.0,Current stock 0 below reorder point 31.5; order 42.0
+P-020,Part P-020,WH-North,General,Medium,0,3.0,7,31.5,42.0,42.0,SUP-000,4.0,Current stock 0 below reorder point 31.5; order 42.0
+P-020,Part P-020,WH-South,General,Medium,0,3.0,7,31.5,42.0,42.0,SUP-000,4.0,Current stock 0 below reorder point 31.5; order 42.0
+P-020,Part P-020,WH-West,General,Medium,0,3.0,7,31.5,42.0,42.0,SUP-000,4.0,Current stock 0 below reorder point 31.5; order 42.0
+P-010,Motor Drive,WH-East,Electronics,Medium,12,6.03,11,99.4,132.6,132.6,SUP-005,3.76,Current stock 12 below reorder point 99.4; order 132.6
+P-010,Motor Drive,WH-Main,Electronics,Medium,12,6.03,11,99.4,132.6,132.6,SUP-005,3.76,Current stock 12 below reorder point 99.4; order 132.6
+P-010,Motor Drive,WH-North,Electronics,Medium,12,6.03,11,99.4,132.6,132.6,SUP-005,3.76,Current stock 12 below reorder point 99.4; order 132.6
+P-010,Motor Drive,WH-South,Electronics,Medium,12,6.03,11,99.4,132.6,132.6,SUP-005,3.76,Current stock 12 below reorder point 99.4; order 132.6
+P-010,Motor Drive,WH-West,Electronics,Medium,12,6.03,11,99.4,132.6,132.6,SUP-005,3.76,Current stock 12 below reorder point 99.4; order 132.6
+P-006,Actuator,WH-East,Actuators,Medium,30,5.97,8,71.6,95.5,95.5,SUP-004,3.16,Current stock 30 below reorder point 71.6; order 95.5
+P-006,Actuator,WH-Main,Actuators,Medium,30,5.97,8,71.6,95.5,95.5,SUP-004,3.16,Current stock 30 below reorder point 71.6; order 95.5
+P-006,Actuator,WH-North,Actuators,Medium,30,5.97,8,71.6,95.5,95.5,SUP-004,3.16,Current stock 30 below reorder point 71.6; order 95.5
+P-006,Actuator,WH-South,Actuators,Medium,30,5.97,8,71.6,95.5,95.5,SUP-004,3.16,Current stock 30 below reorder point 71.6; order 95.5
+P-006,Actuator,WH-West,Actuators,Medium,30,5.97,8,71.6,95.5,95.5,SUP-004,3.16,Current stock 30 below reorder point 71.6; order 95.5
+P-009,Gear Set,WH-East,Mechanical,Low,60,6.01,9,81.1,108.1,108.1,SUP-003,1.26,Current stock 60 below reorder point 81.1; order 108.1
+P-009,Gear Set,WH-Main,Mechanical,Low,60,6.01,9,81.1,108.1,108.1,SUP-003,1.26,Current stock 60 below reorder point 81.1; order 108.1
+P-009,Gear Set,WH-North,Mechanical,Low,60,6.01,9,81.1,108.1,108.1,SUP-003,1.26,Current stock 60 below reorder point 81.1; order 108.1
+P-009,Gear Set,WH-South,Mechanical,Low,60,6.01,9,81.1,108.1,108.1,SUP-003,1.26,Current stock 60 below reorder point 81.1; order 108.1
+P-009,Gear Set,WH-West,Mechanical,Low,60,6.01,9,81.1,108.1,108.1,SUP-003,1.26,Current stock 60 below reorder point 81.1; order 108.1
+P-003,Filter Element,WH-East,Filters,Medium,50,6.19,5,46.5,61.9,0.0,SUP-002,0.2,Current stock 50 above reorder point 46.5; no order needed
+P-003,Filter Element,WH-Main,Filters,Medium,50,6.19,5,46.5,61.9,0.0,SUP-002,0.2,Current stock 50 above reorder point 46.5; no order needed
+P-003,Filter Element,WH-North,Filters,Medium,50,6.19,5,46.5,61.9,0.0,SUP-002,0.2,Current stock 50 above reorder point 46.5; no order needed
+P-003,Filter Element,WH-South,Filters,Medium,50,6.19,5,46.5,61.9,0.0,SUP-002,0.2,Current stock 50 above reorder point 46.5; no order needed
+P-003,Filter Element,WH-West,Filters,Medium,50,6.19,5,46.5,61.9,0.0,SUP-002,0.2,Current stock 50 above reorder point 46.5; no order needed
+P-004,Seal Kit,WH-East,Seals,Medium,100,6.12,7,64.2,85.6,0.0,SUP-003,0.2,Current stock 100 above reorder point 64.2; no order needed
+P-004,Seal Kit,WH-Main,Seals,Medium,100,6.12,7,64.2,85.6,0.0,SUP-003,0.2,Current stock 100 above reorder point 64.2; no order needed
+P-004,Seal Kit,WH-North,Seals,Medium,100,6.12,7,64.2,85.6,0.0,SUP-003,0.2,Current stock 100 above reorder point 64.2; no order needed
+P-004,Seal Kit,WH-South,Seals,Medium,100,6.12,7,64.2,85.6,0.0,SUP-003,0.2,Current stock 100 above reorder point 64.2; no order needed
+P-004,Seal Kit,WH-West,Seals,Medium,100,6.12,7,64.2,85.6,0.0,SUP-003,0.2,Current stock 100 above reorder point 64.2; no order needed
+P-008,Bearing Assembly,WH-East,Mechanical,Medium,40,3.38,6,30.5,40.6,0.0,SUP-002,0.2,Current stock 40 above reorder point 30.5; no order needed
+P-008,Bearing Assembly,WH-Main,Mechanical,Medium,40,3.38,6,30.5,40.6,0.0,SUP-002,0.2,Current stock 40 above reorder point 30.5; no order needed
+P-008,Bearing Assembly,WH-North,Mechanical,Medium,40,3.38,6,30.5,40.6,0.0,SUP-002,0.2,Current stock 40 above reorder point 30.5; no order needed
+P-008,Bearing Assembly,WH-South,Mechanical,Medium,40,3.39,6,30.5,40.7,0.0,SUP-002,0.2,Current stock 40 above reorder point 30.5; no order needed
+P-008,Bearing Assembly,WH-West,Mechanical,Medium,40,3.41,6,30.7,41.0,0.0,SUP-002,0.2,Current stock 40 above reorder point 30.7; no order needed
+P-007,Sensor Module,WH-East,Electronics,Low,200,9.73,3,43.8,58.4,0.0,SUP-005,0.1,Current stock 200 above reorder point 43.8; no order needed
+P-007,Sensor Module,WH-Main,Electronics,Low,200,9.73,3,43.8,58.4,0.0,SUP-005,0.1,Current stock 200 above reorder point 43.8; no order needed
+P-007,Sensor Module,WH-North,Electronics,Low,200,9.73,3,43.8,58.4,0.0,SUP-005,0.1,Current stock 200 above reorder point 43.8; no order needed
+P-007,Sensor Module,WH-South,Electronics,Low,200,12.62,3,56.8,75.7,0.0,SUP-005,0.1,Current stock 200 above reorder point 56.8; no order needed
+P-007,Sensor Module,WH-West,Electronics,Low,200,12.62,3,56.8,75.7,0.0,SUP-005,0.1,Current stock 200 above reorder point 56.8; no order needed

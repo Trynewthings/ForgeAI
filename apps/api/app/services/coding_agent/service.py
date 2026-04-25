@@ -41,6 +41,7 @@ from app.core.config import settings
 from app.schemas.coding_agent import (
     CodingAgentIteration,
     CodingAgentResult,
+    ContractValidation,
     ExpectedOutput,
     InputEvidence,
     OutputPolicy,
@@ -53,6 +54,7 @@ from app.services.coding_agent.bounded_code_runner import (
     execute as run_sandbox,
     render_inline_script_command,
 )
+from app.services.coding_agent.contract_verifier import validate_contract
 from app.services.coding_agent.prompt_builder import TOOL_SCHEMA, build_messages
 from app.services.provider_runtime import (
     BaseProviderAdapter,
@@ -115,8 +117,14 @@ class CodingAgentService:
             )
             iterations.append(iteration)
 
-            if iteration.exit_code == 0 and not iteration.timed_out and iteration.output_policy_violation.is_clean:
-                # Success
+            iteration_clean = (
+                iteration.exit_code == 0
+                and not iteration.timed_out
+                and iteration.output_policy_violation.is_clean
+                and iteration.contract_validation.is_clean
+            )
+            if iteration_clean:
+                # Success — both runtime and contract checks passed.
                 return CodingAgentResult(
                     ok=True,
                     iterations=iterations,
@@ -131,11 +139,15 @@ class CodingAgentService:
             previous = iteration
 
         # Exhausted the iteration budget. Classify the last failure.
+        # Priority order: runtime failure → contract violation →
+        # policy violation → budget exhausted.
         last = iterations[-1] if iterations else None
         failure_kind = "budget_exhausted"
         if last is not None:
             if last.timed_out or last.exit_code != 0:
                 failure_kind = "runtime_failure"
+            elif not last.contract_validation.is_clean:
+                failure_kind = "contract_violation"
             elif not last.output_policy_violation.is_clean:
                 failure_kind = "policy_violation"
         return CodingAgentResult(
@@ -228,6 +240,19 @@ class CodingAgentService:
             output_policy=contract.output_policy,
             workspace_dir=Path(contract.workspace_dir),
         )
+        # Strict contract verification (task 6) — only meaningful when
+        # the runtime actually produced the files; if exec failed or
+        # the file is missing, the field-level check would just echo
+        # the policy violation. Skip in those cases so failure_kind
+        # stays clean ("runtime_failure" / "policy_violation"
+        # take priority).
+        contract_check: ContractValidation
+        if exec_result.exit_code == 0 and not exec_result.timed_out and violation.is_clean:
+            contract_check = validate_contract(
+                expected_outputs=contract.expected_outputs,
+            )
+        else:
+            contract_check = ContractValidation()
 
         return CodingAgentIteration(
             iteration_index=iteration_index,
@@ -247,6 +272,7 @@ class CodingAgentService:
                 for pf in exec_result.produced_files
             ],
             output_policy_violation=violation,
+            contract_validation=contract_check,
             wall_time_ms=exec_result.wall_time_ms,
             sandbox_mode=exec_result.sandbox_mode,
         )
