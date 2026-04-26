@@ -13,7 +13,9 @@ from __future__ import annotations
 # alphabetical for predictability.
 from app.services.typed_nodes.executors import classify_state_space  # noqa: F401
 from app.services.typed_nodes.executors import filter as _filter  # noqa: F401
+from app.services.typed_nodes.executors import format_convert  # noqa: F401
 from app.services.typed_nodes.executors import formula_eval  # noqa: F401
+from app.services.typed_nodes.executors import groupby_aggregate  # noqa: F401
 from app.services.typed_nodes.executors import merge  # noqa: F401
 from app.services.typed_nodes.executors import project  # noqa: F401
 from app.services.typed_nodes.executors import read_csv  # noqa: F401
