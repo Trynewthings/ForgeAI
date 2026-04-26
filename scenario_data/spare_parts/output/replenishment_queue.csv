@@ -1,6 +1,0 @@
-sku_id,part_name,warehouse,category,criticality,current_available_qty,historical_consumption_30d,forecast_daily_demand,market_demand_signal,lead_time_days,supplier_lead_time_variability_days,reorder_point,reorder_qty,suggested_order_qty,supplier_id,priority_score,decision_reason,replenishment_queue_position
-P-001,Part Alpha,WH-East-01,General,Medium,12,150,5.0,Stable,7,1,35,50,0,S-001,0.2,Current stock above reorder point (12 >= 35),0
-P-002,Part Beta,WH-East-01,General,High,5,200,6.7,Increasing,10,2,67,80,62,S-002,0.8,Below reorder point (5 < 67) - order 62 units,1
-P-003,Part Gamma,WH-East-01,Critical,High,0,300,10.0,Spike detected,5,0,50,100,100,S-003,1.0,Stockout - urgent replenishment needed,2
-P-004,Part Delta,WH-East-01,General,Low,25,80,2.7,Declining,14,3,38,40,0,S-004,0.1,Above reorder point (25 >= 38),0
-P-005,Part Epsilon,WH-East-01,General,Medium,8,120,4.0,Seasonal peak,8,1,32,60,24,S-005,0.6,Below reorder point (8 < 32) - order 24 units,3

@@ -23,5 +23,5 @@ scenario_data/*/coding_agent_step_*.out
 scenario_data/*/script.py
 scenario_data/*/script.sh
 scenario_data/*/run_richer_e2e.py
-scenario_data/*/output/auto_replenishment_queue.csv
+scenario_data/*/output/
 scenario_data/*_run_trace/
