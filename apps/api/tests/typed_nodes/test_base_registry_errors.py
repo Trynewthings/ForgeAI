@@ -56,10 +56,20 @@ class MockExecutor(TypedNodeExecutor):
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
-    """Each test starts with an empty registry to avoid order coupling."""
+    """Snapshot the registry before, restore after — this gives each
+    test a fresh slate WITHOUT clobbering any executor registrations
+    that ran at module import time in other test files. Naive ``clear
+    + clear`` (the v1 of this fixture) wiped read_csv / write_csv etc.
+    from later tests in the run.
+    """
+    from app.services.typed_nodes import registry as _reg
+    snapshot_registry = dict(_reg._REGISTRY)
+    snapshot_summaries = dict(_reg._SUMMARIES)
     reset_registry_for_tests()
     yield
     reset_registry_for_tests()
+    _reg._REGISTRY.update(snapshot_registry)
+    _reg._SUMMARIES.update(snapshot_summaries)
 
 
 # ---------------------------------------------------------------------------
