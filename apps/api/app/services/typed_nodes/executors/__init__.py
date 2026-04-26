@@ -12,6 +12,7 @@ from __future__ import annotations
 # global registry. Order is irrelevant for correctness but kept
 # alphabetical for predictability.
 from app.services.typed_nodes.executors import filter as _filter  # noqa: F401
+from app.services.typed_nodes.executors import formula_eval  # noqa: F401
 from app.services.typed_nodes.executors import merge  # noqa: F401
 from app.services.typed_nodes.executors import project  # noqa: F401
 from app.services.typed_nodes.executors import read_csv  # noqa: F401
