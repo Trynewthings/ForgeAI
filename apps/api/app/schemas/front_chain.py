@@ -23,6 +23,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.problem_formulation import (
+    BusinessRuleContract,
     ClarificationResolutionRecord,
     InputClosureContract,
     InputClosureRequirement,
@@ -157,6 +158,20 @@ class FrontChainInterpreterOutputClosureCandidate(BaseModel):
         "output_closed",
     ] = "output_clarification_required"
     reasoning_summary: Optional[str] = None
+
+    # Required-columns extraction — see OutputClosureContract.required_columns.
+    required_columns: list[str] = Field(default_factory=list)
+    required_columns_source: Literal[
+        "user_explicit_listing",
+        "inferred",
+        "none",
+    ] = "none"
+    required_columns_verbatim_quote: Optional[str] = None
+
+    # 7.6E — structured business rules. Mirror of
+    # OutputClosureContract.business_rules; the partition validator
+    # propagates them through unmodified.
+    business_rules: list[BusinessRuleContract] = Field(default_factory=list)
 
 
 class FrontChainInterpreterLLMOutput(BaseModel):

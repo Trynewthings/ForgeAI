@@ -90,7 +90,40 @@ def _task_contract_from_step(
         "constraints": constraints,
         "runtime": runtime_cfg,
         "source_node_id": raw_step.get("node_id") or raw_step.get("draft_node_id"),
+        # 7.6D — propagate the planner's node_semantic_type through
+        # to the runtime so the coding_agent's exploration-only
+        # detector knows whether to apply the exploration ban
+        # (transform/analyze/decide/persist) or skip it (acquire).
+        "node_semantic_role": (
+            raw_step.get("node_semantic_type")
+            or raw_step.get("logical_step_kind")
+            or config_hints.get("node_semantic_role")
+        ),
     }
+    # 7.6E — propagate structured business rules from the spec into
+    # the task contract so the coding_agent prompt builder and the
+    # post-run business_semantic_verifier can consume them. Accepts
+    # either a list-of-dicts (planner_metadata) or a list of pydantic
+    # contracts (raw planner_output_bindings); both shapes degrade to
+    # plain dicts here so the TaskContract validator stays loose.
+    raw_business_rules = (
+        raw_step.get("business_rules")
+        or config_hints.get("business_rules")
+        or []
+    )
+    if isinstance(raw_business_rules, list):
+        normalized_business_rules = []
+        for item in raw_business_rules:
+            if isinstance(item, dict):
+                normalized_business_rules.append(dict(item))
+            else:
+                # pydantic BusinessRuleContract or similar
+                try:
+                    normalized_business_rules.append(item.model_dump())
+                except Exception:  # noqa: BLE001
+                    continue
+        if normalized_business_rules:
+            contract["business_rules"] = normalized_business_rules
     # Optional workspace_dir override — when the planner (or the caller)
     # wants the coding_agent to read / write against an existing
     # directory instead of the workload's default per-run path.

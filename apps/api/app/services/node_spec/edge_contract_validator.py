@@ -49,8 +49,14 @@ from app.schemas.node_execution_spec import (
     EdgeContractReport,
     NodeExecutionSpec,
     NodeInputSlot,
+    NodeOutputSlot,
 )
 from app.schemas.workflow_planner import WorkflowPlannerOutput
+from app.services.node_spec.dataset_key_normalizer import (
+    build_canonical_to_raw_map,
+    is_dataset_bundle_kind,
+    normalize_dataset_member_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +136,29 @@ def validate_edge_contracts(
         src_fields = [f for f in (src_output.schema_hint or []) if f]
         dst_fields = [f for f in (matched_slot.schema_hint or []) if f]
         if src_fields and dst_fields:
+            # 7.6C — when src.primary_output is a dataset bundle, the
+            # schema_hint members are bundle MEMBER KEYS (dataset
+            # names), not column names. The identity rule is strict
+            # equality with a canonical-key safety net: raw match,
+            # then canonical match (file-extension alias), then
+            # fail. Substring matching is forbidden.
+            if is_dataset_bundle_kind(src_output.kind):
+                bundle_issue = _check_dataset_bundle_keys(
+                    src_id=src_id,
+                    dst_id=dst_id,
+                    matched_slot_name=matched_slot.name,
+                    src_raw_keys=src_fields,
+                    dst_expected_keys=dst_fields,
+                )
+                if bundle_issue is not None:
+                    report.issues.append(bundle_issue)
+                # For bundle edges we always continue: either we
+                # surfaced the issue, or the keys reconciled (raw
+                # exact match OR canonical match). The generic
+                # field-level missing_fields check below would emit
+                # a misleading "schema_mismatch" because file
+                # extensions aren't column-style fields.
+                continue
             missing_fields = [f for f in dst_fields if f not in set(src_fields)]
             if missing_fields:
                 report.issues.append(
@@ -257,6 +286,89 @@ def _find_matching_slot(
         if slot.name == src_output_name:
             return slot
     return None
+
+
+def _check_dataset_bundle_keys(
+    *,
+    src_id: str,
+    dst_id: str,
+    matched_slot_name: str,
+    src_raw_keys: list[str],
+    dst_expected_keys: list[str],
+) -> Optional[EdgeContractIssue]:
+    """Return a ``dataset_member_key_mismatch`` issue when src and
+    dst's bundle keys can't be reconciled.
+
+    Matching ladder (strict):
+
+      1. Every dst expected key appears in ``src_raw_keys`` exactly
+         (case-sensitive). → no issue, return None.
+      2. Otherwise, build canonical-key sets on both sides and check
+         every dst expected key has a canonical match in src. The
+         reconciler later rewrites schema_hints to the exact src raw
+         keys + records the alias map. → no issue, return None.
+      3. Otherwise → return an issue describing exactly which dst
+         keys can't be matched, including any partial canonical
+         matches for human review.
+
+    Substring matching is NEVER allowed. ``"sku"`` does not match
+    ``"sku_master.csv"`` and vice versa.
+    """
+    src_set = set(src_raw_keys)
+    # 1. exact raw match
+    if all(k in src_set for k in dst_expected_keys):
+        return None
+
+    # 2. canonical alias match
+    src_canonical_groups = build_canonical_to_raw_map(src_raw_keys)
+    canonical_matches: list[dict] = []
+    unmatched_dst: list[str] = []
+    for dst_key in dst_expected_keys:
+        if dst_key in src_set:
+            # exact match — record so the audit shows what was direct.
+            canonical_matches.append(
+                {
+                    "upstream_raw_key": dst_key,
+                    "downstream_key": dst_key,
+                    "canonical_key": normalize_dataset_member_key(dst_key),
+                }
+            )
+            continue
+        dst_canonical = normalize_dataset_member_key(dst_key)
+        candidates = src_canonical_groups.get(dst_canonical) or []
+        if len(candidates) == 1:
+            canonical_matches.append(
+                {
+                    "upstream_raw_key": candidates[0],
+                    "downstream_key": dst_key,
+                    "canonical_key": dst_canonical,
+                }
+            )
+        else:
+            # Either zero candidates (genuine mismatch) or multiple
+            # raw keys collapsing to the same canonical (ambiguous —
+            # we refuse to silently pick).
+            unmatched_dst.append(dst_key)
+    if not unmatched_dst:
+        return None
+
+    return EdgeContractIssue(
+        edge_id=f"{src_id}__{dst_id}",
+        from_node_id=src_id,
+        to_node_id=dst_id,
+        kind="dataset_member_key_mismatch",
+        detail=(
+            f"dst input slot {matched_slot_name!r} expects dataset "
+            f"bundle keys {unmatched_dst} that don't match any src "
+            f"{src_id} raw key (substring matching is not allowed) "
+            f"and have no canonical-key alias. "
+            f"src emits: {src_raw_keys}. dst expects: {dst_expected_keys}."
+        ),
+        missing_fields=unmatched_dst,
+        upstream_raw_keys=list(src_raw_keys),
+        downstream_expected_keys=list(dst_expected_keys),
+        canonical_matches=canonical_matches,
+    )
 
 
 __all__ = ["validate_edge_contracts"]

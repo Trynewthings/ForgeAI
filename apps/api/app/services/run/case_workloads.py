@@ -2793,10 +2793,62 @@ def execute_coding_agent_workload(
 
     result = CodingAgentService().execute(contract)
 
+    # 7.6E — post-run business semantic verification. When the run
+    # produced a file at ANY of the declared expected_outputs and
+    # the contract carries business_rules, run the verifier and
+    # convert hard violations into a step-level failure. Schema-correct
+    # but semantically-fake outputs are NOT treated as success.
+    semantic_report: Optional[dict[str, Any]] = None
+    semantic_ok = True
+    if result.ok and contract.business_rules and contract.expected_outputs:
+        try:
+            from app.services.coding_agent.business_semantic_verifier import (
+                verify_business_semantics,
+            )
+            from app.services.coding_agent.golden_comparator import (
+                load_source_tables,
+            )
+            # Pick the first expected_output as the deliverable to
+            # verify (terminal node has exactly one in 7.6A's wiring).
+            target = contract.expected_outputs[0].locator
+            source_tables = load_source_tables(
+                workspace_dir=contract.workspace_dir,
+                input_evidence=contract.input_evidence,
+            )
+            sv = verify_business_semantics(
+                produced_path=target,
+                business_rules=list(contract.business_rules),
+                source_tables=source_tables,
+            )
+            semantic_report = sv.to_dict()
+            semantic_ok = sv.ok
+            if not sv.ok:
+                logger.warning(
+                    "coding_agent.business_semantics_violation step=%s "
+                    "violations=%d hard_violations=%d",
+                    step_name,
+                    len(sv.violations),
+                    sum(1 for v in sv.violations if v.severity == "hard"),
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "coding_agent.business_semantic_verifier_failed step=%s",
+                step_name,
+            )
+            # Verifier failure is itself a soft failure — do not block
+            # the run when our own check exploded. Keep the run ok=True
+            # but record the issue for triage.
+            semantic_report = {"error": "verifier exception (see logs)"}
+            semantic_ok = True
+
     # Structured output for downstream steps + the run's evidence chain.
     structured_output = {
-        "ok": result.ok,
-        "failure_kind": result.failure_kind,
+        "ok": result.ok and semantic_ok,
+        "failure_kind": (
+            "business_semantics_violation"
+            if (result.ok and not semantic_ok)
+            else result.failure_kind
+        ),
         "iterations_used": len(result.iterations),
         "total_wall_time_ms": result.total_wall_time_ms,
         "final_language": result.final_language,
@@ -2820,9 +2872,14 @@ def execute_coding_agent_workload(
         ],
     }
 
+    # 7.6E — surface semantic verifier output in the structured payload
+    if semantic_report is not None:
+        structured_output["business_semantics"] = semantic_report
+
     # The "content" field mirrors what other workloads return — a short
     # human-readable summary that the run's state view can display.
-    if result.ok:
+    effective_ok = result.ok and semantic_ok
+    if effective_ok:
         content_bits = [
             f"coding_agent completed in {len(result.iterations)} iteration(s)."
         ]
@@ -2831,6 +2888,16 @@ def execute_coding_agent_workload(
             extra = "" if len(result.produced_files) <= 5 else f" (+{len(result.produced_files) - 5} more)"
             content_bits.append(f"Produced: {names}{extra}.")
         content = " ".join(content_bits)
+    elif result.ok and not semantic_ok:
+        violations_count = (
+            len(semantic_report.get("violations", []))
+            if isinstance(semantic_report, dict)
+            else 0
+        )
+        content = (
+            f"coding_agent produced output but failed business "
+            f"semantics with {violations_count} hard violation(s)."
+        )
     else:
         content = (
             f"coding_agent failed with {result.failure_kind} after "
@@ -2879,9 +2946,11 @@ def execute_coding_agent_workload(
         "structured_output": structured_output,
         "adapter": "bounded_code_runner",
         "capability_family": "coding_agent",
-        # Fail the step loudly on policy / runtime failure so the
-        # scheduler marks it failed and the user sees it.
-        "status": "completed" if result.ok else "failed",
+        # Fail the step loudly on policy / runtime failure OR semantic
+        # violation so the scheduler marks it failed and the user sees
+        # it. 7.6E: schema-correct but semantically-fake output is
+        # NOT a successful run.
+        "status": "completed" if effective_ok else "failed",
     }
 
 

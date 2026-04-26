@@ -15,3 +15,13 @@ coverage/
 *.db
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+
+# scenario_data runtime outputs — keep `input/` and `expected/`
+# fixtures tracked, but exclude per-run artifacts so iterative
+# debugging doesn't pollute git status.
+scenario_data/*/coding_agent_step_*.out
+scenario_data/*/script.py
+scenario_data/*/script.sh
+scenario_data/*/run_richer_e2e.py
+scenario_data/*/output/auto_replenishment_queue.csv
+scenario_data/*_run_trace/

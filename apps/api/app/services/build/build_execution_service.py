@@ -204,6 +204,25 @@ def _enforce_spec_gates(
             f"reports {len(cap_report.issues)} issue(s){repaired_part}. {rendered}"
         )
 
+    spec_reconciliations = [
+        {
+            "node_id": a.spec_reconciliation.node_id,
+            "old_capability": a.spec_reconciliation.old_capability,
+            "new_capability": a.spec_reconciliation.new_capability,
+            "added_business_rule_id": a.spec_reconciliation.added_business_rule_id,
+            "added_business_rule_text": a.spec_reconciliation.added_business_rule_text,
+            "added_implementation_sketch_line": (
+                a.spec_reconciliation.added_implementation_sketch_line
+            ),
+            "bumped_max_iterations_from": (
+                a.spec_reconciliation.bumped_max_iterations_from
+            ),
+            "bumped_max_iterations_to": a.spec_reconciliation.bumped_max_iterations_to,
+            "rationale": a.spec_reconciliation.rationale,
+        }
+        for a in repair_attempts
+        if a.spec_reconciliation is not None
+    ]
     return {
         "repair_attempts": [
             {
@@ -214,9 +233,11 @@ def _enforce_spec_gates(
                 "new_capability": a.new_capability,
                 "repair_source": a.repair_source,
                 "rationale": a.rationale,
+                "spec_reconciled": a.spec_reconciliation is not None,
             }
             for a in repair_attempts
         ],
+        "spec_reconciliations": spec_reconciliations,
         "planner_output_modified": planner_output_modified,
     }
 
@@ -402,22 +423,97 @@ class BuildExecutionService:
                 except Exception:  # noqa: BLE001 — defensive
                     compile_context_for_adapter = None
 
-            # Load node_specs (optional). When present, build:
-            #   1) hard-blocks if edge_contract_report has issues,
-            #   2) hard-blocks if the planner-vs-spec capability
-            #      mismatch validator finds issues,
-            #   3) re-enriches each planner node's metadata from its
-            #      spec (so coding_agent gets a real task_prompt
-            #      instead of a placeholder),
-            #   4) passes specs into bindings_from_planner_output so
-            #      the verify obligation is derived from
-            #      acceptance_criteria.
-            # Missing node_specs is tolerated (older sessions that
-            # never ran /specify still build).
+            # Load node_specs. Build hard-requires specs because the
+            # spec pass is what carries the obligations (input/output
+            # contract, business_rules, acceptance_criteria, expected
+            # runtime class) the build's spec gates enforce. Without
+            # specs the gates skip entirely and bad planner picks
+            # (filesystem_read on a transform, validate_schema on a
+            # write step) silently end up in the executable, only to
+            # surface as a runtime error N steps later.
+            #
+            # If state_row.node_specs_json is missing, we lazy-call
+            # specify_for_session here — there is no legitimate path
+            # by which a session has planner_output but no specs at
+            # build time. The legacy "tolerate missing specs" branch
+            # used to mask the forgeDemo client bug where /builds
+            # was called without /specify; that fallback is gone.
             node_specs_bundle = _load_node_specs_bundle(state_row)
-            spec_list = (
-                list(node_specs_bundle.specs) if node_specs_bundle else []
+            if node_specs_bundle is None:
+                from app.services.node_spec.session_orchestration import (
+                    specify_for_session,
+                )
+
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "build.specify.lazy_run_started",
+                    build_id=build.id,
+                    session_id=build.session_id,
+                    reason="state_row missing node_specs_json",
+                )
+                # specify_for_session persists into the same state_row
+                # we already have a handle on (it queries by
+                # session_id + latest planner_output, which will
+                # match). After it runs, refresh state_row + reload
+                # planner_output (the specify pass enriched no
+                # planner_output keys, but recompute defensively).
+                specify_for_session(build.session_id, db=db)
+                db.refresh(state_row)
+                planner_output = WorkflowPlannerOutput.model_validate(
+                    state_row.planner_output_json
+                )
+                node_specs_bundle = _load_node_specs_bundle(state_row)
+                if node_specs_bundle is None:
+                    raise RuntimeError(
+                        "session_anchored_build_blocked: lazy specify_for_session "
+                        "completed but state_row.node_specs_json still empty — "
+                        "this is unexpected and indicates a deeper bug in "
+                        "specify persistence."
+                    )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "build.specify.lazy_run_completed",
+                    build_id=build.id,
+                    session_id=build.session_id,
+                    spec_count=len(node_specs_bundle.specs),
+                )
+            spec_list = list(node_specs_bundle.specs)
+
+            # Task 7.6B — normalize planner-emit verify-like nodes
+            # into verifier obligations BEFORE the spec gates run.
+            # The LLM planner sometimes authors its own verify step
+            # tagged ``semantic_type=verify`` (or worse,
+            # ``human_gate``) while binding ``validate_schema``.
+            # Such nodes don't follow the auto-insert
+            # ``verify_after_<target>`` convention; the dispatcher's
+            # ``_is_verify_node`` may reject them and emit a
+            # ``runnable=False`` binding, which the runtime preflight
+            # then refuses to start. Lift them out of the execution
+            # graph and express the verification semantic as an
+            # obligation on the appropriate ``verify_after_<target>``
+            # so the user's intent survives without polluting the
+            # graph with non-runnable nodes.
+            from app.services.build.planner_verify_normalizer import (
+                normalize_planner_verify_nodes,
             )
+
+            verify_normalizations = normalize_planner_verify_nodes(
+                planner_output=planner_output,
+                specs=spec_list,
+            )
+            verify_normalization_modified_planner = bool(verify_normalizations)
+            if verify_normalizations:
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "build.planner_verify_normalized",
+                    build_id=build.id,
+                    count=len(verify_normalizations),
+                    node_ids=[n.original_node_id for n in verify_normalizations],
+                )
+
             if node_specs_bundle is not None:
                 gate_outcome = _enforce_spec_gates(
                     bundle=node_specs_bundle,
@@ -430,7 +526,11 @@ class BuildExecutionService:
                 # repair_attempts list goes into a sidecar key so
                 # observability can show the audit trail without
                 # mutating the planner emission's shape.
-                if gate_outcome.get("planner_output_modified"):
+                planner_persist_required = (
+                    gate_outcome.get("planner_output_modified")
+                    or verify_normalization_modified_planner
+                )
+                if planner_persist_required:
                     state_row.planner_output_json = planner_output.model_dump(
                         mode="json"
                     )
@@ -441,14 +541,73 @@ class BuildExecutionService:
                         or []
                     )
                     repair_trace.extend(gate_outcome.get("repair_attempts") or [])
+                    reconciliation_trace = list(
+                        (state_row.planner_output_json.get("planner_metadata") or {}).get(
+                            "spec_reconciliations"
+                        )
+                        or []
+                    )
+                    reconciliation_trace.extend(
+                        gate_outcome.get("spec_reconciliations") or []
+                    )
+                    verify_norm_trace = list(
+                        (state_row.planner_output_json.get("planner_metadata") or {}).get(
+                            "planner_verify_normalizations"
+                        )
+                        or []
+                    )
+                    verify_norm_trace.extend(
+                        [
+                            {
+                                "original_node_id": n.original_node_id,
+                                "target_node_id": n.target_node_id,
+                                "obligation_target_id": n.obligation_target_id,
+                                "created_new_verify_after": n.created_new_verify_after,
+                                "merged_into_existing": n.merged_into_existing,
+                                "rerouted_incoming_edges": n.rerouted_incoming_edges,
+                                "rerouted_outgoing_edges": n.rerouted_outgoing_edges,
+                                "rationale": n.rationale,
+                            }
+                            for n in (verify_normalizations or [])
+                        ]
+                    )
                     pmeta = dict(
                         state_row.planner_output_json.get("planner_metadata") or {}
                     )
                     pmeta["capability_repair_attempts"] = repair_trace
+                    if reconciliation_trace:
+                        pmeta["spec_reconciliations"] = reconciliation_trace
+                    if verify_norm_trace:
+                        pmeta["planner_verify_normalizations"] = verify_norm_trace
                     state_row.planner_output_json["planner_metadata"] = pmeta
                     from sqlalchemy.orm.attributes import flag_modified
 
                     flag_modified(state_row, "planner_output_json")
+
+                    # Persist the reconciled specs back. The repair
+                    # mutated business_rules / implementation_sketch /
+                    # execution_constraints.max_iterations on each
+                    # reconciled spec; without re-serializing,
+                    # subsequent reads (audit, re-run) would see the
+                    # original LLM-authored spec without the
+                    # reconciliation. The bundle's other fields
+                    # (skipped_node_ids, edge_contract_report,
+                    # profiling_summary, llm_trace) are unchanged so
+                    # we re-emit the full payload structure.
+                    if reconciliation_trace:
+                        node_specs_bundle_dump = (
+                            node_specs_bundle.model_dump(mode="json")
+                        )
+                        # NodeExecutionSpecBundle.model_dump emits the
+                        # same shape /specify persists, so we can
+                        # write it straight back.
+                        existing_specs_json = state_row.node_specs_json or {}
+                        existing_specs_json["specs"] = (
+                            node_specs_bundle_dump.get("specs") or []
+                        )
+                        state_row.node_specs_json = existing_specs_json
+                        flag_modified(state_row, "node_specs_json")
+
                     db.add(state_row)
                     db.flush()
                     log_event(
@@ -457,6 +616,7 @@ class BuildExecutionService:
                         "build.capability_repair.persisted",
                         build_id=build.id,
                         repair_count=len(gate_outcome.get("repair_attempts") or []),
+                        spec_reconciliation_count=len(reconciliation_trace),
                     )
                 _apply_specs_to_planner_output(
                     planner_output=planner_output,

@@ -31,6 +31,7 @@ import logging
 import os
 import platform
 import resource
+import shlex
 import shutil
 import signal
 import subprocess
@@ -591,8 +592,22 @@ def render_inline_script_command(
     The LLM is still free to produce its own command string; this helper
     exists for callers that want a deterministic composition (e.g. tests
     and bootstrap runs).
+
+    7.6G — for ``python``, we resolve the interpreter to ``sys.executable``
+    (the venv's Python) instead of bare ``python3``. The sandboxed bash
+    inherits a sanitized PATH that may not include the venv's bin
+    directory, so a bare ``python3`` would resolve to the system Python
+    and miss pandas/numpy plus any package the agent declared via
+    ``pip_packages_to_install``. ``sys.executable`` is an absolute path
+    that always points at the parent process's interpreter — same one
+    the pip-install pre-script populates.
     """
-    interpreter = "python3" if language == "python" else "bash"
+    if language == "python":
+        # Quote in case sys.executable contains a space (rare but possible
+        # on macOS framework installs).
+        interpreter = shlex.quote(sys.executable)
+    else:
+        interpreter = "bash"
     # Use a base64 write to avoid shell quoting surprises with heredocs
     # containing nested EOFs or special chars.
     import base64

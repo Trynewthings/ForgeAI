@@ -121,11 +121,27 @@ def build_step_dict(node: WorkflowPlannerNodeDraft) -> dict[str, Any]:
         "draft_node_id": node.draft_node_id,
         "purpose": node.semantic_goal or "",
         "logical_step_kind": node.node_semantic_type,
+        # 7.6D — surface the semantic type at the top level of the
+        # step dict (alongside logical_step_kind which is the same
+        # value but spelled differently). The resolver and
+        # exploration-only detector both key off this; redundancy
+        # here protects against either name being missing in
+        # downstream consumers.
+        "node_semantic_type": node.node_semantic_type,
         "args": args,
         "depends_on": upstream,
     }
     if isinstance(expected_outputs, list):
         step["expected_outputs"] = [dict(x) for x in expected_outputs if isinstance(x, dict)]
+    # 7.6E — lift structured business_rules from planner_metadata to
+    # the top-level step dict so the executable_manifest resolver can
+    # populate task_contract.business_rules without re-walking the
+    # metadata.
+    business_rules = node.planner_metadata.get("business_rules")
+    if isinstance(business_rules, list) and business_rules:
+        step["business_rules"] = [
+            dict(item) for item in business_rules if isinstance(item, dict)
+        ]
     return step
 
 

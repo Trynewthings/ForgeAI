@@ -476,19 +476,26 @@ def test_s4_retry_prompt_carries_contract_violations(tmp_path: Path) -> None:
         tmp_path, _eo(tmp_path / "out.csv", required=["sku_id", "part_name"])
     )
     messages = build_messages(contract, previous_iteration=iteration)
-    # Last message is the iteration-feedback user message; the system
-    # prompt also mentions "previous_iteration" in its directive text,
-    # so we anchor on the structured-block start.
+    # The retry-feedback user message — anchor on the structured
+    # block name. After 7.6D, this message is now PREFIXED with a
+    # CONTRACT REPAIR MODE header before the ``previous_iteration:``
+    # block, so we anchor on either the header OR the block name.
     feedback = next(
         m["content"]
         for m in messages
-        if m["role"] == "user" and m["content"].lstrip().startswith("previous_iteration:")
+        if m["role"] == "user"
+        and (
+            "CONTRACT REPAIR MODE" in m["content"]
+            or m["content"].lstrip().startswith("previous_iteration:")
+        )
     )
     assert "contract_violations" in feedback
     assert "missing_fields" in feedback
     assert "[\"part_name\"]" in feedback
     assert "REPAIR DIRECTIVE" in feedback
     assert "Do NOT rename" in feedback
+    # 7.6D: the new header forbids exploration on retry.
+    assert "CONTRACT REPAIR MODE" in feedback
 
 
 # ---------------------------------------------------------------------------

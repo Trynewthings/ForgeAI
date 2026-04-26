@@ -140,6 +140,102 @@ deliverable isn't inline, set ``closure_status = \
 "output_clarification_required"`` and surface ``delivery_target`` as a \
 blocking axis — do NOT fabricate a placeholder locator.
 
+REQUIRED OUTPUT COLUMNS (output_closure_candidate.required_columns):
+When the user EXPLICITLY enumerates a list of column / field names that \
+the final deliverable MUST contain — e.g. "字段必含 queue_id, sku_id, \
+...", "包含以下列：A, B, C", "output columns: x, y, z", "must include \
+fields: foo, bar, baz", "header: id,name,price" — extract them \
+verbatim, in the order given, into ``required_columns``.
+
+Hard rules for extraction:
+  1. Verbatim. Do NOT translate, normalize, pluralize, or rename. \
+     ``recommended_qty`` stays ``recommended_qty`` — never \
+     ``recommended_quantity`` or ``replenishment_quantity``.
+  2. Order. Preserve the listing order the user wrote.
+  3. Source-faithful. Set ``required_columns_source = \
+     "user_explicit_listing"`` and copy the trigger phrase + the list \
+     into ``required_columns_verbatim_quote``. This is an audit \
+     trail — reviewers spot-check your reading.
+  4. Empty when absent. If the user did NOT enumerate column names \
+     explicitly, leave ``required_columns = []`` and set \
+     ``required_columns_source = "none"``. Do NOT infer columns from \
+     "the user wants a CSV report" — that's the spec stage's job.
+  5. Trigger phrases (not exhaustive): "字段必含", "字段包含", \
+     "列名", "列必须", "必须包含字段", "必须含字段", "字段：", \
+     "header:", "columns:", "fields:", "must include columns/fields/keys".
+  6. Treat space-separated, comma-separated, tab-separated, and \
+     newline-separated identifier sequences after a trigger phrase \
+     as the column list. Identifiers are sequences matching \
+     ``[A-Za-z_][A-Za-z0-9_]*``.
+
+BUSINESS RULES (output_closure_candidate.business_rules):
+The user's raw intent often carries domain semantics that go BEYOND \
+column names. You MUST extract these into structured rules. Each rule \
+is one entry in ``business_rules``. Recognize at least these patterns:
+
+  * STATE SPACES — when the user enumerates the allowed values of a \
+    field, e.g. "risk_before ∈ {{Stockout Risk, Imminent Shortage, \
+    Normal, Overstock Risk, Replenishment Blocked}}", "状态有 ...", \
+    "approval_mode 取值: Auto PO / Manual Approval / Freeze \
+    Purchase / No Replenishment". Emit one rule per field with \
+    ``rule_type = "state_space"`` (or ``"approval_policy"`` for \
+    approval-mode fields), ``fields = [field_name]``, \
+    ``allowed_values = [...verbatim list...]``.
+
+  * CALCULATIONS — formulas the output must honor, e.g. \
+    "estimated_cost = order_qty_rounded * unit_cost", \
+    "expected_arrival_date = today + lead_time", \
+    "数量 = 安全库存 - 当前库存". Emit \
+    ``rule_type = "calculation"``, ``fields = [output_field]``, \
+    ``formula_hint = "<verbatim formula>"``.
+
+  * HARD CONSTRAINTS — cross-cutting business rules, e.g. \
+    "discontinued items cannot be auto-replenished", \
+    "高价值件需人工审批", "积压禁采购", "停产件不可自动补". \
+    Emit ``rule_type = "hard_constraint"``, ``description`` carries \
+    the verbatim rule, ``fields`` lists fields the rule mentions if \
+    obvious (else empty), and a short ``source_quote`` carries the \
+    exact phrase.
+
+  * FILTER RULES — anything that constrains WHICH rows appear in the \
+    final output, e.g. "只输出需要补货的 SKU", "final queue \
+    contains only SKUs requiring action — not SKU × date Cartesian", \
+    "skip rows where status == Normal". Emit \
+    ``rule_type = "filter"`` with description + source_quote.
+
+  * JOIN RULES — fields that MUST come from a specific source \
+    table, e.g. "part_name 取自 sku_master", "supplier_name from \
+    suppliers.csv". Emit ``rule_type = "join"``, \
+    ``fields = [target_field]``, description names the source table.
+
+  * EVIDENCE REQUIREMENTS — output must contain real upstream values \
+    (not generic templates), e.g. "calculation_note must reference \
+    real available, reorder_point and target values", "计算依据必填 \
+    且使用真实数据". Emit ``rule_type = "evidence_requirement"``, \
+    ``fields = [evidence_field]``.
+
+  * TEST CASES — the user gave concrete sample rows, e.g. \
+    "SKU-001 should appear with risk=Stockout Risk and qty=120", or \
+    references an explicit Test_Cases / golden file. Emit \
+    ``rule_type = "test_case"``, description names the case.
+
+Hard rules for extraction:
+  1. Verbatim. Do NOT translate, normalize, or paraphrase rule \
+     text or allowed values. ``Stockout Risk`` stays \
+     ``Stockout Risk``; ``Auto PO`` stays ``Auto PO``.
+  2. Source-quote each rule. Set ``source_quote`` to the exact \
+     phrase you read it from.
+  3. Default ``severity = "hard"`` unless the user's wording is \
+     explicitly advisory ("尽量", "建议", "if possible").
+  4. Empty when absent. If the user wrote no business semantics, \
+     leave ``business_rules = []``.
+  5. Multi-rule. Do NOT collapse multiple distinct constraints \
+     into one rule. Emit one rule per state-space, formula, \
+     hard-constraint, etc.
+  6. ``rule_id`` must be a stable short identifier, e.g. \
+     ``state_space_risk_before``, ``calc_estimated_cost``, \
+     ``hardcons_discontinued_no_auto``.
+
 Emit strictly valid JSON."""
 
 _USER_PROMPT_TEMPLATE = """Raw user intent:
@@ -197,7 +293,30 @@ _SCHEMA_HINT = """{
     "output_modality": "markdown|json|csv|notification|...",
     "blocking_axes": ["..."],
     "closure_status": "output_clarification_required|output_proposable_with_review|output_closed",
-    "reasoning_summary": "..."
+    "reasoning_summary": "...",
+    "required_columns": ["queue_id", "sku_id", "..."],
+    "required_columns_source": "user_explicit_listing|inferred|none",
+    "required_columns_verbatim_quote": "字段必含 queue_id sku_id ...",
+    "business_rules": [
+      {
+        "rule_id": "state_space_risk_before",
+        "rule_type": "state_space",
+        "description": "risk_before allowed values",
+        "fields": ["risk_before"],
+        "allowed_values": ["Stockout Risk", "Imminent Shortage", "Normal", "Overstock Risk", "Replenishment Blocked"],
+        "source_quote": "risk_before ∈ {Stockout Risk, ...}",
+        "severity": "hard"
+      },
+      {
+        "rule_id": "calc_estimated_cost",
+        "rule_type": "calculation",
+        "description": "estimated_cost is recommended_qty × unit_cost",
+        "fields": ["estimated_cost"],
+        "formula_hint": "estimated_cost = order_qty_rounded * unit_cost",
+        "source_quote": "estimated_cost = order_qty_rounded * unit_cost",
+        "severity": "hard"
+      }
+    ]
   },
   "decision_candidates": [
     {"decision_id": "...", "axis": "source_locator|source_modality|deliverable_form|...",

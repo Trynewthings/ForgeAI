@@ -29,6 +29,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.problem_formulation import BusinessRuleContract
+
 
 NODE_EXECUTION_SPEC_VERSION = "node_execution_spec_v1"
 
@@ -55,6 +57,26 @@ class NodeInputSlot(BaseModel):
             "Where this input comes from. Either the absolute locator of a "
             "profiled input file, or the node_id of an upstream node that "
             "produced it."
+        ),
+    )
+    # 7.6C — populated by the dataset_key_reconciler when this slot
+    # consumes a dataset bundle whose upstream raw keys differ from
+    # the canonical names the downstream LLM originally specced.
+    # After reconciliation, ``schema_hint`` carries the upstream's
+    # exact raw keys and this map records the canonical alias for
+    # each, so the runtime task_prompt can surface BOTH (the agent
+    # uses the raw keys to read the artifact, the canonical names
+    # are documented for human readability).
+    #
+    # Empty / None on inputs that aren't dataset bundles.
+    dataset_key_aliases: Optional[dict[str, str]] = Field(
+        default=None,
+        description=(
+            "Mapping from upstream raw bundle key to its canonical "
+            "name. Only set when the slot consumes a "
+            "dataset_collection-shaped upstream and the reconciler "
+            "applied a canonical-extension alias. Example: "
+            "{'demand_history_120d.csv': 'demand_history_120d'}."
         ),
     )
 
@@ -114,6 +136,7 @@ class BusinessRule(BaseModel):
         "domain_policy",
         "value_mapping",
         "completeness",
+        "persistence",
         "other",
     ] = "other"
 
@@ -189,6 +212,14 @@ class NodeExecutionSpec(BaseModel):
     output_contract: NodeOutputContract
 
     business_rules: list[BusinessRule] = Field(default_factory=list)
+    # 7.6E — full structured business rule contracts (state-space,
+    # calculation, hard-constraint, etc.). Carried in parallel to the
+    # legacy ``business_rules`` so existing serialization paths keep
+    # working unchanged. The terminal node typically receives the
+    # OutputClosureContract.business_rules list verbatim; intermediate
+    # nodes get the subset whose ``fields`` overlap with their own
+    # output_contract.primary_output.schema_hint.
+    business_contracts: list[BusinessRuleContract] = Field(default_factory=list)
     acceptance_criteria: list[AcceptanceCriterion] = Field(default_factory=list)
 
     execution_constraints: ExecutionConstraints
@@ -247,12 +278,37 @@ class EdgeContractIssue(BaseModel):
     from_node_id: str
     to_node_id: str
     kind: Literal[
-        "spec_missing",             # one end has no spec (and isn't skipped)
-        "missing_input_reference",  # dst has no input slot pointing at src
-        "schema_mismatch",          # dst requires fields src doesn't emit
+        "spec_missing",                  # one end has no spec (and isn't skipped)
+        "missing_input_reference",       # dst has no input slot pointing at src
+        "schema_mismatch",               # dst requires fields src doesn't emit
+        # 7.6C — applies only when src.primary_output.kind is a
+        # dataset bundle kind. Means dst's bundle member keys don't
+        # match src's exact raw keys AND can't be reconciled via
+        # canonical-key aliasing. (Successful canonical aliases are
+        # reconciled silently; only TRUE mismatches surface as this
+        # issue kind.)
+        "dataset_member_key_mismatch",
     ]
     detail: str
     missing_fields: list[str] = Field(default_factory=list)
+    # 7.6C — populated only on ``dataset_member_key_mismatch`` issues.
+    # Carries the structured comparison so reviewers / repair loops
+    # don't have to parse the detail string. Empty / None on every
+    # other issue kind.
+    upstream_raw_keys: list[str] = Field(default_factory=list)
+    downstream_expected_keys: list[str] = Field(default_factory=list)
+    canonical_matches: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Sub-set of dst keys whose canonical key matches some src "
+            "raw key. Each entry: "
+            "{upstream_raw_key, downstream_key, canonical_key}. "
+            "Only present when ``kind == 'dataset_member_key_mismatch'`` "
+            "AND there's a partial canonical-key match — useful for "
+            "reviewing whether a structural alias would suffice or "
+            "the planner needs to re-spec the bundle entirely."
+        ),
+    )
     classification: EdgeIssueClassification = Field(
         default="contract_alignment_repairable",
         description=(
@@ -327,6 +383,7 @@ __all__ = [
     "NodeInputContract",
     "NodeOutputContract",
     "BusinessRule",
+    "BusinessRuleContract",
     "AcceptanceCriterion",
     "ExecutionConstraints",
     "FailurePolicy",

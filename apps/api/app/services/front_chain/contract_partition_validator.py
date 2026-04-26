@@ -30,6 +30,7 @@ from app.schemas.front_chain import (
     FrontChainInterpreterProblemCandidate,
 )
 from app.schemas.problem_formulation import (
+    BusinessRuleContract,
     InputClosureContract,
     OutputClosureContract,
     PlanningIntentContract,
@@ -231,6 +232,60 @@ class ContractPartitionValidator:
             reasoning_summary=input_payload.get("reasoning_summary"),
         )
 
+        # Required-columns extraction (Task C, Layer 1). The
+        # interpreter LLM may have populated these from explicit
+        # listings in the raw_intent. They flow through unmodified
+        # from the candidate to the contract — downstream stages
+        # (planner / specify) treat them as a hard constraint.
+        raw_required_cols = output_payload.get("required_columns") or []
+        normalized_required_cols = [
+            str(c).strip()
+            for c in raw_required_cols
+            if isinstance(c, str) and c.strip()
+        ]
+        # Source coercion: only honor "user_explicit_listing" when
+        # the LLM ALSO returned a non-empty list. An LLM that says
+        # "user_explicit_listing" but emits [] is contradicting
+        # itself; fall back to "none".
+        raw_required_src = (output_payload.get("required_columns_source") or "none").strip()
+        if raw_required_src not in {"user_explicit_listing", "inferred", "none"}:
+            raw_required_src = "none"
+        if raw_required_src == "user_explicit_listing" and not normalized_required_cols:
+            raw_required_src = "none"
+        if not normalized_required_cols:
+            raw_required_src = "none"
+
+        # 7.6E — propagate structured business_rules through the
+        # output closure contract. The interpreter LLM populates this
+        # list when the raw_intent contains explicit state spaces,
+        # calculation formulas, hard constraints, etc. We accept dicts
+        # OR pre-validated BusinessRuleContract instances; anything
+        # malformed is dropped silently (the LLM occasionally emits a
+        # partial entry, which would otherwise blow up validation and
+        # discard the whole envelope).
+        raw_business_rules = output_payload.get("business_rules") or []
+        normalized_business_rules: list[BusinessRuleContract] = []
+        if isinstance(raw_business_rules, list):
+            for idx, item in enumerate(raw_business_rules, 1):
+                try:
+                    if isinstance(item, BusinessRuleContract):
+                        normalized_business_rules.append(item)
+                    elif isinstance(item, dict):
+                        # Defensive: ensure rule_id + description present.
+                        item = dict(item)
+                        if not item.get("rule_id"):
+                            item["rule_id"] = f"rule_{idx}"
+                        if not item.get("description"):
+                            item["description"] = (
+                                item.get("source_quote") or str(item)[:80]
+                            )
+                        normalized_business_rules.append(
+                            BusinessRuleContract.model_validate(item)
+                        )
+                except Exception:  # noqa: BLE001
+                    # Drop malformed rule rather than fail the whole pass.
+                    continue
+
         output_contract = OutputClosureContract(
             deliverable_form=output_payload.get("deliverable_form"),
             delivery_target=output_payload.get("delivery_target"),
@@ -240,6 +295,12 @@ class ContractPartitionValidator:
             review_axes=list(output_payload.get("review_axes", []) or []),
             closure_status=output_payload.get("closure_status", "output_clarification_required"),
             reasoning_summary=output_payload.get("reasoning_summary"),
+            required_columns=normalized_required_cols,
+            required_columns_source=raw_required_src,
+            required_columns_verbatim_quote=output_payload.get(
+                "required_columns_verbatim_quote"
+            ),
+            business_rules=normalized_business_rules,
         )
 
         # Cross-layer derivation: if the interpreter already landed the

@@ -237,12 +237,18 @@ def test_sandbox_exec_blocks_network_by_default():
 
 
 def test_render_inline_script_python():
+    """7.6G+ — the python interpreter is now ``sys.executable`` (the
+    venv path) rather than bare ``python3``, so the sandbox shares
+    the parent venv's site-packages."""
+    import sys
+
     cmd = render_inline_script_command(
         language="python",
         script_source='print("embedded")',
         script_filename="s.py",
     )
-    assert "python3 s.py" in cmd
+    assert sys.executable in cmd
+    assert "s.py" in cmd
     assert "base64 -d" in cmd  # deterministic decoding path
 
 

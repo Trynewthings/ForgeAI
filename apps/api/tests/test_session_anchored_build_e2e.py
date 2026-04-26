@@ -113,21 +113,109 @@ def _seed_session_and_planner_output(client, tmp_path: Path) -> tuple[str, str, 
     output_path = tmp_path / "report.md"
     planner_output_json = _mk_synthetic_planner_output_json(output_path=output_path)
 
+    # Build a real CompileContextResponse — the build path now lazy-
+    # calls /specify when node_specs_json is missing, and specify
+    # validates compile_context_json against the full schema. The
+    # previous "synthetic_seed" stub was masked by the old
+    # "tolerate missing specs" branch in build_execution_service
+    # (which has been removed in Task E).
+    from app.schemas.problem_formulation import (
+        InputClosureContract,
+        InputSourceCandidate,
+        OutputClosureContract,
+        PlanningIntentContract,
+        ProblemFormulationContract,
+    )
+    from app.schemas.requirement_compiler import CompileContextResponse
+    from app.schemas.solvability import SolvabilityContract
+    from app.schemas.workflow_native import ExecutionAdmissibilityContract
+
+    cc = CompileContextResponse(
+        compile_context_version="t",
+        requirement_id=None,
+        project_id=project_id,
+        selected_blueprint_type=None,
+        graph_closure_status="graph_closed",
+        selected_template_id=None,
+        problem_formulation=ProblemFormulationContract(
+            interpreted_problem_kind="local_dataset_task",
+            target_object="local_workspace",
+            problem_status="solvable",
+            current_system_fit="in_scope",
+            planning_intent=PlanningIntentContract(
+                intent_id="i",
+                label="t",
+                target_object="local_workspace",
+                objective_family="analysis",
+            ),
+            blocking_axes=[],
+            review_axes=[],
+            blocking_reasons=[],
+            interpreted_goal="goal",
+        ),
+        input_closure=InputClosureContract(
+            target_object="local_workspace",
+            planning_intent_id="i",
+            candidate_sources=[
+                InputSourceCandidate(
+                    candidate_id="s",
+                    locator_kind="path",
+                    locator_value=str(tmp_path),
+                    content_kind="dataset",
+                    access_boundary="workspace",
+                    acquisition_kind="direct_read",
+                    confidence=1.0,
+                    evidence=["t"],
+                )
+            ],
+            resolved_source_kind="directory",
+            resolved_source_locator=str(tmp_path),
+            resolved_source_modality="text",
+            acquisition_path_kind="direct_read",
+            closure_status="input_closed",
+            blocking_axes=[],
+            review_axes=[],
+            closure_requirements=[],
+            reasoning_summary="t",
+        ),
+        output_closure=OutputClosureContract(
+            deliverable_form="text",
+            delivery_target=str(output_path),
+            output_modality="text",
+            closure_requirements=[],
+            blocking_axes=[],
+            review_axes=[],
+            closure_status="output_closed",
+            reasoning_summary="t",
+        ),
+        solvability=SolvabilityContract(
+            planning_intent_id="i",
+            solvability_status="solvable",
+        ),
+        execution_admissibility=ExecutionAdmissibilityContract(
+            admissibility_status="supported",
+        ),
+        capability_envelope={},
+        compile_constraints={},
+        candidate_work_units=[],
+        compile_trace={"authority_source": "synthetic_seed"},
+    )
+
     # Insert FrontChainState with the minimum required columns. The
     # CHECK constraint needs session_id OR requirement_id OR preview_mode.
     state = FrontChainState(
         project_id=project_id,
         session_id=session_id,
         raw_intent="seed for session-anchored C-slice",
-        problem_formulation_json={"target_object": {"value": "dummy"}},
-        input_closure_json={"closure_status": "input_closed"},
-        output_closure_json={"closure_status": "output_closed"},
+        problem_formulation_json=cc.problem_formulation.model_dump(mode="json"),
+        input_closure_json=cc.input_closure.model_dump(mode="json"),
+        output_closure_json=cc.output_closure.model_dump(mode="json"),
         merged_gaps_json={},
         top_questions_json=[],
         llm_trace_json={"call_count": 0, "llm_mode": "mock"},
         interpreter_version="mock-interpreter-v1",
         validator_version="mock-validator-v1",
-        compile_context_json={"compile_trace": {"authority_source": "synthetic_seed"}},
+        compile_context_json=cc.model_dump(mode="json"),
         compile_version="synthetic-v1",
         planner_output_json=planner_output_json,
         planner_version="workflow_planner_v1",

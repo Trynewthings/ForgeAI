@@ -8,3 +8,13 @@ pydantic-settings==2.8.1
 celery[redis]==5.4.0
 pytest==8.3.5
 httpx==0.28.1
+
+# Coding-agent runtime libraries (Task 7.6G).
+# The bounded sandbox shares this venv's site-packages, so any
+# library the coding_agent needs must be importable here. These are
+# the de-facto baseline for tabular data tasks; agents can request
+# additional packages via the ``pip_packages_to_install`` field on
+# the write_and_run tool, which the service installs in this venv
+# before executing the iteration's script.
+pandas>=2.0
+numpy>=1.24

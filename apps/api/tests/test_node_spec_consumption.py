@@ -620,8 +620,13 @@ def test_b2_build_repairs_capability_mismatch_then_proceeds():
     assert bound["selection_source"] == "capability_repair"
 
 
-def test_b3_build_proceeds_when_bundle_is_none():
-    """Back-compat: sessions that never ran /specify should still build."""
+def test_b3_load_node_specs_bundle_returns_none_when_state_has_no_specs():
+    """``_load_node_specs_bundle`` is a pure loader — returns None on a
+    state row that has no node_specs_json. The build pipeline now
+    treats None as a signal to lazy-call ``specify_for_session``
+    rather than tolerating missing specs (the legacy back-compat
+    fallback was masking the forgeDemo-skips-/specify bug). This
+    unit test just pins the loader contract."""
     from app.services.build.build_execution_service import _load_node_specs_bundle
 
     class _StubRow:
@@ -644,6 +649,215 @@ def test_b3b_build_proceeds_when_bundle_passes_all_gates():
     )
     # Should NOT raise.
     _enforce_spec_gates(bundle=bundle, planner_output=_planner(nodes, []))
+
+
+def test_b4_build_lazy_runs_specify_when_state_has_no_specs(
+    client, tmp_path: Path, monkeypatch,
+):
+    """Build must NOT silently proceed with missing specs. When a
+    session has planner_output but no node_specs_json (e.g. a client
+    that skipped /specify between /plan and /builds), the build path
+    lazy-calls specify_for_session and then enforces gates against
+    the resulting specs.
+
+    This test pins the new contract by:
+      1. Seeding state with planner_output but null node_specs_json,
+      2. Triggering build via the API,
+      3. Asserting node_specs_json is populated after build.
+    """
+    from app.core.config import settings
+    from app.core.database import get_db
+    from app.db.models import FrontChainState
+    from app.main import app
+    from app.services.job.job_execution_service import JobExecutionService
+
+    monkeypatch.setattr(settings, "llm_mode", "mock", raising=False)
+    monkeypatch.setenv("CODING_AGENT_SANDBOX", "subprocess")
+
+    proj = client.post(
+        "/api/v1/projects", json={"name": "lazy-spec", "description": ""}
+    ).json()
+    project_id = proj["id"]
+    sess = client.post(
+        "/api/v1/front-chain/sessions", json={"project_id": project_id}
+    ).json()
+    session_id = sess["id"]
+
+    # Seed state: planner_output + compile_context + null specs.
+    output_path = tmp_path / "out.txt"
+    nodes = [
+        _node(
+            draft_node_id="node_1",
+            capability_id="coding_agent",
+            semantic_type="transform",
+        )
+    ]
+    nodes[0].planner_metadata["args"] = {
+        "available_tools": [],
+        "loop_config": {"max_iterations": 1},
+        "agentic": False,
+    }
+    nodes[0].planner_metadata["expected_outputs"] = [
+        {"locator": str(output_path), "kind": "text.report"}
+    ]
+    planner_output = _planner(nodes, [])
+
+    # Compile context — same shape as test_e2e_mock_spec_drives_build_bindings.
+    from app.schemas.problem_formulation import (
+        InputClosureContract,
+        InputSourceCandidate,
+        OutputClosureContract,
+        PlanningIntentContract,
+        ProblemFormulationContract,
+    )
+    from app.schemas.requirement_compiler import CompileContextResponse
+    from app.schemas.solvability import SolvabilityContract
+    from app.schemas.workflow_native import ExecutionAdmissibilityContract
+
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "a.csv").write_text("col\n1\n")
+
+    cc = CompileContextResponse(
+        compile_context_version="t",
+        requirement_id=None,
+        project_id=project_id,
+        selected_blueprint_type=None,
+        graph_closure_status="graph_closed",
+        selected_template_id=None,
+        problem_formulation=ProblemFormulationContract(
+            interpreted_problem_kind="local_dataset_task",
+            target_object="local_workspace",
+            problem_status="solvable",
+            current_system_fit="in_scope",
+            planning_intent=PlanningIntentContract(
+                intent_id="i",
+                label="t",
+                target_object="local_workspace",
+                objective_family="analysis",
+            ),
+            blocking_axes=[],
+            review_axes=[],
+            blocking_reasons=[],
+            interpreted_goal="goal",
+        ),
+        input_closure=InputClosureContract(
+            target_object="local_workspace",
+            planning_intent_id="i",
+            candidate_sources=[
+                InputSourceCandidate(
+                    candidate_id="s",
+                    locator_kind="path",
+                    locator_value=str(input_dir),
+                    content_kind="dataset",
+                    access_boundary="workspace",
+                    acquisition_kind="direct_read",
+                    confidence=1.0,
+                    evidence=["t"],
+                )
+            ],
+            resolved_source_kind="directory",
+            resolved_source_locator=str(input_dir),
+            resolved_source_modality="csv",
+            acquisition_path_kind="direct_read",
+            closure_status="input_closed",
+            blocking_axes=[],
+            review_axes=[],
+            closure_requirements=[],
+            reasoning_summary="t",
+        ),
+        output_closure=OutputClosureContract(
+            deliverable_form="dataset",
+            delivery_target=str(output_path),
+            output_modality="text",
+            closure_requirements=[],
+            blocking_axes=[],
+            review_axes=[],
+            closure_status="output_closed",
+            reasoning_summary="t",
+        ),
+        solvability=SolvabilityContract(
+            planning_intent_id="i",
+            solvability_status="solvable",
+        ),
+        execution_admissibility=ExecutionAdmissibilityContract(
+            admissibility_status="supported",
+        ),
+        capability_envelope={},
+        compile_constraints={},
+        candidate_work_units=[],
+        compile_trace={},
+    )
+
+    db_dep = app.dependency_overrides[get_db]
+    gen = db_dep()
+    db = next(gen)
+    state = FrontChainState(
+        project_id=project_id,
+        session_id=session_id,
+        raw_intent="seeded with planner_output but no specs",
+        problem_formulation_json=cc.problem_formulation.model_dump(mode="json"),
+        input_closure_json=cc.input_closure.model_dump(mode="json"),
+        output_closure_json=cc.output_closure.model_dump(mode="json"),
+        merged_gaps_json={},
+        top_questions_json=[],
+        llm_trace_json={"call_count": 0, "llm_mode": "mock"},
+        interpreter_version="t",
+        validator_version="t",
+        compile_context_json=cc.model_dump(mode="json"),
+        compile_version="t",
+        planner_output_json=planner_output.model_dump(mode="json"),
+        planner_version="workflow_planner_v1",
+        node_specs_json=None,  # critical: NO specs persisted
+        node_specs_version=None,
+    )
+    db.add(state)
+    db.commit()
+    try:
+        next(gen)
+    except StopIteration:
+        pass
+
+    # Trigger build via API + force in-process execution.
+    bid_resp = client.post(
+        "/api/v1/builds",
+        json={"project_id": project_id, "session_id": session_id},
+    )
+    assert bid_resp.status_code == 201, bid_resp.text
+    bid = bid_resp.json()["id"]
+    started = client.post(f"/api/v1/builds/{bid}/start")
+    assert started.status_code == 200
+    JobExecutionService().execute_job(started.json()["active_job_id"])
+
+    # Build must have completed (not blocked) AND specs must now be
+    # persisted on the state row.
+    final_build = client.get(f"/api/v1/builds/{bid}").json()
+    assert final_build["status"] == "completed", (
+        f"expected completed, got {final_build['status']} "
+        f"err={final_build.get('error_message')}"
+    )
+
+    gen = db_dep()
+    db = next(gen)
+    try:
+        latest = (
+            db.query(FrontChainState)
+            .filter(FrontChainState.session_id == session_id)
+            .order_by(FrontChainState.created_at.desc())
+            .first()
+        )
+        assert latest is not None
+        assert latest.node_specs_json is not None, (
+            "build did NOT lazy-call specify — node_specs_json still null"
+        )
+        assert (latest.node_specs_json.get("specs") or []), (
+            "lazy specify must persist a non-empty specs list"
+        )
+    finally:
+        try:
+            next(gen)
+        except StopIteration:
+            pass
 
 
 def test_e2e_mock_spec_drives_build_bindings(client, tmp_path: Path, monkeypatch):

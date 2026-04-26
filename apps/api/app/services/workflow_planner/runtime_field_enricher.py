@@ -53,6 +53,15 @@ spec-driven re-enrichment pass when a NodeExecutionSpec is available.
 Each entry is a dict with at least ``locator`` and ``kind``; the
 resolver pipes this into task_contract.expected_outputs."""
 
+META_BUSINESS_RULES: Final[str] = "business_rules"
+"""7.6E — list of structured business rule contracts (state-space,
+calculation, hard-constraint, etc.) that the terminal node must
+respect. Populated by ``apply_spec_to_node`` from
+``spec.business_contracts``. Each entry is a dict matching the
+``BusinessRuleContract`` schema. The executable_manifest resolver
+copies this into ``task_contract.business_rules``; the post-run
+business_semantic_verifier consumes it to enforce semantics."""
+
 META_SPEC_DRIVEN: Final[str] = "spec_driven"
 """Boolean stamped by ``apply_spec_to_node``. When True, downstream
 should treat ``task_prompt`` / ``args`` / ``expected_outputs`` as
@@ -225,6 +234,17 @@ def apply_spec_to_node(
     expected = _compose_expected_outputs(spec)
     if expected:
         node.planner_metadata[META_EXPECTED_OUTPUTS] = expected
+
+    # 7.6E — propagate structured business contracts into planner
+    # metadata so the executable_manifest resolver can lift them onto
+    # the runtime TaskContract. Empty list when the spec carries no
+    # contracts (typical for non-terminal nodes).
+    business_contracts = list(getattr(spec, "business_contracts", []) or [])
+    if business_contracts:
+        node.planner_metadata[META_BUSINESS_RULES] = [
+            br.model_dump() if hasattr(br, "model_dump") else dict(br)
+            for br in business_contracts
+        ]
     node.planner_metadata[META_SPEC_DRIVEN] = True
     return node
 
@@ -311,6 +331,19 @@ def _looks_like_path(hint: str) -> bool:
 def _compose_task_prompt(spec: NodeExecutionSpec) -> str:
     out = [f"Goal: {spec.semantic_goal}", ""]
 
+    # 7.6D — for transform/decide/persist nodes that consume a
+    # dataset bundle, the agent must read the declared upstream
+    # artifact, not enumerate the input directory. Surface a
+    # negative rule alongside the positive evidence.
+    consumes_bundle_from_upstream = any(
+        slot.kind in {"dataset_collection", "dataset_bundle"}
+        and slot.source_hint
+        # heuristic: source_hint that doesn't look like an absolute
+        # filesystem path is probably an upstream node_id
+        and not slot.source_hint.startswith("/")
+        for slot in spec.input_contract.required
+    )
+
     out.append("Required inputs:")
     if spec.input_contract.required:
         for slot in spec.input_contract.required:
@@ -325,6 +358,33 @@ def _compose_task_prompt(spec: NodeExecutionSpec) -> str:
                 else ""
             )
             out.append(f"  - {slot.name} (kind={slot.kind}){src}{schema}")
+            # 7.6C — when this slot consumes a dataset bundle whose
+            # raw keys differ from canonical names, surface the
+            # alias map so the agent uses the EXACT raw keys to
+            # access the upstream artifact, while still seeing the
+            # canonical names for human readability.
+            if slot.dataset_key_aliases:
+                out.append(
+                    "      Use these EXACT keys when reading the upstream "
+                    "artifact (do NOT invent or normalize):"
+                )
+                for raw_key, canonical in slot.dataset_key_aliases.items():
+                    if raw_key == canonical:
+                        out.append(f"        - {raw_key}")
+                    else:
+                        out.append(
+                            f"        - {raw_key}  (canonical: {canonical})"
+                        )
+    if consumes_bundle_from_upstream:
+        out.append(
+            "  (Do NOT inspect the filesystem to discover datasets — the"
+        )
+        out.append(
+            "   schema_hint above is the authoritative bundle key set."
+        )
+        out.append(
+            "   Read the upstream artifact at the path runtime provides.)"
+        )
     else:
         out.append("  (none declared)")
     if spec.input_contract.optional:
@@ -341,6 +401,18 @@ def _compose_task_prompt(spec: NodeExecutionSpec) -> str:
                 else ""
             )
             out.append(f"  - {slot.name} (kind={slot.kind}){src}{schema}")
+            if slot.dataset_key_aliases:
+                out.append(
+                    "      Use these EXACT keys when reading the upstream "
+                    "artifact (do NOT invent or normalize):"
+                )
+                for raw_key, canonical in slot.dataset_key_aliases.items():
+                    if raw_key == canonical:
+                        out.append(f"        - {raw_key}")
+                    else:
+                        out.append(
+                            f"        - {raw_key}  (canonical: {canonical})"
+                        )
     out.append("")
 
     primary = spec.output_contract.primary_output
@@ -353,7 +425,131 @@ def _compose_task_prompt(spec: NodeExecutionSpec) -> str:
         out.append(f"  write to: {primary.locator_hint}")
     out.append("")
 
-    if spec.business_rules:
+    # 7.6E — structured business contracts (state-space, calculation,
+    # hard-constraint, etc.). Rendered with explicit anti-fabrication
+    # framing so the coding agent treats them as binding rather than
+    # advisory. Falls back to legacy `business_rules` rendering when
+    # no contracts are attached (older planner output).
+    #
+    # 7.6F — heuristic split between "terminal full attachment" and
+    # "intermediate field-overlap attachment": field-less rules
+    # (filter / hard_constraint / test_case with empty .fields) only
+    # ride along on terminal attachment, so their presence flags
+    # this spec as the final-output node. Otherwise we frame the
+    # rules as scoped to fields this node reads/writes.
+    business_contracts = list(getattr(spec, "business_contracts", []) or [])
+    if business_contracts:
+        is_terminal_attachment = any(
+            (r.rule_type in {"filter", "hard_constraint", "test_case"})
+            and not (r.fields or [])
+            for r in business_contracts
+        )
+        if is_terminal_attachment:
+            out.append("USER BUSINESS RULES — AUTHORITATIVE:")
+            out.append(
+                "  These are NOT suggestions. The output will be REJECTED "
+                "by the post-run verifier if any HARD rule is violated."
+            )
+            out.append("  Fabrication, paraphrasing of state names, or")
+            out.append("  invented supplier / part / status values are")
+            out.append("  treated as failures even if the schema is correct.")
+        else:
+            out.append("SCOPED BUSINESS RULES (apply to fields this node reads/writes):")
+            out.append(
+                "  These rules attach to this INTERMEDIATE node because"
+            )
+            out.append(
+                "  your input/output fields overlap with the user's"
+            )
+            out.append(
+                "  authoritative business rules. They are AUTHORITATIVE"
+            )
+            out.append(
+                "  even though this is not the final delivery node."
+            )
+            out.append(
+                "  Do NOT invent alternate state values or skip the rule"
+            )
+            out.append(
+                "  because 'this is just a transform'. The final verifier"
+            )
+            out.append(
+                "  will see whatever vocabulary you produce here."
+            )
+        out.append("")
+        for rule in business_contracts:
+            tag = rule.rule_type.upper()
+            sev = "" if rule.severity == "hard" else " (soft)"
+            out.append(f"  [{tag}{sev}] {rule.description}")
+            if rule.fields:
+                out.append(f"    fields: {', '.join(rule.fields)}")
+            if rule.allowed_values:
+                out.append(
+                    "    allowed values (USE EXACTLY THESE STRINGS, "
+                    "do NOT translate or rename):"
+                )
+                for val in rule.allowed_values:
+                    out.append(f"      • {val!r}")
+            if rule.formula_hint:
+                out.append(f"    formula: {rule.formula_hint}")
+            if rule.source_quote:
+                out.append(f"    source: {rule.source_quote!r}")
+        out.append("")
+        out.append(
+            "  General anti-fabrication rules:"
+        )
+        out.append(
+            "    1. Every output row MUST be derived from real upstream"
+        )
+        out.append(
+            "       data. Do NOT invent supplier_id / supplier_name /"
+        )
+        out.append(
+            "       part_name when a source table provides them — read"
+        )
+        out.append(
+            "       and JOIN, do not synthesize."
+        )
+        out.append(
+            "    2. Numeric fields with declared formulas MUST be the"
+        )
+        out.append(
+            "       result of that formula on real values, not 0.0,"
+        )
+        out.append(
+            "       null, or a constant placeholder."
+        )
+        out.append(
+            "    3. State / status / mode fields MUST use one of the"
+        )
+        out.append(
+            "       allowed values listed above — verbatim."
+        )
+        out.append(
+            "    4. Output rows represent actionable decisions only."
+        )
+        out.append(
+            "       Do NOT emit a Cartesian product of every input row"
+        )
+        out.append(
+            "       just to fill the file — the row count must match"
+        )
+        out.append(
+            "       the queue / filtering logic, not the source size."
+        )
+        out.append(
+            "    5. If a calculation_note / evidence column exists,"
+        )
+        out.append(
+            "       fill it with the REAL upstream values used in the"
+        )
+        out.append(
+            "       calculation, not a generic template string."
+        )
+        out.append("")
+    elif spec.business_rules:
+        # Legacy path — bare BusinessRule entries, no allowed_values
+        # / formula / source. Still surface them.
         out.append("Business rules (mandatory):")
         for rule in spec.business_rules:
             out.append(f"  - [{rule.category}] {rule.rule}")
@@ -376,6 +572,49 @@ def _compose_task_prompt(spec: NodeExecutionSpec) -> str:
     return "\n".join(out).rstrip()
 
 
+# 7.6F — output kinds that are reasonably tabular / row-shaped and
+# should default to min_rows >= 1 (header-only / 0-row outputs are
+# almost always a chain bug). Anything outside this set (text_blob,
+# metric_scalar, free-form artifact) skips min_rows enforcement.
+_TABULAR_OUTPUT_KINDS = frozenset(
+    {
+        "tabular_records",
+        "dataset_collection",
+        "dataset_bundle",
+        "csv_file",
+        "jsonl_file",
+        "json_object",
+        "file_path",  # generic — when accompanied by a schema_hint we
+                     # treat it as tabular; without schema_hint it
+                     # falls through to None.
+    }
+)
+
+
+def _default_min_rows_for(spec: NodeExecutionSpec, slot_kind: str, has_schema: bool) -> Optional[int]:
+    """7.6F — derive the default ``min_rows`` for one output slot.
+
+    Decision tree:
+      * Output kind not tabular            → None (no enforcement).
+      * Spec opted out via failure_policy
+        (``on_empty_output == "emit_warning"``) → None.
+      * runtime_class == bounded_verify     → None (verify nodes
+        often emit empty / single-row reports).
+      * Otherwise                           → 1.
+    """
+    if slot_kind not in _TABULAR_OUTPUT_KINDS:
+        return None
+    # ``file_path`` only enforces min_rows when a schema is declared
+    # (otherwise the file might be a plain blob).
+    if slot_kind == "file_path" and not has_schema:
+        return None
+    if spec.failure_policy.on_empty_output == "emit_warning":
+        return None
+    if spec.execution_constraints.expected_runtime_class == "bounded_verify":
+        return None
+    return 1
+
+
 def _compose_expected_outputs(spec: NodeExecutionSpec) -> list:
     """Translate spec output_contract into the runtime's
     ``ExpectedOutput`` shape.
@@ -385,6 +624,11 @@ def _compose_expected_outputs(spec: NodeExecutionSpec) -> list:
     serialize the spec's list-of-fields into a comma-joined string so
     the TaskContract validation passes and the prompt still gets the
     field names.
+
+    7.6F — every tabular slot gets a deterministic ``min_rows=1``
+    default unless the spec explicitly tolerates empty output via
+    ``failure_policy.on_empty_output == "emit_warning"`` or
+    ``runtime_class == bounded_verify``.
     """
     def _join_schema(fields):
         if not fields:
@@ -407,6 +651,12 @@ def _compose_expected_outputs(spec: NodeExecutionSpec) -> list:
         # field names. Empty list → no strict check; advisory hint only.
         if primary.schema_hint:
             primary_entry["required_fields"] = list(primary.schema_hint)
+        # 7.6F — min_rows default
+        min_rows = _default_min_rows_for(
+            spec, primary.kind, has_schema=bool(primary.schema_hint)
+        )
+        if min_rows is not None:
+            primary_entry["min_rows"] = min_rows
         entries.append(primary_entry)
     for sec in spec.output_contract.secondary_outputs:
         if not sec.locator_hint:
@@ -421,6 +671,11 @@ def _compose_expected_outputs(spec: NodeExecutionSpec) -> list:
             entry["schema_hint"] = sec_schema
         if sec.schema_hint:
             entry["required_fields"] = list(sec.schema_hint)
+        sec_min_rows = _default_min_rows_for(
+            spec, sec.kind, has_schema=bool(sec.schema_hint)
+        )
+        if sec_min_rows is not None:
+            entry["min_rows"] = sec_min_rows
         entries.append(entry)
     return entries
 
@@ -482,6 +737,7 @@ __all__ = [
     "META_EDGE_SOURCE",
     "META_EVIDENCE_KIND",
     "META_EXPECTED_OUTPUTS",
+    "META_BUSINESS_RULES",
     "META_MATERIALIZATION_STATUS",
     "META_SPEC_DRIVEN",
     "META_STEP_NAME",

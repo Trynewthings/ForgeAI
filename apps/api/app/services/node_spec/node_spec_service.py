@@ -61,7 +61,13 @@ from app.services.node_spec.data_profiling_service import (
     profile_locator,
 )
 from app.schemas.node_execution_spec import EdgeContractIssue
+from app.services.node_spec.dataset_key_reconciler import (
+    reconcile_dataset_member_keys,
+)
 from app.services.node_spec.edge_contract_validator import validate_edge_contracts
+from app.services.node_spec.iteration_budget_policy import (
+    apply_iteration_budget_policy,
+)
 from app.services.node_spec.issue_classifier import (
     apply_classification_to_report,
     escalate_persistent_issues,
@@ -430,6 +436,57 @@ class NodeSpecService:
             if n.draft_node_id in specs_by_id
         ]
 
+        # Task 7.6A — deterministic required-columns override on the
+        # terminal node(s). The compile pass extracted the user's
+        # explicit column listing into ``output_closure.required_columns``;
+        # the LLM was hinted via prompt but may have drifted. Apply the
+        # listing 1:1 to any spec whose primary_output.locator_hint
+        # matches output_closure.delivery_target, since that's the
+        # node materialising the user's deliverable. Records every
+        # override in the bundle's llm_trace so reviewers can spot
+        # which specs the post-pass rewrote.
+        schema_overrides = _apply_required_columns_override(
+            specs=ordered_specs,
+            compile_context=compile_context,
+        )
+
+        # Task 7.6E — attach structured business_rules from
+        # output_closure to the terminal node(s). Runs immediately
+        # after the required-columns override since both
+        # transformations target the same "terminal node" definition.
+        # Mutates each affected spec's business_contracts /
+        # business_rules / acceptance_criteria in place.
+        business_rules_audit = _apply_business_rules_to_specs(
+            specs=ordered_specs,
+            compile_context=compile_context,
+        )
+
+        # Task 7.6D — complexity-aware max_iterations policy. Runs
+        # BEFORE 7.6C so the budget reflects the LLM-authored shape;
+        # capability_repair's spec_reconciliation will further bump
+        # rebound coding_agent nodes if needed during build.
+        iteration_budget_audit = apply_iteration_budget_policy(
+            specs=ordered_specs,
+            planner_output=planner_output,
+            output_closure=getattr(compile_context, "output_closure", None),
+        )
+
+        # Task 7.6C — deterministic dataset bundle key reconciliation.
+        # When upstream emits a dataset_collection (members are
+        # dataset names) and downstream specs the same bundle but
+        # with different raw key spelling (e.g. with vs without
+        # .csv suffix), rewrite the downstream input slot's
+        # schema_hint to upstream's exact raw keys + record the
+        # canonical alias map. Runs after edge_contract retries:
+        # by this point the LLM has done its best; any surviving
+        # raw-vs-canonical drift is reconciled deterministically
+        # rather than left to runtime drift.
+        dataset_key_reconciliations = reconcile_dataset_member_keys(
+            planner_output=planner_output,
+            specs=ordered_specs,
+            skipped_node_ids=skipped,
+        )
+
         return NodeExecutionSpecBundle(
             spec_version=NODE_EXECUTION_SPEC_VERSION,
             specs=ordered_specs,
@@ -443,6 +500,19 @@ class NodeSpecService:
                 "bundle_max_retries": bundle_max_retries,
                 "bundle_retry_attempts": bundle_attempts,
                 "per_node": call_traces,
+                "schema_overrides": schema_overrides,
+                "business_rules_audit": business_rules_audit,
+                "dataset_key_reconciliations": dataset_key_reconciliations,
+                "iteration_budget_decisions": [
+                    {
+                        "node_id": d.node_id,
+                        "semantic_role": d.semantic_role,
+                        "previous_iterations": d.previous_iterations,
+                        "chosen_iterations": d.chosen_iterations,
+                        "reason": d.reason,
+                    }
+                    for d in iteration_budget_audit
+                ],
             },
         )
 
@@ -821,6 +891,48 @@ def _build_prompt_body(
         "downstream_context": [_node_summary(n) for n in ctx.downstream_nodes],
     }
 
+    # Task 7.6A — Required-columns hard constraint surfacing.
+    #
+    # When the user explicitly enumerated output columns in the
+    # raw_intent (compile pass extracted them into
+    # output_closure.required_columns with source = user_explicit_listing),
+    # the spec for whichever node materialises the final deliverable
+    # MUST emit a schema_hint that mirrors the user's list 1:1.
+    #
+    # We surface the listing here as a hint for the LLM. A
+    # deterministic post-override in ``specify_bundle`` enforces it
+    # regardless of whether the LLM honors the hint — the listing is
+    # user-authority and not an LLM judgement call. See
+    # ``_apply_required_columns_override``.
+    required_columns = list(getattr(oc, "required_columns", []) or []) if oc else []
+    if required_columns:
+        payload["task_intent"]["required_output_columns"] = {
+            "columns": required_columns,
+            "source": getattr(oc, "required_columns_source", "none") if oc else "none",
+            "verbatim_quote": getattr(
+                oc, "required_columns_verbatim_quote", None
+            ) if oc else None,
+            "applies_when": (
+                "this node's primary_output.locator_hint equals "
+                "task_intent.delivery_target — i.e. THIS node is the one "
+                "that materialises the user's final deliverable. If so, "
+                "output_contract.primary_output.schema_hint MUST equal "
+                "the ``columns`` list verbatim and in the same order. "
+                "Do NOT rename (e.g. recommended_qty MUST NOT become "
+                "recommended_quantity), omit, reorder, or add columns. "
+                "If THIS node is an intermediate that does not write "
+                "the final file, the constraint does not apply — pick "
+                "your own schema_hint."
+            ),
+            "enforcement_note": (
+                "After your spec is emitted, a deterministic post-pass "
+                "verifies the terminal node's schema_hint against this "
+                "list and rewrites it if you drifted. Honoring the list "
+                "now keeps the audit trail clean and avoids forcing the "
+                "rewrite."
+            ),
+        }
+
     # Layer 2: when retrying after edge_contract issues, attach the
     # actual upstream/downstream spec contracts so the LLM can see
     # exactly what fields the neighbours emit / expect.
@@ -920,7 +1032,11 @@ def _build_prompt_body(
         "Produce a NodeExecutionSpec (strict JSON) for the target_node "
         "below. Use input_profiling verbatim when suggesting schema_hint "
         "for inputs that come from files. Use upstream_context to decide "
-        "source_hint when this node consumes an upstream output."
+        "source_hint when this node consumes an upstream output. "
+        "If task_intent.required_output_columns is present AND this node "
+        "writes its primary_output to task_intent.delivery_target, your "
+        "output_contract.primary_output.schema_hint MUST equal the "
+        "``columns`` list verbatim — see required_output_columns."
     )
 
     # Layer 1: when retrying after our OWN parse/schema failure, prepend
@@ -949,6 +1065,374 @@ def _node_summary(node: WorkflowPlannerNodeDraft) -> dict[str, Any]:
         "node_name": node.node_name,
         "semantic_goal": node.semantic_goal,
         "semantic_type": node.node_semantic_type,
+    }
+
+
+def _normalize_locator(locator: Optional[str]) -> Optional[str]:
+    """Normalize a filesystem locator for terminal-node matching.
+
+    Returns None for empty / non-string. Otherwise resolves the path
+    via os.path.realpath so trailing-slash and relative-vs-absolute
+    differences don't make matched paths look unequal. Non-path
+    schemes (urls, mailto, ``user_chat``, etc.) are returned
+    lowercased without realpath.
+    """
+    if not isinstance(locator, str):
+        return None
+    s = locator.strip()
+    if not s:
+        return None
+    # Heuristic: treat anything starting with "/" or "./" or "../" as
+    # a filesystem path. Other schemes (https://, mailto:, user_chat)
+    # don't need realpath.
+    if s.startswith(("/", "./", "../")) or (len(s) > 2 and s[1] == ":"):
+        try:
+            import os as _os
+
+            return _os.path.realpath(s).rstrip("/")
+        except Exception:  # noqa: BLE001 — defensive
+            return s.rstrip("/")
+    return s
+
+
+def _apply_required_columns_override(
+    *,
+    specs: list[NodeExecutionSpec],
+    compile_context: CompileContextResponse,
+) -> list[dict[str, Any]]:
+    """Force terminal-node ``schema_hint`` to match the user's
+    explicit listing in ``output_closure.required_columns``.
+
+    A node is "terminal" iff its
+    ``output_contract.primary_output.locator_hint`` resolves to the
+    same path as ``compile_context.output_closure.delivery_target``.
+    Multiple specs may match (e.g. a transform node that produces
+    the final dataset and a downstream persistence step that writes
+    it to disk) — we override every match so contract handoffs stay
+    consistent.
+
+    Only fires when:
+      - ``output_closure.required_columns`` is non-empty, AND
+      - ``output_closure.required_columns_source == "user_explicit_listing"``.
+
+    The "inferred" source is treated as advisory — the prompt-level
+    hint already nudged the LLM, but we don't deterministically
+    overwrite spec output to match an LLM guess about what the user
+    might have wanted.
+
+    Mutates each affected spec in place. Returns a list of audit
+    records (one per override) so the bundle's llm_trace can surface
+    them. Returns an empty list when no override applies.
+    """
+    oc = getattr(compile_context, "output_closure", None)
+    if oc is None:
+        return []
+    required = list(getattr(oc, "required_columns", []) or [])
+    source = getattr(oc, "required_columns_source", "none")
+    if not required or source != "user_explicit_listing":
+        return []
+
+    delivery_target = getattr(oc, "delivery_target", None)
+    norm_target = _normalize_locator(delivery_target)
+    if not norm_target:
+        # No concrete delivery target — we have no way to
+        # distinguish the terminal node from intermediates, so we
+        # don't override anything. The prompt-level hint still ran,
+        # so the LLM may have honored required_columns regardless;
+        # forcing without a target would risk overriding the wrong
+        # node.
+        return []
+
+    overrides: list[dict[str, Any]] = []
+    for spec in specs:
+        primary = spec.output_contract.primary_output
+        if primary is None or not primary.locator_hint:
+            continue
+        norm_locator = _normalize_locator(primary.locator_hint)
+        if norm_locator != norm_target:
+            continue
+
+        actual = list(primary.schema_hint or [])
+        if actual == required:
+            continue  # already correct — no override needed
+
+        spec.output_contract.primary_output.schema_hint = list(required)
+        overrides.append(
+            {
+                "node_id": spec.node_id,
+                "trigger": "user_explicit_listing",
+                "delivery_target": delivery_target,
+                "original_schema_hint": actual,
+                "applied_schema_hint": list(required),
+                "rationale": (
+                    "Terminal node (locator_hint matches "
+                    "output_closure.delivery_target) — schema_hint "
+                    "rewritten to user's explicit listing in "
+                    "output_closure.required_columns. The LLM was "
+                    "hinted via prompt but emitted a different list; "
+                    "user-authority wins."
+                ),
+            }
+        )
+    if overrides:
+        logger.info(
+            "node_spec.required_columns_override applied=%d node_ids=%s",
+            len(overrides),
+            [o["node_id"] for o in overrides],
+        )
+    return overrides
+
+
+_LEGACY_CATEGORY_MAP = {
+    "state_space": "value_mapping",
+    "approval_policy": "value_mapping",
+    "calculation": "domain_policy",
+    "filter": "completeness",
+    "join": "data_integrity",
+    "hard_constraint": "domain_policy",
+    "evidence_requirement": "completeness",
+    "test_case": "other",
+    "other": "other",
+}
+
+
+def _attach_rules_to_spec(
+    *,
+    spec: NodeExecutionSpec,
+    rules: list,  # list[BusinessRuleContract]
+) -> None:
+    """Append rules to a spec, dedup by rule_id. Idempotent — calling
+    twice with overlapping rule lists won't double-attach."""
+    if not rules:
+        return
+    existing_contract_ids = {
+        getattr(r, "rule_id", None) for r in (spec.business_contracts or [])
+    }
+    existing_legacy_ids = {
+        getattr(r, "rule_id", None) for r in (spec.business_rules or [])
+    }
+    existing_ac_ids = {
+        getattr(c, "criterion_id", None) for c in (spec.acceptance_criteria or [])
+    }
+
+    for rule in rules:
+        if rule.rule_id in existing_contract_ids:
+            continue
+        spec.business_contracts.append(rule)
+        existing_contract_ids.add(rule.rule_id)
+
+        if rule.rule_id not in existing_legacy_ids:
+            spec.business_rules.append(
+                BusinessRule(
+                    rule_id=rule.rule_id,
+                    rule=rule.description,
+                    category=_LEGACY_CATEGORY_MAP.get(rule.rule_type, "other"),
+                )
+            )
+            existing_legacy_ids.add(rule.rule_id)
+
+        ac_id = f"ac_{rule.rule_id}"
+        if ac_id in existing_ac_ids:
+            continue
+        if rule.rule_type in {"state_space", "approval_policy"}:
+            if rule.fields and rule.allowed_values:
+                spec.acceptance_criteria.append(
+                    AcceptanceCriterion(
+                        criterion_id=ac_id,
+                        statement=(
+                            f"{rule.fields[0]} ∈ "
+                            f"{{{', '.join(rule.allowed_values)}}}"
+                        ),
+                        kind="enum_membership",
+                        params={
+                            "field": rule.fields[0],
+                            "allowed_values": list(rule.allowed_values),
+                            "rule_type": rule.rule_type,
+                        },
+                    )
+                )
+                existing_ac_ids.add(ac_id)
+        elif rule.rule_type == "calculation":
+            spec.acceptance_criteria.append(
+                AcceptanceCriterion(
+                    criterion_id=ac_id,
+                    statement=(rule.formula_hint or rule.description),
+                    kind="other",
+                    params={
+                        "rule_type": "calculation",
+                        "fields": list(rule.fields),
+                        "formula_hint": rule.formula_hint,
+                        "source_quote": rule.source_quote,
+                    },
+                )
+            )
+            existing_ac_ids.add(ac_id)
+        else:
+            spec.acceptance_criteria.append(
+                AcceptanceCriterion(
+                    criterion_id=ac_id,
+                    statement=rule.description,
+                    kind="other",
+                    params={
+                        "rule_type": rule.rule_type,
+                        "fields": list(rule.fields),
+                        "description": rule.description,
+                        "source_quote": rule.source_quote,
+                        "severity": rule.severity,
+                    },
+                )
+            )
+            existing_ac_ids.add(ac_id)
+
+
+def _apply_business_rules_to_specs(
+    *,
+    specs: list[NodeExecutionSpec],
+    compile_context: CompileContextResponse,
+) -> dict[str, Any]:
+    """Task 7.6E + 7.6F — attach business rules to specs.
+
+    Two-pass attachment:
+
+      Pass 1 — TERMINAL: every spec whose
+        ``primary_output.locator_hint`` matches
+        ``output_closure.delivery_target`` receives the FULL rule list
+        (terminal node owns the deliverable, including field-less
+        rules like filter / hard_constraint / test_case).
+
+      Pass 2 — FIELD-OVERLAP (7.6F): for every other spec, run
+        ``business_rule_scoper.rules_for_spec`` and attach the
+        matching subset. This catches intermediate nodes that
+        compute / classify rule-governed fields without owning the
+        delivery_target.
+
+    Both passes use ``_attach_rules_to_spec`` which dedupes by
+    rule_id — running the same spec through both passes is safe
+    (only the first attachment for each rule fires).
+
+    After attachment, run ``detect_unattached_overlaps`` for soft
+    audit of any field-overlap that wasn't covered (useful when the
+    LLM names columns slightly differently than the user did and
+    we want a reviewer to spot it).
+
+    Returns a dict::
+
+        {
+          "terminal_attachments": [...],
+          "field_overlap_attachments": [...],
+          "unattached_overlaps": [...]
+        }
+
+    Empty / missing inputs degrade to ``{...: []}`` — no-op safe.
+    """
+    from app.services.node_spec.business_rule_scoper import (
+        detect_unattached_overlaps,
+        rules_for_spec,
+    )
+
+    oc = getattr(compile_context, "output_closure", None)
+    if oc is None:
+        return {
+            "terminal_attachments": [],
+            "field_overlap_attachments": [],
+            "unattached_overlaps": [],
+        }
+    rules = list(getattr(oc, "business_rules", []) or [])
+    if not rules:
+        return {
+            "terminal_attachments": [],
+            "field_overlap_attachments": [],
+            "unattached_overlaps": [],
+        }
+
+    delivery_target = getattr(oc, "delivery_target", None)
+    norm_target = _normalize_locator(delivery_target)
+
+    terminal_audit: list[dict[str, Any]] = []
+    field_overlap_audit: list[dict[str, Any]] = []
+    terminal_node_ids: set[str] = set()
+
+    # Pass 1 — terminal full attachment (7.6E behavior preserved)
+    if norm_target:
+        for spec in specs:
+            primary = spec.output_contract.primary_output
+            if primary is None or not primary.locator_hint:
+                continue
+            if _normalize_locator(primary.locator_hint) != norm_target:
+                continue
+
+            _attach_rules_to_spec(spec=spec, rules=rules)
+            terminal_node_ids.add(spec.node_id)
+            terminal_audit.append(
+                {
+                    "node_id": spec.node_id,
+                    "delivery_target": delivery_target,
+                    "rules_attached": len(rules),
+                    "rule_ids": [r.rule_id for r in rules],
+                    "rule_types": [r.rule_type for r in rules],
+                    "reason": "terminal_locator_match",
+                }
+            )
+
+    # Pass 2 — field-overlap on every non-terminal spec (7.6F)
+    for spec in specs:
+        if spec.node_id in terminal_node_ids:
+            continue
+        applicable, evidence = rules_for_spec(
+            spec=spec, business_rules=rules, output_closure=oc
+        )
+        if not applicable:
+            continue
+        _attach_rules_to_spec(spec=spec, rules=applicable)
+
+        matched_fields: list[str] = []
+        for k in ("input_schema", "output_schema", "acceptance", "sketch"):
+            for f in evidence.get(k, []) or []:
+                if f not in matched_fields:
+                    matched_fields.append(f)
+
+        field_overlap_audit.append(
+            {
+                "node_id": spec.node_id,
+                "matched_fields": matched_fields,
+                "attached_rule_ids": [r.rule_id for r in applicable],
+                "rule_types": [r.rule_type for r in applicable],
+                "reason": "field_overlap",
+                "match_evidence": evidence,
+            }
+        )
+
+    # Pass 3 — soft audit for any fields covered by a rule that this
+    # spec touches but didn't get attached. Per 5-confirm: SOFT only,
+    # never aborts.
+    unattached_overlaps: list[dict[str, Any]] = []
+    for spec in specs:
+        already = {r.rule_id for r in (spec.business_contracts or [])}
+        misses = detect_unattached_overlaps(
+            spec=spec, business_rules=rules, already_attached_rule_ids=already
+        )
+        for m in misses:
+            unattached_overlaps.append(
+                {
+                    "node_id": m.node_id,
+                    "field": m.field_name,
+                    "candidate_rule_ids": list(m.candidate_rule_ids),
+                    "location": m.location,
+                }
+            )
+
+    if terminal_audit or field_overlap_audit:
+        logger.info(
+            "node_spec.business_rules_attached terminal=%d field_overlap=%d "
+            "unattached_overlaps=%d",
+            len(terminal_audit),
+            len(field_overlap_audit),
+            len(unattached_overlaps),
+        )
+    return {
+        "terminal_attachments": terminal_audit,
+        "field_overlap_attachments": field_overlap_audit,
+        "unattached_overlaps": unattached_overlaps,
     }
 
 

@@ -108,6 +108,28 @@ class ExpectedOutput(BaseModel):
             "downstream consumers."
         ),
     )
+    # 7.6F — intermediate artifact integrity. When set to a positive
+    # int, the contract verifier rejects any produced file (CSV /
+    # JSONL / JSON-array) that contains fewer than ``min_rows`` data
+    # rows. Header-only artifacts (CSV with header line but no body)
+    # are the most common offender — they pass schema verification
+    # because the header has the right columns, but they break the
+    # downstream chain because there's nothing to consume. The
+    # default ``min_rows=1`` is set deterministically by
+    # ``runtime_field_enricher._compose_expected_outputs`` for every
+    # transform / decide / classify / calculation / join /
+    # filter spec; nodes whose ``failure_policy.on_empty_output ==
+    # "emit_warning"`` opt out (acquire/research/synthesis) and get
+    # ``min_rows=None``.
+    min_rows: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Minimum acceptable data-row count. None disables the "
+            "check; any positive value forces the contract verifier "
+            "to reject empty / header-only artifacts."
+        ),
+    )
 
 
 class OutputPolicy(BaseModel):
@@ -215,6 +237,20 @@ class TaskContract(BaseModel):
     # Carried through for observability; not part of prompt logic.
     source_node_id: Optional[str] = None
     source_subgoal_id: Optional[str] = None
+    # 7.6D — planner's ``node_semantic_type`` for this node. Used by
+    # the exploration-only detector to decide whether to apply the
+    # exploration ban (transform / analyze / decide / persist / etc.)
+    # or skip it (acquire — may legitimately enumerate inputs). Empty
+    # / None means "unknown" — detector skips, downstream gates
+    # remain authoritative.
+    node_semantic_role: Optional[str] = None
+    # 7.6E — structured business contracts (state-space, calculation,
+    # hard-constraint, ...) the agent must respect. Carried as plain
+    # dicts (avoiding a hard schema dependency from coding_agent on
+    # problem_formulation). prompt_builder renders them into the
+    # task prompt; the post-run business_semantic_verifier enforces
+    # them against produced files.
+    business_rules: list[dict] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -248,11 +284,20 @@ class ContractFieldViolation(BaseModel):
         "file_not_found",
         "file_unreadable",
         "format_unsupported",
+        # 7.6F — produced file's header is correct but it has fewer
+        # data rows than ``ExpectedOutput.min_rows``. Most often
+        # surfaces as a header-only CSV (0 rows) silently passing
+        # schema validation while the chain downstream collapses.
+        "empty_intermediate_artifact",
     ]
     expected_schema: list[str] = Field(default_factory=list)
     actual_schema: list[str] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
     unexpected_fields: list[str] = Field(default_factory=list)
+    # 7.6F — populated only on ``empty_intermediate_artifact``. The
+    # actual row count we read and the minimum the contract demanded.
+    actual_row_count: Optional[int] = Field(default=None)
+    expected_min_rows: Optional[int] = Field(default=None)
     detail: Optional[str] = Field(
         default=None,
         description="Short free-text diagnostic (e.g. 'CSV header read failed: empty file').",
@@ -296,6 +341,66 @@ class CodingAgentIteration(BaseModel):
     contract_validation: ContractValidation = Field(default_factory=ContractValidation)
     wall_time_ms: int
     sandbox_mode: str
+    # 7.6D — retry trace observability. Lets reviewers / repair
+    # loops tell at a glance whether the iteration was a real
+    # implementation attempt vs an exploration-only script (which
+    # the static check rejects pre-execution for non-acquire nodes).
+    script_kind: Literal[
+        "implementation",       # the agent wrote real transform logic
+        "exploration_only",     # ls / find / head / cat-only — rejected
+        "invalid",              # parse/schema problem with the LLM emission
+        "unknown",
+    ] = "unknown"
+    repair_feedback_supplied: bool = Field(
+        default=False,
+        description=(
+            "True when this iteration was prompted with structured "
+            "contract-repair feedback from the previous failure. "
+            "Always False on iteration 1."
+        ),
+    )
+    exploration_rejection: bool = Field(
+        default=False,
+        description=(
+            "True when the static exploration-only detector rejected "
+            "this iteration BEFORE sandbox execution. The iteration's "
+            "exit_code / stdout / stderr in this case are synthetic "
+            "(no actual subprocess ran)."
+        ),
+    )
+    wrote_expected_output: bool = Field(
+        default=False,
+        description=(
+            "True when at least one file matching an "
+            "``expected_outputs[*].locator`` was produced by this "
+            "iteration. Convenience flag — derivable from "
+            "produced_files but surfaced explicitly so retry trace "
+            "scanners don't have to re-derive."
+        ),
+    )
+    # 7.6G — record of any ``pip install`` step the service ran on
+    # behalf of this iteration. Empty / absent means the agent did
+    # NOT request additional packages (or none were needed beyond
+    # the venv baseline).
+    pip_install_requested: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Verbatim packages the LLM declared via "
+            "``pip_packages_to_install``. Auditable record."
+        ),
+    )
+    pip_install_succeeded: Optional[bool] = Field(
+        default=None,
+        description=(
+            "None when no install was requested. True / False when an "
+            "install ran. False fails the iteration with "
+            "``runtime_failure`` and feeds back the pip stderr."
+        ),
+    )
+    pip_install_stderr_tail: Optional[str] = Field(
+        default=None,
+        description="Tail of the pip command stderr; populated only on failure.",
+    )
 
 
 class CodingAgentResult(BaseModel):
@@ -315,7 +420,53 @@ class CodingAgentResult(BaseModel):
         "runtime_failure",
         "llm_failure",
         "budget_exhausted",
+        # 7.6D — every iteration was rejected by the
+        # exploration-only detector (or the agent ran out of
+        # retries while stuck in exploration mode). Distinct from
+        # contract_violation because the script never ran; runtime
+        # never had a chance to produce output.
+        "exploration_only_script_rejected",
     ] = "ok"
+    # Subclassification of ``runtime_failure``. ``runtime_failure`` is
+    # too coarse — it lumps "OS sandbox denied a path" with "the
+    # user's script raised a Python exception". Observability needs
+    # to tell these apart: the former is a permission / spec
+    # alignment issue (the agent could not have succeeded no matter
+    # how many iterations), the latter is a script bug (worth
+    # retrying with different code).
+    #
+    # Only meaningful when ``failure_kind == "runtime_failure"``;
+    # otherwise should be None.
+    #
+    # Values:
+    #   - sandbox_path_denied:        OS denied file-read/write
+    #     against a path the script attempted to access. Usually
+    #     means the path is outside ``allow_write_dir`` /
+    #     workspace, or the sandbox profile is too tight for what
+    #     the spec is asking the script to do.
+    #   - sandbox_network_denied:     network call denied because
+    #     ``allow_network=False`` and the script tried to reach
+    #     out anyway.
+    #   - sandbox_resource_exceeded:  timed_out OR rlimit hit
+    #     (memory_mb / cpu_seconds / max_output_file_size_mb).
+    #     Bumping the budget is the typical fix, NOT retrying.
+    #   - script_runtime_error:       script's own bug (Python
+    #     exception, syntax error, missing import). Retrying with
+    #     contract feedback can help.
+    #   - module_not_found:           Python raised
+    #     ``ModuleNotFoundError`` for a package that's not in the
+    #     venv. Fixable by the agent declaring the package via
+    #     ``pip_packages_to_install`` on the next iteration's
+    #     write_and_run call (Task 7.6G).
+    failure_subkind: Optional[
+        Literal[
+            "sandbox_path_denied",
+            "sandbox_network_denied",
+            "sandbox_resource_exceeded",
+            "script_runtime_error",
+            "module_not_found",
+        ]
+    ] = None
     reasoning_summary: Optional[str] = None
     total_wall_time_ms: int = 0
 

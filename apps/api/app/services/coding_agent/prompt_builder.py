@@ -59,13 +59,19 @@ HARD RULES — violating any of these = failed iteration:
    those matching ``allowed_extra_patterns``.
 5. {network_rule}
 6. Respect ``packages_allowed`` / ``packages_forbidden``. If neither \
-   is set, stick to the standard library and the common data packages \
-   (pandas, csv, json, re, datetime, pathlib).
+   is set, the venv has the Python stdlib plus ``pandas`` and \
+   ``numpy`` preinstalled — both are recommended for tabular work. \
+   For other libraries (``scipy`` / ``openpyxl`` / ``requests`` / \
+   etc.), declare them in the ``write_and_run`` tool call's \
+   ``pip_packages_to_install`` argument; the runtime pip-installs \
+   them BEFORE your script runs. Do NOT shell out to ``pip`` from \
+   inside the script.
 7. Handle degenerate inputs the way ``failure_mode`` says — e.g. an \
    empty CSV with ``on_empty_input=skip_gracefully`` should exit 0 \
    and print "skipped: empty input" rather than crash.
 8. Scripts must be self-contained: no ``input()``, no ``pip install``, \
-   no ``sudo``, no interactive prompts.
+   no ``sudo``, no interactive prompts. (To install packages, use the \
+   ``pip_packages_to_install`` tool argument — see rule 6.)
 9. Make the script deterministic where possible; use explicit sort / \
    stable ordering when iterating dicts or sets.
 10. The script runs with cwd = ``workspace_dir``. Always use the \
@@ -126,6 +132,26 @@ TOOL_SCHEMA = {
                 "rationale": {
                     "type": "string",
                     "description": "One paragraph explaining the approach (for audit).",
+                },
+                # 7.6G — structured exec capability. The agent declares
+                # which extra Python packages it needs; the service runs
+                # ``pip install --quiet <packages>`` BEFORE the script
+                # executes. The pip step happens in the parent process
+                # (no sandbox) so its network access is bounded; the
+                # actual script still runs under the sandbox's
+                # ``allow_network`` policy.
+                "pip_packages_to_install": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Python packages to install before running the "
+                        "script. ``pandas`` and ``numpy`` are already "
+                        "installed; only list packages BEYOND those. "
+                        "Use simple package names ('scipy', 'requests', "
+                        "'openpyxl'); avoid version pins unless strictly "
+                        "needed. Empty / omitted means 'use what's "
+                        "already in the environment'."
+                    ),
                 },
             },
             "required": ["language", "script_source", "rationale"],
@@ -200,12 +226,19 @@ def _render_task_contract(contract: TaskContract) -> str:
     runtime = contract.runtime
     output_policy = contract.output_policy
 
+    # 7.6E — render structured business rules (state-space,
+    # calculation, hard-constraint, etc.) prominently. They appear
+    # BEFORE expected_outputs so the agent reads the semantic
+    # constraints before the structural ones.
+    business_rules_text = _format_business_rules(contract.business_rules)
+
     return (
         "task_contract:\n"
         f"  objective: {_quote(contract.objective)}\n"
         f"  workspace_dir: {contract.workspace_dir}\n"
         "\n"
-        "  input_evidence:\n"
+        + (business_rules_text + "\n" if business_rules_text else "")
+        + "  input_evidence:\n"
         f"{inputs_text}\n"
         "\n"
         "  input_policy:\n"
@@ -241,6 +274,98 @@ def _render_task_contract(contract: TaskContract) -> str:
         "Produce a single ``write_and_run`` tool call that writes a "
         f"{constraints.language} script fulfilling the objective.\n"
     )
+
+
+def _format_business_rules(rules: list) -> str:
+    """7.6E — render structured business rule contracts as a binding
+    block at the top of the task contract.
+
+    The block uses BOLD framing because the agent has historically
+    treated business rules as advisory; the post-run semantic verifier
+    now rejects outputs that violate them, so the prompt must call
+    that out explicitly to get the agent to actually honor the
+    constraints rather than fabricate values.
+    """
+    if not rules:
+        return ""
+    lines = [
+        "  business_rules (USER-AUTHORITATIVE — verifier WILL enforce):",
+    ]
+    for rule in rules:
+        if not isinstance(rule, dict):
+            try:
+                rule = rule.model_dump()
+            except Exception:  # noqa: BLE001
+                continue
+        rule_type = rule.get("rule_type") or "other"
+        severity = rule.get("severity") or "hard"
+        description = rule.get("description") or ""
+        sev_tag = "" if severity == "hard" else " (soft)"
+        lines.append(f"    - [{rule_type.upper()}{sev_tag}] {description}")
+        fields = rule.get("fields") or []
+        if fields:
+            lines.append(f"        fields: {', '.join(fields)}")
+        allowed = rule.get("allowed_values") or []
+        if allowed:
+            lines.append(
+                "        allowed values (USE EXACTLY THESE — no translation,"
+                " synonyms, or paraphrasing):"
+            )
+            for val in allowed:
+                lines.append(f"          • {val!r}")
+        formula = rule.get("formula_hint")
+        if formula:
+            lines.append(f"        formula: {formula}")
+        source = rule.get("source_quote")
+        if source:
+            lines.append(f"        source: {source!r}")
+    lines.append("")
+    lines.append(
+        "  Anti-fabrication rules (apply to ALL output rows):"
+    )
+    lines.append(
+        "    1. Output rows MUST be derived from real upstream data —"
+    )
+    lines.append(
+        "       JOIN against source tables, do NOT synthesize"
+    )
+    lines.append(
+        "       supplier / part / status values."
+    )
+    lines.append(
+        "    2. Calculated fields MUST honor the declared formula on"
+    )
+    lines.append(
+        "       real values; never emit 0.0, null, or a constant"
+    )
+    lines.append(
+        "       placeholder when source data exists."
+    )
+    lines.append(
+        "    3. State / status / mode fields MUST use the verbatim"
+    )
+    lines.append(
+        "       allowed values listed above — do not translate or"
+    )
+    lines.append(
+        "       paraphrase ('High Risk' is NOT 'Stockout Risk')."
+    )
+    lines.append(
+        "    4. Row count must reflect the queue / filtering logic,"
+    )
+    lines.append(
+        "       not the Cartesian product of all input rows × dates."
+    )
+    lines.append(
+        "    5. Evidence / calculation_note fields MUST contain the"
+    )
+    lines.append(
+        "       real upstream numeric values used in the calculation,"
+    )
+    lines.append(
+        "       not a generic template string."
+    )
+    return "\n".join(lines)
 
 
 def _format_expected_output(eo) -> str:
@@ -316,17 +441,81 @@ def _render_iteration_feedback(it: CodingAgentIteration) -> str:
       2. ``output_policy_violation`` — missing or unexpected files.
       3. Process-level diagnostics (exit_code / timed_out / stdout /
          stderr).
+
+    Task 7.6D — when the previous iteration was rejected by the
+    exploration-only detector, OR when the contract verifier
+    flagged a violation, prepend a hard-rule CONTRACT REPAIR MODE
+    header forbidding the agent from regressing into shell
+    exploration on the next turn. The header is what stops the
+    agent from writing ``ls`` / ``find`` / ``head`` scripts after
+    a contract failure.
     """
     violation = it.output_policy_violation
     contract = it.contract_validation
-    lines = [
-        "previous_iteration:",
-        f"  iteration_index: {it.iteration_index}",
-        f"  exit_code: {it.exit_code}",
-        f"  timed_out: {str(it.timed_out).lower()}",
-        f"  wall_time_ms: {it.wall_time_ms}",
-        f"  sandbox_mode: {it.sandbox_mode}",
-    ]
+    lines: list[str] = []
+
+    # 7.6D — repair-mode header. Always present on retry feedback so
+    # the agent never gets only stale runtime diagnostics.
+    if getattr(it, "exploration_rejection", False):
+        lines.extend(
+            [
+                "═══════════════════════════════════════════════════════",
+                "CONTRACT REPAIR MODE  (exploration-only script rejected)",
+                "═══════════════════════════════════════════════════════",
+                "Your previous attempt was REJECTED before sandbox execution.",
+                "It was an exploration-only script (ls / find / head / cat / tree),",
+                "not a repair of the previous implementation.",
+                "",
+                "You MUST now:",
+                "  - read the declared upstream artifact via the path in input_evidence",
+                "  - transform it according to the contract",
+                "  - write the EXACT expected output locator listed in expected_outputs",
+                "  - include all required fields with the contract's exact names",
+                "",
+                "You MUST NOT:",
+                "  - run ls / find / head / tail / tree / cat / wc / stat as the main work",
+                "  - write filesystem-exploration scripts",
+                "  - switch to diagnosis-only mode",
+                "  - omit the expected output artifact",
+                "  - rename or omit any required field",
+                "",
+            ]
+        )
+    elif contract.violations or violation.missing_outputs or violation.unexpected_outputs:
+        lines.extend(
+            [
+                "═══════════════════════════════════════════════════════",
+                "CONTRACT REPAIR MODE",
+                "═══════════════════════════════════════════════════════",
+                "Your previous attempt failed contract validation. Repair the",
+                "previous implementation against the structured feedback below.",
+                "",
+                "You MUST NOT:",
+                "  - regress into ls / find / head / cat / tree exploration",
+                "  - rewrite the script from scratch when only one detail was wrong",
+                "  - rename or omit any required field listed below",
+                "",
+                "You MUST:",
+                "  - keep the parts of the previous script that were correct",
+                "  - fix only the specific violations listed below",
+                "  - write the SAME expected output locator(s)",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "previous_iteration:",
+            f"  iteration_index: {it.iteration_index}",
+            f"  exit_code: {it.exit_code}",
+            f"  timed_out: {str(it.timed_out).lower()}",
+            f"  wall_time_ms: {it.wall_time_ms}",
+            f"  sandbox_mode: {it.sandbox_mode}",
+            f"  script_kind: {getattr(it, 'script_kind', 'unknown')}",
+            f"  exploration_rejection: {str(getattr(it, 'exploration_rejection', False)).lower()}",
+            f"  wrote_expected_output: {str(getattr(it, 'wrote_expected_output', False)).lower()}",
+        ]
+    )
     # Contract violations first — load-bearing diagnostic.
     if contract.violations:
         lines.append("  contract_violations:")
@@ -349,9 +538,75 @@ def _render_iteration_feedback(it: CodingAgentIteration) -> str:
                 lines.append(
                     f"      unexpected_fields: {json.dumps(cv.unexpected_fields)}"
                 )
+            # 7.6F — surface row-count facts on empty-artifact violations
+            if cv.actual_row_count is not None:
+                lines.append(
+                    f"      actual_row_count: {cv.actual_row_count}"
+                )
+            if cv.expected_min_rows is not None:
+                lines.append(
+                    f"      expected_min_rows: {cv.expected_min_rows}"
+                )
             if cv.detail:
                 lines.append(f"      detail: {_quote(cv.detail)}")
         lines.append("")
+        # 7.6F — empty-artifact directive takes priority. When ANY
+        # violation is ``empty_intermediate_artifact``, render a
+        # dedicated repair message — the agent's most common
+        # failure mode is writing only a header and skipping the
+        # rows because of a defensive ``if not rows: skip`` guard.
+        if any(
+            cv.error_type == "empty_intermediate_artifact"
+            for cv in contract.violations
+        ):
+            lines.append(
+                "  REPAIR DIRECTIVE (empty_intermediate_artifact):"
+            )
+            lines.append(
+                "    Your previous output had the correct header but ZERO"
+            )
+            lines.append(
+                "    data rows. This breaks the downstream chain — the"
+            )
+            lines.append(
+                "    next node has nothing to read."
+            )
+            lines.append("")
+            lines.append("    You MUST:")
+            lines.append(
+                "      - actually iterate over the upstream rows in"
+            )
+            lines.append(
+                "        ``input_evidence`` and emit a transformed row"
+            )
+            lines.append(
+                "        for each input row that satisfies the contract."
+            )
+            lines.append(
+                "      - NOT short-circuit on ``if not rows: skip``"
+            )
+            lines.append(
+                "        unless the contract explicitly allows empty"
+            )
+            lines.append(
+                "        output. The previous attempt's exit-0-with-no-rows"
+            )
+            lines.append(
+                "        behavior is treated as failure."
+            )
+            lines.append(
+                "      - NOT filter every row out. If a filter step"
+            )
+            lines.append(
+                "        legitimately drops everything, surface that as"
+            )
+            lines.append(
+                "        an explicit non-zero exit + diagnostic message,"
+            )
+            lines.append(
+                "        not a silent header-only file."
+            )
+            lines.append("")
         lines.append(
             "  REPAIR DIRECTIVE: For each contract_violation above, the "
             "produced file MUST emit the exact ``expected_schema`` field "
@@ -368,6 +623,62 @@ def _render_iteration_feedback(it: CodingAgentIteration) -> str:
         lines.append("  stderr_tail: |")
         for line in _tail(it.stderr_tail, 20).splitlines():
             lines.append(f"    {line}")
+    # 7.6G — surface ModuleNotFoundError as a structured pip-install
+    # hint. The retry prompt explicitly tells the agent that the fix
+    # is to declare the package via ``pip_packages_to_install`` on the
+    # next ``write_and_run`` call, NOT to rewrite the script around
+    # the missing module.
+    missing_module = _extract_missing_module(it.stderr_tail or "")
+    if missing_module:
+        lines.append("")
+        lines.append(
+            "  REPAIR DIRECTIVE (module_not_found):"
+        )
+        lines.append(
+            f"    Python raised ModuleNotFoundError: no module named "
+            f"{missing_module!r}."
+        )
+        lines.append(
+            "    Do NOT rewrite the script to avoid the import — the"
+        )
+        lines.append(
+            "    runtime supports declaring extra dependencies. On the"
+        )
+        lines.append(
+            "    next ``write_and_run`` call, set:"
+        )
+        lines.append(
+            f"        pip_packages_to_install: [{missing_module!r}]"
+        )
+        lines.append(
+            "    The service will pip-install it before re-running"
+        )
+        lines.append(
+            "    your script. ``pandas`` and ``numpy`` are already"
+        )
+        lines.append(
+            "    installed and do NOT need to be re-declared."
+        )
+        # 7.6G — also surface any pip install attempt result so the
+        # LLM can see whether it already TRIED to install something
+        # and that failed (e.g. typoed name).
+        if getattr(it, "pip_install_succeeded", None) is False:
+            lines.append("")
+            lines.append(
+                f"    Previous pip install attempt FAILED for "
+                f"packages={getattr(it, 'pip_install_requested', [])}."
+            )
+            tail = getattr(it, "pip_install_stderr_tail", None) or ""
+            if tail.strip():
+                lines.append("    pip stderr tail: |")
+                for line in tail.splitlines()[-8:]:
+                    lines.append(f"      {line}")
+            lines.append(
+                "    Pick the correct PyPI name (no typos) and try"
+            )
+            lines.append(
+                "    again, or fall back to a stdlib-only approach."
+            )
     if violation.missing_outputs or violation.unexpected_outputs:
         lines.append("  output_policy_violation:")
         if violation.missing_outputs:
@@ -388,6 +699,26 @@ def _tail(text: str, n_lines: int) -> str:
     if len(lines) <= n_lines:
         return text
     return "\n".join(lines[-n_lines:])
+
+
+# 7.6G — `ModuleNotFoundError: No module named 'foo'` extractor.
+# Standalone here (mirroring ``service._MODULE_NOT_FOUND_RE``) so
+# prompt_builder doesn't import from the service module.
+import re as _re  # noqa: E402
+
+_MODULE_NOT_FOUND_FEEDBACK_RE = _re.compile(
+    r"ModuleNotFoundError:\s*No module named\s+['\"]([\w.\-]+)['\"]",
+    _re.IGNORECASE,
+)
+
+
+def _extract_missing_module(stderr_tail: str) -> Optional[str]:
+    if not stderr_tail:
+        return None
+    m = _MODULE_NOT_FOUND_FEEDBACK_RE.search(stderr_tail)
+    if not m:
+        return None
+    return m.group(1).split(".")[0]
 
 
 __all__ = [

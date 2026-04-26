@@ -50,6 +50,7 @@ from app.services.node_spec.capability_mismatch_validator import (
     validate_capability_mismatch,
 )
 from app.services.workflow_planner.capability_repair import (
+    SpecReconciliation,
     repair_capability_picks,
 )
 
@@ -579,3 +580,233 @@ def test_r10_enforce_spec_gates_blocks_when_no_repair_possible():
             _enforce_spec_gates(bundle=bundle, planner_output=planner)
     finally:
         cap_repair._DEFAULT_GENERALIST = original
+
+
+# ---------------------------------------------------------------------------
+# R11-R15: spec reconciliation — when rebind crosses
+# "in-memory cap → file-writing cap", spec must also adjust so the
+# resulting task_prompt no longer encodes the old in-memory mental
+# model.
+# ---------------------------------------------------------------------------
+
+
+def test_r11_rebind_filesystem_read_to_coding_agent_appends_persistence_rule():
+    """The classic case: planner picked filesystem_read for a transform
+    (which is class-mismatched), repair rebinds to coding_agent. Because
+    filesystem_read does not require disk persistence and coding_agent
+    DOES, the spec needs a [persistence] BusinessRule + sketch line so
+    the task_prompt makes the file-write obligation impossible to miss."""
+    nodes = [
+        _node(
+            draft_node_id="n_compute",
+            capability_id="filesystem_read",
+            semantic_type="transform",
+        )
+    ]
+    planner = _planner(nodes)
+    spec = _spec("n_compute", runtime_class="bounded_transform")
+    # Confirm the test fixture starts with no persistence rules and
+    # no implementation_sketch lines.
+    assert all(r.category != "persistence" for r in spec.business_rules)
+    assert spec.implementation_sketch == []
+    issues = [
+        CapabilityMismatchIssue(
+            node_id="n_compute",
+            selected_capability_id="filesystem_read",
+            expected_runtime_class="bounded_transform",
+            allowed_runtime_classes=["bounded_acquire"],
+            kind="specialised_class_mismatch",
+            detail="t",
+        )
+    ]
+    report = repair_capability_picks(
+        planner_output=planner,
+        specs=[spec],
+        issues=issues,
+    )
+    assert report.made_any_change
+    attempt = report.attempts[0]
+    assert attempt.new_capability == "coding_agent"
+    # Reconciliation MUST have fired.
+    assert attempt.spec_reconciliation is not None
+    rec = attempt.spec_reconciliation
+    assert rec.old_capability == "filesystem_read"
+    assert rec.new_capability == "coding_agent"
+    assert rec.added_business_rule_id == "capability_repair_persistence_n_compute"
+    # Spec mutation visible: persistence rule appended.
+    persistence_rules = [
+        r for r in spec.business_rules if r.category == "persistence"
+    ]
+    assert len(persistence_rules) == 1
+    assert "MUST persist primary_output" in persistence_rules[0].rule
+    # Sketch line appended.
+    assert len(spec.implementation_sketch) == 1
+    assert "locator_hint" in spec.implementation_sketch[0]
+    # Audit record on the planner node also stamps spec_reconciled.
+    record = planner.node_drafts[0].planner_metadata["capability_repair_record"]
+    assert record["spec_reconciled"] is True
+
+
+def test_r12_rebind_validate_schema_to_coding_agent_appends_persistence_rule():
+    """validate_schema is also an in-memory cap (emits validation result
+    via state). Rebind to coding_agent must trigger reconciliation."""
+    nodes = [
+        _node(
+            draft_node_id="n_validate",
+            capability_id="validate_schema",
+            semantic_type="transform",
+        )
+    ]
+    planner = _planner(nodes)
+    spec = _spec("n_validate", runtime_class="bounded_transform")
+    issues = [
+        CapabilityMismatchIssue(
+            node_id="n_validate",
+            selected_capability_id="validate_schema",
+            expected_runtime_class="bounded_transform",
+            allowed_runtime_classes=["bounded_verify"],
+            kind="specialised_class_mismatch",
+            detail="t",
+        )
+    ]
+    report = repair_capability_picks(
+        planner_output=planner,
+        specs=[spec],
+        issues=issues,
+    )
+    rec = report.attempts[0].spec_reconciliation
+    assert rec is not None
+    assert rec.old_capability == "validate_schema"
+    assert rec.new_capability == "coding_agent"
+    assert any(r.category == "persistence" for r in spec.business_rules)
+
+
+def test_r13_rebind_bumps_max_iterations_to_at_least_two():
+    """bounded_acquire / transform specs default to max_iterations=1.
+    After rebinding to coding_agent the agent has a stricter file-write
+    contract; one shot leaves no room to learn from policy_violation
+    feedback. Reconciliation bumps the budget to >=2."""
+    nodes = [
+        _node(
+            draft_node_id="n",
+            capability_id="filesystem_read",
+            semantic_type="acquire",
+        )
+    ]
+    planner = _planner(nodes)
+    spec = _spec("n", runtime_class="bounded_acquire")
+    assert spec.execution_constraints.max_iterations == 1  # default
+    issues = [
+        CapabilityMismatchIssue(
+            node_id="n",
+            selected_capability_id="filesystem_read",
+            expected_runtime_class="bounded_acquire",
+            allowed_runtime_classes=[],
+            kind="io_shape_mismatch",
+            detail="d",
+            locator="/tmp/dir",
+            locator_shape="directory",
+        )
+    ]
+    report = repair_capability_picks(
+        planner_output=planner,
+        specs=[spec],
+        issues=issues,
+    )
+    rec = report.attempts[0].spec_reconciliation
+    assert rec is not None
+    assert rec.bumped_max_iterations_from == 1
+    assert rec.bumped_max_iterations_to == 2
+    # Spec really got mutated.
+    assert spec.execution_constraints.max_iterations == 2
+
+
+def test_r14_no_reconciliation_when_both_caps_already_write_files():
+    """Hypothetical: planner picked filesystem_write but the spec wants
+    a different capability that ALSO writes files. Reconciliation
+    should NOT fire — the spec was authored under a file-writing
+    mental model already."""
+    # Inject a fake "file-writing" cap into the allowed set so the
+    # test doesn't depend on real capability tables. We patch the
+    # module-level set directly.
+    import app.services.workflow_planner.capability_repair as mod
+
+    original = mod._CAPS_THAT_MUST_WRITE_FILE
+    mod._CAPS_THAT_MUST_WRITE_FILE = frozenset(
+        list(original) + ["fake_other_writer"]
+    )
+    try:
+        nodes = [
+            _node(
+                draft_node_id="n",
+                capability_id="fake_other_writer",
+                semantic_type="transform",
+                candidate_ids=["fake_other_writer", "coding_agent"],
+            )
+        ]
+        planner = _planner(nodes)
+        spec = _spec("n", runtime_class="bounded_transform")
+        # Pre-condition: spec already has no persistence rule.
+        original_rule_count = len(spec.business_rules)
+        original_sketch_count = len(spec.implementation_sketch)
+        issues = [
+            CapabilityMismatchIssue(
+                node_id="n",
+                selected_capability_id="fake_other_writer",
+                expected_runtime_class="bounded_transform",
+                allowed_runtime_classes=[],
+                kind="missing_capability_selection",
+                detail="...",
+            )
+        ]
+        report = repair_capability_picks(
+            planner_output=planner,
+            specs=[spec],
+            issues=issues,
+        )
+        # Rebind happened (fake_other_writer → coding_agent).
+        attempt = report.attempts[0]
+        assert attempt.new_capability == "coding_agent"
+        # But reconciliation should NOT have fired, because
+        # fake_other_writer was already a file-writer.
+        assert attempt.spec_reconciliation is None
+        assert len(spec.business_rules) == original_rule_count
+        assert len(spec.implementation_sketch) == original_sketch_count
+    finally:
+        mod._CAPS_THAT_MUST_WRITE_FILE = original
+
+
+def test_r15_enforce_spec_gates_emits_spec_reconciliations_in_outcome():
+    """When _enforce_spec_gates runs and triggers reconciliation, the
+    outcome dict surfaces spec_reconciliations alongside repair_attempts
+    so build_execution_service can persist both into the planner_metadata
+    audit trail."""
+    from app.services.build.build_execution_service import _enforce_spec_gates
+
+    nodes = [
+        _node(
+            draft_node_id="n_compute",
+            capability_id="validate_schema",
+            semantic_type="transform",
+        ),
+    ]
+    planner = _planner(nodes)
+    bundle = NodeExecutionSpecBundle(
+        specs=[_spec("n_compute", runtime_class="bounded_transform")],
+        skipped_node_ids=[],
+        edge_contract_report=EdgeContractReport(checked_edges=0),
+    )
+    outcome = _enforce_spec_gates(bundle=bundle, planner_output=planner)
+    assert outcome["planner_output_modified"] is True
+    assert len(outcome["repair_attempts"]) == 1
+    assert outcome["repair_attempts"][0]["spec_reconciled"] is True
+    # spec_reconciliations is the audit-trail-friendly serialization.
+    recs = outcome["spec_reconciliations"]
+    assert len(recs) == 1
+    rec = recs[0]
+    assert rec["node_id"] == "n_compute"
+    assert rec["old_capability"] == "validate_schema"
+    assert rec["new_capability"] == "coding_agent"
+    assert rec["bumped_max_iterations_from"] == 1
+    assert rec["bumped_max_iterations_to"] == 2
+    assert "MUST persist primary_output" in (rec["added_business_rule_text"] or "")
