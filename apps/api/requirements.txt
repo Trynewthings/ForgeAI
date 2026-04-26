@@ -18,3 +18,9 @@ httpx==0.28.1
 # before executing the iteration's script.
 pandas>=2.0
 numpy>=1.24
+
+# Typed-node v0 — safe expression evaluation for formula_eval / classify
+# / filter typed nodes. Whitelist-based; no imports / no attribute
+# access / no lambdas. Pinned because the surface area is part of our
+# audit boundary.
+simpleeval==0.9.13
