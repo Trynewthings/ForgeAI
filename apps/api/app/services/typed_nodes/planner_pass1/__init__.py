@@ -35,6 +35,12 @@ from app.services.typed_nodes.planner_pass1.prompt import (
     build_pass1_messages,
     get_catalog_node_types,
 )
+from app.services.typed_nodes.planner_pass1.retry import (
+    RETRYABLE_ISSUE_CODES,
+    RetryAttempt,
+    RetryPolicy,
+    render_retry_feedback,
+)
 from app.services.typed_nodes.planner_pass1.schema import (
     PlannerInputArtifact,
     PlannerOutputArtifact,
@@ -47,6 +53,11 @@ from app.services.typed_nodes.planner_pass1.service import (
     PLANNER_PASS1_SERVICE_VERSION,
     PlannerPass1Result,
     PlannerPass1Service,
+    PlannerPass1ShadowResult,
+)
+from app.services.typed_nodes.planner_pass1.shadow import (
+    ShadowComparison,
+    compare_pass1_outputs,
 )
 from app.services.typed_nodes.planner_pass1.validator import (
     PlannerPass1Validator,
@@ -57,18 +68,25 @@ from app.services.typed_nodes.planner_pass1.validator import (
 __all__ = [
     "PROMPT_REVISION",
     "PLANNER_PASS1_SERVICE_VERSION",
+    "RETRYABLE_ISSUE_CODES",
     "PlannerPass1Input",
     "PlannerPass1Output",
     "PlannerPass1Messages",
     "PlannerPass1Result",
     "PlannerPass1Service",
+    "PlannerPass1ShadowResult",
     "PlannerPass1Validator",
     "PlannerInputArtifact",
     "PlannerOutputArtifact",
+    "RetryAttempt",
+    "RetryPolicy",
+    "ShadowComparison",
     "TypedNodeStepDraft",
     "TypedPlannerUnresolvedItem",
     "ValidationIssue",
     "ValidationResult",
     "build_pass1_messages",
+    "compare_pass1_outputs",
     "get_catalog_node_types",
+    "render_retry_feedback",
 ]

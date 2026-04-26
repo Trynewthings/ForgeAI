@@ -3,19 +3,25 @@
 Single-shot orchestration:
     input → prompt → LLM → JSON parse → schema validate → graph validate → result
 
-This module deliberately does NOT implement retry / shadow comparison
-/ deterministic-fallback yet — those land in 8.0.11. Keeping 8.0.10
-small lets us iterate the prompt and validator first against real
-mock + LLM calls before adding adaptive control flow.
+8.0.11 adds two features on top of the 8.0.10 single-shot core:
 
-Modes:
+    * RETRY LOOP — when the validator returns blocking errors that
+      the LLM could plausibly fix (cycles, unknown node types,
+      malformed JSON), the service now feeds the validator's issue
+      list back to the LLM as a continuation message and asks it to
+      regenerate. Disabled by default; opt in via ``retry_policy``.
+
+    * SHADOW MODE — ``plan_with_shadow()`` runs both real-LLM and
+      mock-deterministic plans for the same input, returns the
+      structural comparison, and lets the caller decide which
+      authority to use. The deterministic plan is the safe baseline;
+      the LLM result is logged for evaluation.
+
+Modes (``llm_mode`` resolved from provider config):
     mock — produces a deterministic, schema-valid output for tests
            and offline iteration. Does NOT call any LLM.
-    real — calls the configured provider via provider_runtime.
-
-The mock output is intentionally a 3-step linear graph (read_csv →
-project → write_csv) so downstream pipeline tests can use it as a
-fixture without needing a real model.
+    real — calls the configured provider via provider_runtime, with
+           optional retry-on-blocking-errors.
 """
 from __future__ import annotations
 
@@ -38,10 +44,19 @@ from app.services.typed_nodes.planner_pass1.prompt import (
     PlannerPass1Messages,
     build_pass1_messages,
 )
+from app.services.typed_nodes.planner_pass1.retry import (
+    RetryAttempt,
+    RetryPolicy,
+    render_retry_feedback,
+)
 from app.services.typed_nodes.planner_pass1.schema import (
     PlannerPass1Input,
     PlannerPass1Output,
     TypedNodeStepDraft,
+)
+from app.services.typed_nodes.planner_pass1.shadow import (
+    ShadowComparison,
+    compare_pass1_outputs,
 )
 from app.services.typed_nodes.planner_pass1.validator import (
     PlannerPass1Validator,
@@ -53,7 +68,7 @@ from app.services.typed_nodes.planner_pass1.validator import (
 logger = logging.getLogger(__name__)
 
 
-PLANNER_PASS1_SERVICE_VERSION = "typed_planner_pass1_service_v0_1"
+PLANNER_PASS1_SERVICE_VERSION = "typed_planner_pass1_service_v0_2"
 
 
 # ---------------------------------------------------------------------------
@@ -66,8 +81,13 @@ class PlannerPass1Result:
     """End-to-end outcome of a Pass 1 invocation.
 
     Carries the validator-corrected output, the issue list, and a
-    structured stage trace so callers (8.0.11 retry loop, build
-    pipeline) can decide what to do next.
+    structured stage trace so callers (build pipeline, audit
+    surfaces) can decide what to do next.
+
+    8.0.11 adds ``retry_attempts`` — populated when the service ran
+    its retry loop. Each entry records that attempt's outcome so
+    audit logs can show "succeeded on retry 2 after a cycle issue
+    on retry 1".
     """
 
     output: PlannerPass1Output
@@ -76,10 +96,28 @@ class PlannerPass1Result:
     fallback_reason: Optional[str] = None
     raw_llm_text: Optional[str] = None
     stage_trace: dict[str, Any] = field(default_factory=dict)
+    retry_attempts: list[RetryAttempt] = field(default_factory=list)
 
     @property
     def has_blocking_errors(self) -> bool:
         return any(i.severity == "error" for i in self.issues)
+
+
+@dataclass
+class PlannerPass1ShadowResult:
+    """Outcome of a shadow comparison run.
+
+    Carries both the primary and shadow plans plus the structural
+    diff. ``primary_authority`` is the result that should be used
+    downstream (the deterministic baseline by default in 8.0.11);
+    ``shadow_telemetry`` is recorded for evaluation only.
+    """
+
+    primary_authority: PlannerPass1Result
+    shadow_telemetry: PlannerPass1Result
+    comparison: ShadowComparison
+    primary_mode: str
+    shadow_mode: str
 
 
 # ---------------------------------------------------------------------------
@@ -247,16 +285,27 @@ class PlannerPass1Service:
     # Public entry
     # ------------------------------------------------------------------
 
-    def plan(self, input_data: PlannerPass1Input) -> PlannerPass1Result:
+    def plan(
+        self,
+        input_data: PlannerPass1Input,
+        *,
+        retry_policy: Optional[RetryPolicy] = None,
+    ) -> PlannerPass1Result:
         """Run Pass 1 in the mode dictated by the resolved provider config.
 
-        - ``llm_mode == 'mock'`` → deterministic mock graph
-        - ``llm_mode == 'real'`` → live LLM call with parse + validate
+        - ``llm_mode == 'mock'`` → deterministic mock graph (no retry)
+        - ``llm_mode == 'real'`` → live LLM call with parse + validate,
+          optionally retried per ``retry_policy``
+
+        ``retry_policy`` is opt-in. When None, single-shot behavior is
+        preserved (mirrors 8.0.10 contract). When set, the service will
+        feed validator issues back to the LLM and ask for a fixed
+        regeneration up to ``retry_policy.max_attempts`` total tries.
+        Mock mode ignores retry policy — there's nothing to retry.
 
         Errors at any stage become a result with ``success=False`` and
         a populated ``fallback_reason`` so callers can decide between
-        retry / human review / abort. The validator output is always
-        returned (it's what 8.0.11 will compare against repair retries).
+        further retry / human review / abort.
         """
         try:
             adapter, runtime_config = self._adapter_factory()
@@ -269,7 +318,92 @@ class PlannerPass1Service:
 
         if runtime_config.llm_mode == "mock":
             return self._run_mock(input_data, runtime_config)
-        return self._run_real(input_data, adapter, runtime_config)
+        return self._run_real(
+            input_data, adapter, runtime_config,
+            retry_policy=retry_policy,
+        )
+
+    def plan_with_shadow(
+        self,
+        input_data: PlannerPass1Input,
+        *,
+        primary_mode: str = "deterministic",
+        shadow_mode: str = "real",
+        retry_policy: Optional[RetryPolicy] = None,
+    ) -> PlannerPass1ShadowResult:
+        """Run two plans (primary + shadow) and structurally compare them.
+
+        Default policy: PRIMARY = deterministic mock (safe baseline),
+        SHADOW = live LLM (telemetry only). Once shadow metrics show
+        consistent agreement, callers can flip to ``primary_mode='real'``
+        in a controlled way without changing this method's contract.
+
+        ``retry_policy`` applies ONLY to the real-mode side — the
+        deterministic mock is by definition single-shot.
+
+        Both plans see exactly the same input. The comparison object
+        is returned regardless of whether either side succeeded; if
+        a side failed, the comparison still contains usable counts
+        (e.g. step_count_match=False with primary_count=0).
+        """
+        primary = self._run_in_mode(
+            input_data, mode=primary_mode, retry_policy=retry_policy,
+        )
+        shadow = self._run_in_mode(
+            input_data, mode=shadow_mode, retry_policy=retry_policy,
+        )
+        comparison = compare_pass1_outputs(
+            primary=primary.output,
+            shadow=shadow.output,
+        )
+        # Annotate stage traces so the audit log shows which side was
+        # which without consulting the wrapper object.
+        primary.stage_trace = {**primary.stage_trace, "shadow_role": "primary", "primary_mode": primary_mode}
+        shadow.stage_trace = {**shadow.stage_trace, "shadow_role": "shadow", "shadow_mode": shadow_mode}
+        return PlannerPass1ShadowResult(
+            primary_authority=primary,
+            shadow_telemetry=shadow,
+            comparison=comparison,
+            primary_mode=primary_mode,
+            shadow_mode=shadow_mode,
+        )
+
+    def _run_in_mode(
+        self,
+        input_data: PlannerPass1Input,
+        *,
+        mode: str,
+        retry_policy: Optional[RetryPolicy],
+    ) -> PlannerPass1Result:
+        """Resolve the requested mode against an adapter and dispatch.
+
+        Used by ``plan_with_shadow`` to force one specific mode per
+        side without relying on provider config. Falls back to the
+        configured provider for "real" requests.
+
+        Mode strings:
+          * "deterministic" / "mock" — local mock factory, no LLM
+          * "real"                   — live provider call
+        """
+        try:
+            adapter, runtime_config = self._adapter_factory()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("planner_pass1: shadow adapter_factory failed: %s", exc)
+            return self._fallback_result(
+                input_data,
+                fallback_reason=f"adapter_factory_failed: {exc}",
+            )
+        if mode in ("deterministic", "mock"):
+            return self._run_mock(input_data, runtime_config)
+        if mode == "real":
+            return self._run_real(
+                input_data, adapter, runtime_config,
+                retry_policy=retry_policy,
+            )
+        return self._fallback_result(
+            input_data,
+            fallback_reason=f"unknown_mode: {mode!r}",
+        )
 
     # ------------------------------------------------------------------
     # Internals
@@ -305,33 +439,106 @@ class PlannerPass1Service:
         input_data: PlannerPass1Input,
         adapter: BaseProviderAdapter,
         runtime_config: ResolvedModelConfig,
+        *,
+        retry_policy: Optional[RetryPolicy] = None,
     ) -> PlannerPass1Result:
+        """Real-mode dispatch with optional multi-turn retry.
+
+        Without ``retry_policy``: single LLM call, parse, validate.
+        With ``retry_policy``: same first call, then on blocking
+        retryable issues, append a continuation pair (assistant +
+        retry-feedback user) and call again. Repeats up to
+        ``max_attempts`` total tries.
+
+        The chat history grows with each attempt, NOT a fresh prompt.
+        Keeping the bad response in context is what makes the retry
+        feedback meaningful — the LLM can compare what it produced
+        against the validator complaint.
+        """
+        # Build the initial 2-message chat (system + user). Retry loop
+        # appends to this list in place when continuation is needed.
         messages = build_pass1_messages(input_data)
-        chat_messages = self._messages_to_chat(messages)
+        chat_messages: list[dict[str, str]] = self._messages_to_chat(messages)
 
-        try:
-            response: ProviderResponse = adapter.chat(chat_messages)
-        except ProviderCallError as exc:
-            logger.warning("planner_pass1: provider call failed: %s", exc)
-            return self._fallback_result(
+        attempts: list[RetryAttempt] = []
+        policy = retry_policy or RetryPolicy(max_attempts=1)
+        last_result: Optional[PlannerPass1Result] = None
+
+        for attempt_idx in range(1, policy.max_attempts + 1):
+            try:
+                response: ProviderResponse = adapter.chat(chat_messages)
+            except ProviderCallError as exc:
+                logger.warning(
+                    "planner_pass1: provider call failed (attempt %d): %s",
+                    attempt_idx, exc,
+                )
+                fallback = self._fallback_result(
+                    input_data,
+                    fallback_reason=f"provider_call_error: {exc}",
+                    stage_trace={
+                        "mode": "real",
+                        "stage": "provider_call",
+                        "attempt_idx": attempt_idx,
+                    },
+                )
+                attempts.append(RetryAttempt(
+                    attempt_idx=attempt_idx,
+                    success=False,
+                    issue_codes=[i.code for i in fallback.issues],
+                    fallback_reason=fallback.fallback_reason,
+                ))
+                # Provider transport errors are NOT retried in 8.0.11.
+                fallback.retry_attempts = attempts
+                return fallback
+
+            raw_text = response.content or ""
+            result = self._parse_and_validate(
                 input_data,
-                fallback_reason=f"provider_call_error: {exc}",
-                stage_trace={"mode": "real", "stage": "provider_call"},
+                raw_text=raw_text,
+                stage_trace={
+                    "mode": "real",
+                    "provider_key": runtime_config.provider,
+                    "prompt_revision": PROMPT_REVISION,
+                    "service_version": PLANNER_PASS1_SERVICE_VERSION,
+                    "attempt_idx": attempt_idx,
+                    "prompt_tokens": getattr(response, "prompt_tokens", None),
+                    "completion_tokens": getattr(response, "completion_tokens", None),
+                },
             )
+            attempts.append(RetryAttempt(
+                attempt_idx=attempt_idx,
+                success=result.success,
+                issue_codes=[i.code for i in result.issues],
+                fallback_reason=result.fallback_reason,
+                repaired=result.output.repaired,
+            ))
+            last_result = result
 
-        raw_text = response.content or ""
-        return self._parse_and_validate(
-            input_data,
-            raw_text=raw_text,
-            stage_trace={
-                "mode": "real",
-                "provider_key": runtime_config.provider,
-                "prompt_revision": PROMPT_REVISION,
-                "service_version": PLANNER_PASS1_SERVICE_VERSION,
-                "prompt_tokens": getattr(response, "prompt_tokens", None),
-                "completion_tokens": getattr(response, "completion_tokens", None),
-            },
-        )
+            # Decide whether to retry
+            if result.success:
+                break
+            if attempt_idx >= policy.max_attempts:
+                break
+            if not policy.should_retry(result.issues):
+                # Issues exist but none are retryable — stop and return.
+                break
+
+            # Continuation: append the assistant's failed response
+            # and a structured retry-feedback user turn.
+            chat_messages.append({"role": "assistant", "content": raw_text})
+            chat_messages.append({
+                "role": "user",
+                "content": render_retry_feedback(result.issues),
+            })
+
+        assert last_result is not None  # loop runs at least once
+        last_result.retry_attempts = attempts
+        last_result.stage_trace = {
+            **last_result.stage_trace,
+            "retry_attempts_made": len(attempts),
+            "retry_max_attempts": policy.max_attempts,
+        }
+        return last_result
 
     @staticmethod
     def _messages_to_chat(
