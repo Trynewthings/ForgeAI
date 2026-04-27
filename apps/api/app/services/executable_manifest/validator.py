@@ -15,7 +15,7 @@ from app.schemas.executable_manifest import (
 
 class ExecutableManifestValidator:
     SUPPORTED_TYPES = {"single_service", "workflow", "multi_agent"}
-    SUPPORTED_STRATEGIES = {"sequential"}
+    SUPPORTED_STRATEGIES = {"sequential", "typed_node_v0"}
     SUPPORTED_ENTRYPOINTS = {"steps_file", "service_descriptor", "agent_graph"}
 
     def validate(self, manifest: ParsedManifest) -> ManifestValidationResult:
@@ -36,7 +36,7 @@ class ExecutableManifestValidator:
             errors.append("entrypoint.path could not be resolved")
 
         if manifest.execution.strategy not in self.SUPPORTED_STRATEGIES:
-            errors.append("execution.strategy must be 'sequential'")
+            errors.append("execution.strategy must be one of: sequential, typed_node_v0")
 
         if manifest.execution.steps_source:
             if "execution.steps_source" not in manifest.loaded_documents:
@@ -129,7 +129,7 @@ class ExecutableManifestValidator:
         resolved_input: Any,
         field_sources: dict[str, str] | None = None,
     ) -> RuntimeInputValidationResult:
-        if execution_mode not in {"executable-manifest", "execution-package"}:
+        if execution_mode not in {"executable-manifest", "execution-package", "typed-node-v0"}:
             return RuntimeInputValidationResult(
                 valid=False,
                 contract_mode="manifest_input_schema",

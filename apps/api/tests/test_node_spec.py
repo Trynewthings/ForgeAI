@@ -68,6 +68,14 @@ from app.services.node_spec.node_spec_service import (
 )
 
 
+# Legacy /specify path: this file's e3/e4/e5 tests assert the
+# NodeExecutionSpecBundle response shape and the EdgeContractFailure 422
+# detail produced by the legacy node-spec service. The typed-node v0
+# adapter that now answers /specify by default emits a different envelope
+# (no edge_contract_report, configured-step list instead of specs[]).
+pytestmark = pytest.mark.usefixtures("legacy_specify_path")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

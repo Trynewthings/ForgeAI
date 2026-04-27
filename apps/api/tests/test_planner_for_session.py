@@ -53,7 +53,15 @@ def test_plan_endpoint_returns_planner_output(client: TestClient) -> None:
 
     assert body["session_id"] == session_id
     assert body["state_id"]
-    assert body["planner_version"] == "workflow_planner_v1"
+    # typed_node_v0_enabled defaults to True on this branch — /plan now
+    # routes through the typed-node Pass 1 adapter, which stamps its own
+    # planner_version. Either the legacy or the typed-node version is
+    # acceptable here; the assertion's job is to confirm the planner
+    # actually ran, not which implementation answered.
+    assert body["planner_version"] in {
+        "workflow_planner_v1",
+        "typed_planner_pass1_v0",
+    }
     output = body["planner_output"]
     assert output["draft_status"] in {"complete", "partial", "review_required", "blocked"}
     assert isinstance(output["node_drafts"], list)

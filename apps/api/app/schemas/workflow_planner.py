@@ -131,6 +131,17 @@ class WorkflowPlannerNodeDraft(BaseModel):
     node_name: Optional[str] = None
     node_semantic_type: NodeSemanticType = "transform"
     semantic_goal: str = ""
+    node_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Typed-node v0: when populated, names the typed-node catalog "
+            "entry this draft uses (read_csv / merge / project / "
+            "formula_eval / classify_state_space / write_csv / etc., or "
+            "'coding_agent' for the escape hatch). Empty / None means "
+            "the legacy capability-binding path applies. Downstream "
+            "stages (config_synthesis, build) dispatch on this when set."
+        ),
+    )
     upstream_dependencies: list[str] = Field(
         default_factory=list,
         description="draft_node_ids of upstream nodes.",

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from threading import Thread
-from typing import Any
+from typing import Any, Optional
 
 from app.core.config import ROOT_DIR, settings
 from app.core.database import SessionLocal
@@ -29,6 +29,7 @@ from app.schemas.executable_manifest import (
     ExecutionPackageMetadata,
     ExecutionPackageRuntimeEntry,
 )
+from app.services.typed_nodes.planner_pass2.schema import PlannerPass2Output
 from app.schemas.requirement_compiler import CompileContextResponse
 from app.schemas.workflow_native import (
     AcceptanceRule,
@@ -70,6 +71,183 @@ from app.services.capabilities import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+TYPED_NODE_V0_EXECUTION_MODE = "typed-node-v0"
+TYPED_NODE_V0_STRATEGY = "typed_node_v0"
+
+
+def _is_typed_node_plan_payload(payload: Any) -> bool:
+    return (
+        isinstance(payload, dict)
+        and str(payload.get("plan_version") or "").startswith("typed_planner_pass2")
+        and isinstance(payload.get("steps"), list)
+    )
+
+
+def _typed_node_v0_enabled() -> bool:
+    return bool(getattr(settings, "typed_node_v0_enabled", False))
+
+
+def _should_dispatch_typed_node_build(payload: Any) -> bool:
+    return _typed_node_v0_enabled() and _is_typed_node_plan_payload(payload)
+
+
+def _extract_typed_node_pass2_from_node_specs(node_specs_json: Any) -> Optional[PlannerPass2Output]:
+    """Recover PlannerPass2Output from a /specify response's typed-node
+    sidecar.
+
+    The typed-node config_synthesis adapter writes node_specs_json as
+    ``{"schema_kind": "typed_node_v0_config_synthesis", ..., "typed_node_v0":
+    {"pass2_output": {...}}}``. Build dispatch reads it from there so
+    /plan and /specify can stay decoupled (Pass1 on planner_output_json,
+    Pass2 on node_specs_json).
+    """
+    if not isinstance(node_specs_json, dict):
+        return None
+    sidecar = node_specs_json.get("typed_node_v0")
+    if not isinstance(sidecar, dict):
+        return None
+    payload = sidecar.get("pass2_output")
+    if not _is_typed_node_plan_payload(payload):
+        return None
+    try:
+        return PlannerPass2Output.model_validate(payload)
+    except Exception:  # noqa: BLE001 — defensive, drop to legacy fallback
+        return None
+
+
+def _typed_node_steps_document(plan: PlannerPass2Output) -> dict[str, Any]:
+    steps: list[dict[str, Any]] = []
+    for step in plan.steps:
+        steps.append({
+            "step_name": step.step_id,
+            "step_id": step.step_id,
+            "step_type": "typed_node",
+            "node_type": step.node_type,
+            "intent": step.intent,
+            "upstream_step_ids": list(step.upstream_step_ids),
+            "consumes_artifact_ids": list(step.consumes_artifact_ids),
+            "produces_artifact_ids": list(step.produces_artifact_ids),
+            "typed_config": step.typed_config.model_dump(mode="python"),
+            "synthesis_notes": list(step.synthesis_notes),
+            "escape_hatch_reason": step.escape_hatch_reason,
+        })
+    return {
+        "plan_version": plan.plan_version,
+        "draft_status": plan.draft_status,
+        "steps": steps,
+        "entry_step_ids": list(plan.entry_step_ids),
+        "exit_step_ids": list(plan.exit_step_ids),
+        "schema_flow": [s.model_dump(mode="python") for s in plan.schema_flow],
+        "unresolved_items": [i.model_dump(mode="python") for i in plan.unresolved_items],
+        "repaired_step_ids": list(plan.repaired_step_ids),
+        "planning_notes": list(plan.planning_notes),
+        "planner_trace": dict(plan.planner_trace),
+    }
+
+
+def build_typed_node_execution_package(
+    *,
+    plan: PlannerPass2Output,
+    build_id: str | None = None,
+    executable_id: str | None = None,
+    project_id: str | None = None,
+    build_version: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return (manifest, generated_files) for a PlannerPass2Output."""
+    steps_document = _typed_node_steps_document(plan)
+    runnable_step_names = [step.step_id for step in plan.steps]
+    generated_files: dict[str, Any] = {
+        "steps.json": steps_document,
+        "runtime_entry.json": ExecutionPackageRuntimeEntry(
+            entry_version="0.1",
+            loader_kind="typed_node_v0_execution_package",
+            execution_mode=TYPED_NODE_V0_EXECUTION_MODE,
+            manifest_path="manifest.json",
+            steps_source="steps.json",
+            bindings_source="",
+            package_metadata_source="package_metadata.json",
+            supported_execution_kinds=["typed_node"],
+            runnable_step_names=runnable_step_names,
+            blocked_step_names=[],
+            review_required_step_names=[],
+            active_binding_step_names=runnable_step_names,
+            is_runnable=bool(runnable_step_names) and plan.draft_status in {"complete", "partial"},
+            notes=["typed_node_v0", f"draft_status={plan.draft_status}"],
+        ).model_dump(mode="python"),
+        "package_metadata.json": ExecutionPackageMetadata(
+            package_version="0.1",
+            package_kind="typed_node_v0_execution_package",
+            build_id=build_id,
+            executable_id=executable_id,
+            blueprint_id=None,
+            executable_type=ExecutableType.WORKFLOW_BUNDLE.value,
+            total_steps=len(plan.steps),
+            bound_step_count=len(plan.steps),
+            runnable_step_count=len(runnable_step_names),
+            blocked_step_count=0,
+            review_required_step_count=0,
+            bound_capability_ids=sorted({s.node_type for s in plan.steps}),
+            runnable_capability_ids=sorted({s.node_type for s in plan.steps}),
+            runtime_entry_ready=True,
+            runtime_input_hints=[],
+            notes=["typed_node_v0"],
+        ).model_dump(mode="python"),
+        "input.schema.json": {"type": "object", "properties": {}},
+        "output.schema.json": {"type": "object", "properties": {}},
+        "runtime.defaults.json": {},
+    }
+    manifest: dict[str, Any] = {
+        "manifest_version": "0.1",
+        "executable_id": executable_id,
+        "build_id": build_id,
+        "build_version": build_version,
+        "project_id": project_id,
+        "blueprint_id": None,
+        "executable_type": "workflow",
+        "compatibility": {"mode": "typed_node_v0"},
+        "package": {
+            "bindings": None,
+            "runtime_entry": "runtime_entry.json",
+            "package_metadata": "package_metadata.json",
+            "asset_index": None,
+        },
+        "entrypoint": {"kind": "steps_file", "path": "steps.json", "handler": None},
+        "schemas": {
+            "input": "input.schema.json",
+            "output": "output.schema.json",
+            "config": "runtime.defaults.json",
+        },
+        "execution": {
+            "strategy": TYPED_NODE_V0_STRATEGY,
+            "steps_source": "steps.json",
+            "nodes_source": None,
+            "retry_policy_ref": None,
+            "timeout_seconds": None,
+        },
+        "runtime": {"default_env": {}, "env_required": []},
+        "artifacts": {"spec_file": None, "default_outputs": ["typed_node_outputs"]},
+        "observability": {
+            "trace_enabled": True,
+            "step_logs": True,
+            "token_usage": False,
+            "metrics": [],
+        },
+        "files": [
+            {"path": "manifest.json", "kind": "manifest"},
+            *[{"path": name, "kind": "generated"} for name in generated_files.keys()],
+        ],
+        "metadata": {
+            "typed_node_v0": {
+                "plan_version": plan.plan_version,
+                "draft_status": plan.draft_status,
+                "step_count": len(plan.steps),
+                "repaired_step_ids": list(plan.repaired_step_ids),
+            }
+        },
+    }
+    return manifest, generated_files
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +582,34 @@ class BuildExecutionService:
                 raise RuntimeError(
                     "session has no planner_output — call /front-chain/sessions/{id}/plan first"
                 )
+            # Typed-node v0 dispatch: prefer the Pass 2 output stashed
+            # under node_specs_json by the config_synthesis adapter (the
+            # /plan + /specify two-stage path), fall back to the legacy
+            # single-shot path where planner_output_json IS the Pass 2
+            # output (used by the standalone E2E script).
+            typed_node_plan = None
+            if _typed_node_v0_enabled():
+                typed_node_plan = _extract_typed_node_pass2_from_node_specs(
+                    state_row.node_specs_json
+                )
+                if typed_node_plan is None and _is_typed_node_plan_payload(
+                    state_row.planner_output_json
+                ):
+                    typed_node_plan = PlannerPass2Output.model_validate(
+                        state_row.planner_output_json
+                    )
+            if typed_node_plan is not None:
+                self._execute_typed_node_build_from_plan(
+                    db=db,
+                    build=build,
+                    build_step_repository=build_step_repository,
+                    executable_repository=executable_repository,
+                    artifact_repository=artifact_repository,
+                    token_usage_log_repository=token_usage_log_repository,
+                    plan=typed_node_plan,
+                    planner_state_id=str(state_row.id),
+                )
+                return
             planner_output = WorkflowPlannerOutput.model_validate(
                 state_row.planner_output_json
             )
@@ -946,6 +1152,170 @@ class BuildExecutionService:
                 build_id=build.id,
                 error=str(exc),
             )
+            raise
+
+    def _execute_typed_node_build_from_plan(
+        self,
+        *,
+        db,
+        build: Build,
+        build_step_repository: BuildStepRepository,
+        executable_repository: ExecutableRepository,
+        artifact_repository: ArtifactRepository,
+        token_usage_log_repository: TokenUsageLogRepository,
+        plan: PlannerPass2Output,
+        planner_state_id: str | None = None,
+    ) -> None:
+        current_step: BuildStepV2 | None = None
+        build_dir = (
+            ROOT_DIR / ".generated" / "executables" / build.project_id / build.build_version
+        )
+        build_dir.mkdir(parents=True, exist_ok=True)
+        executable = Executable(
+            project_id=build.project_id,
+            blueprint_id=None,
+            executable_type=ExecutableType.WORKFLOW_BUNDLE.value,
+            source_path=str(build_dir),
+            build_version=build.build_version,
+            status=ExecutableStatus.DRAFT.value,
+        )
+        executable_repository.create(executable)
+        build.executable_id = executable.id
+        db.commit()
+
+        manifest, generated_files = build_typed_node_execution_package(
+            plan=plan,
+            build_id=build.id,
+            executable_id=executable.id,
+            project_id=build.project_id,
+            build_version=build.build_version,
+        )
+        if planner_state_id is not None:
+            manifest.setdefault("metadata", {}).setdefault("typed_node_v0", {})[
+                "planner_state_id"
+            ] = planner_state_id
+
+        try:
+            for step in build_step_repository.list_by_build(build.id):
+                current_step = step
+                step.status = BuildStepStatus.RUNNING.value
+                step.started_at = datetime.now(timezone.utc)
+                step.input_payload_json = {
+                    "session_id": build.session_id,
+                    "build_version": build.build_version,
+                    "typed_node_v0": True,
+                }
+                db.commit()
+
+                if step.step_name == "generate_manifest":
+                    (build_dir / "manifest.json").write_text(
+                        json.dumps(manifest, indent=2), encoding="utf-8"
+                    )
+                    artifact_repository.create(
+                        Artifact(
+                            build_id=build.id,
+                            build_step_v2_id=step.id,
+                            executable_id=executable.id,
+                            artifact_type="manifest_file",
+                            storage_kind="inline",
+                            path_or_content=json.dumps(manifest, indent=2),
+                            metadata_json={
+                                "filename": "manifest.json",
+                                "file_path": str(build_dir / "manifest.json"),
+                            },
+                        )
+                    )
+                if step.step_name == "materialize_executable":
+                    for filename, content in generated_files.items():
+                        self._write_generated_file(build_dir / filename, content)
+                        artifact_repository.create(
+                            Artifact(
+                                build_id=build.id,
+                                build_step_v2_id=step.id,
+                                executable_id=executable.id,
+                                artifact_type="generated_file",
+                                storage_kind="inline",
+                                path_or_content=self._stringify_content(content),
+                                metadata_json={
+                                    "filename": filename,
+                                    "file_path": str(build_dir / filename),
+                                },
+                            )
+                        )
+
+                step.output_payload_json = {
+                    "step_name": step.step_name,
+                    "typed_node_v0": True,
+                    "typed_node_step_count": len(plan.steps),
+                }
+                step.log_excerpt = f"[completed] {step.step_name} (typed_node_v0)"
+                step.token_usage_json = {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                }
+                step.status = BuildStepStatus.COMPLETED.value
+                step.finished_at = datetime.now(timezone.utc)
+                token_usage_log_repository.create(
+                    TokenUsageLog(
+                        build_id=build.id,
+                        build_step_v2_id=step.id,
+                        provider="builder",
+                        model_name="typed_node_v0",
+                        prompt_tokens=0,
+                        completion_tokens=0,
+                        total_tokens=0,
+                        cost_estimate=Decimal("0"),
+                    )
+                )
+                db.commit()
+                time.sleep(self.delay_seconds)
+
+            executable.manifest_json = manifest
+            executable.generated_files_index_json = {
+                "files": [
+                    {
+                        "filename": filename,
+                        "file_path": str(build_dir / filename),
+                        "artifact_type": "generated_file",
+                    }
+                    for filename in generated_files.keys()
+                ]
+            }
+            executable.status = ExecutableStatus.READY.value
+            build.manifest_snapshot_json = manifest
+            build.summary = (
+                f"Typed-node v0 build: {len(plan.steps)} typed-node steps materialized."
+            )
+            build.status = BuildStatus.COMPLETED.value
+            build.ended_at = datetime.now(timezone.utc)
+            artifact_repository.create(
+                Artifact(
+                    build_id=build.id,
+                    executable_id=executable.id,
+                    artifact_type="build_summary",
+                    storage_kind="inline",
+                    path_or_content=build.summary,
+                    metadata_json={"build_version": build.build_version},
+                )
+            )
+            db.commit()
+            log_event(
+                logger,
+                logging.INFO,
+                "build.typed_node_v0.completed",
+                build_id=build.id,
+                executable_id=executable.id,
+                step_count=len(plan.steps),
+            )
+        except Exception as exc:
+            db.rollback()
+            if current_step is not None:
+                current_step.status = BuildStepStatus.FAILED.value
+                current_step.finished_at = datetime.now(timezone.utc)
+                current_step.log_excerpt = (
+                    (current_step.log_excerpt or "") + f"\n[failed] {exc}"
+                )
             raise
 
     def _write_generated_file(self, file_path: Path, content: Any) -> None:

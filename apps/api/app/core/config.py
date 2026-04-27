@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     build_execution_mode: str = Field(default="auto", alias="BUILD_EXECUTION_MODE")
     build_pipeline_mode: str = Field(default="full", alias="BUILD_PIPELINE_MODE")
     build_step_delay_seconds: float = Field(default=0.4, alias="BUILD_STEP_DELAY_SECONDS")
+    typed_node_v0_enabled: bool = Field(default=True, alias="TYPED_NODE_V0_ENABLED")
     llm_mode: str = Field(default="mock", alias="LLM_MODE")
     default_llm_provider: str = Field(
         default=ModelProviderType.OPENAI_COMPATIBLE.value,

@@ -248,6 +248,23 @@ class ExecutableManifestResolver:
         steps_document = manifest.loaded_documents.get("execution.steps_source") or {}
         return steps_document.get("steps", []) if isinstance(steps_document, dict) else []
 
+    def _is_typed_node_manifest(
+        self,
+        *,
+        runtime_entry: ExecutionPackageRuntimeEntry | None,
+        raw_steps: list,
+    ) -> bool:
+        if runtime_entry is not None and runtime_entry.execution_mode == "typed-node-v0":
+            return True
+        return any(
+            isinstance(item, dict)
+            and (
+                item.get("step_type") == "typed_node"
+                or isinstance(item.get("typed_config"), dict)
+            )
+            for item in raw_steps
+        )
+
     def _compatibility_step_sources(self, manifest: ParsedManifest) -> list[str]:
         return [
             item
@@ -265,9 +282,37 @@ class ExecutableManifestResolver:
         runtime_profile_id: str | None,
     ) -> list[ResolvedExecutionStep]:
         resolved_steps: list[ResolvedExecutionStep] = []
+        typed_node_manifest = self._is_typed_node_manifest(
+            runtime_entry=runtime_entry,
+            raw_steps=raw_steps,
+        )
         for index, item in enumerate(raw_steps):
             step_name = item.get("step_name") or item.get("name") or f"step_{index + 1}" if isinstance(item, dict) else f"step_{index + 1}"
             binding = binding_map.get(step_name) if isinstance(item, dict) else None
+            if typed_node_manifest and isinstance(item, dict):
+                resolved_steps.append(
+                    ResolvedExecutionStep(
+                        step_name=step_name,
+                        node_name=item.get("node_name") or item.get("node_type"),
+                        selected_capability_id=None,
+                        execution_kind="typed_node",
+                        runtime_handler_ref=item.get("node_type"),
+                        binding_status="runnable",
+                        runnable=True,
+                        manual_review_required=False,
+                        payload={
+                            "step_definition": self._build_step_definition(
+                                raw_step=item,
+                                binding=None,
+                            ),
+                            "binding": {},
+                            "runtime_entry": runtime_entry.model_dump(mode="python") if runtime_entry is not None else {},
+                            "resolved_input": resolved_input,
+                            "runtime_profile_id": runtime_profile_id,
+                        },
+                    )
+                )
+                continue
             resolved_steps.append(
                 ResolvedExecutionStep(
                     step_name=step_name,
@@ -438,6 +483,10 @@ class ExecutableManifestResolver:
         binding: ExecutionPackageBinding | None,
     ) -> dict:
         base = dict(raw_step)
+        if base.get("step_type") == "typed_node" or isinstance(base.get("typed_config"), dict):
+            base.setdefault("step_type", "typed_node")
+            base.setdefault("node_type", base.get("node_name") or base.get("runtime_handler_ref"))
+            return base
         if binding is None:
             base.setdefault("step_type", str(base.get("step_type") or "llm_task"))
             return base

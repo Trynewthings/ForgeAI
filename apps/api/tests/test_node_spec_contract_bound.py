@@ -65,6 +65,11 @@ from app.services.node_spec.node_spec_service import NodeSpecService
 from app.services.provider_runtime import ProviderResponse
 
 
+# Legacy /specify path: t7 asserts the legacy edge-contract 422 detail
+# shape, which the typed-node v0 adapter does not emit.
+pytestmark = pytest.mark.usefixtures("legacy_specify_path")
+
+
 # ---------------------------------------------------------------------------
 # Reusable helpers (kept local to avoid coupling test files)
 # ---------------------------------------------------------------------------

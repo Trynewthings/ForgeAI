@@ -47,6 +47,27 @@ def _cleanup_new_generated_children(root: Path, baseline: set[str]) -> None:
 
 
 @pytest.fixture
+def legacy_specify_path():
+    """Disable typed-node v0 routing for tests that specifically assert
+    on the legacy NodeExecutionSpecBundle / EdgeContractFailure surface
+    of POST /front-chain/sessions/{id}/specify. The typed-node adapter
+    produces a different envelope (no edge_contract_report, different
+    spec schema), so legacy assertions cannot pass against it.
+
+    Apply per-file via:
+        pytestmark = pytest.mark.usefixtures("legacy_specify_path")
+    """
+    from app.core.config import settings
+
+    original = settings.typed_node_v0_enabled
+    settings.typed_node_v0_enabled = False
+    try:
+        yield
+    finally:
+        settings.typed_node_v0_enabled = original
+
+
+@pytest.fixture
 def client(tmp_path: Path):
     database_path = tmp_path / "test.db"
     engine = create_engine(

@@ -40,6 +40,7 @@ from app.services.run.case_workloads import (
     execute_python_workload,
     execute_terminal_workload,
     execute_template_runtime_workload,
+    execute_typed_node_workload,
     execute_verify_workload,
     execute_web_search_workload,
 )
@@ -926,6 +927,33 @@ class RunExecutionService:
                     f"verify step '{step.step_name}' failed: "
                     f"{output_payload.get('summary') or verifier_status}"
                 )
+            return output_payload, None, []
+
+        if step_type == "typed_node":
+            if not settings.typed_node_v0_enabled:
+                raise RuntimeError(
+                    "typed-node-v0 execution is disabled by TYPED_NODE_V0_ENABLED"
+                )
+            output_payload = execute_typed_node_workload(
+                step_name=step.step_name,
+                step_definition=step_definition,
+                previous_outputs_by_step=previous_outputs_by_step,
+            )
+            output_payload.update(
+                {
+                    "step_type": step_type,
+                    "selected_capability_id": step_definition.get("node_type"),
+                    "runtime_adapter": "typed_node_executor",
+                    "handler_ref": step_definition.get("node_type"),
+                    "provider": "typed_node_executor",
+                    "model_name": str(step_definition.get("node_type") or "typed_node"),
+                    "mode": "deterministic",
+                    "fallback_used": False,
+                    "failure_class": None,
+                    "retry_attempts": 0,
+                    **semantic_fields,
+                }
+            )
             return output_payload, None, []
 
         if step_type == "blocked":

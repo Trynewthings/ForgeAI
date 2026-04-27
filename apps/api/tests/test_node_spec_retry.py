@@ -70,6 +70,12 @@ from app.services.node_spec.node_spec_service import (
 from app.services.provider_runtime import ProviderResponse
 
 
+# Legacy /specify path: r10 asserts the legacy retry-trace 422 detail
+# emitted by NodeSpecService, which the typed-node v0 adapter does not
+# produce.
+pytestmark = pytest.mark.usefixtures("legacy_specify_path")
+
+
 # ---------------------------------------------------------------------------
 # Stub adapter — returns canned responses, optionally per-node-keyed
 # ---------------------------------------------------------------------------

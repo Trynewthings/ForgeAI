@@ -44,6 +44,23 @@ from app.services.typed_nodes.planner_pass2.schema_flow import (
     SchemaFlowError,
     SchemaFlowTracker,
 )
+from app.services.typed_nodes.planner_pass2.llm_prompt import (
+    PROMPT_REVISION_V2,
+    PlannerPass2StepMessages,
+    build_pass2_step_messages,
+)
+from app.services.typed_nodes.planner_pass2.llm_synth import (
+    PLANNER_PASS2_LLM_SYNTH_VERSION,
+    LLMSynthesizer,
+)
+from app.services.typed_nodes.planner_pass2.config_validator import (
+    ValidationIssue,
+    validate_step_config,
+)
+from app.services.typed_nodes.planner_pass2.repair import (
+    RepairAttempt,
+    RepairPolicy,
+)
 from app.services.typed_nodes.planner_pass2.service import (
     PLANNER_PASS2_SERVICE_VERSION,
     PlannerPass2Result,
@@ -52,13 +69,22 @@ from app.services.typed_nodes.planner_pass2.service import (
 
 __all__ = [
     "PLANNER_PASS2_SERVICE_VERSION",
+    "PLANNER_PASS2_LLM_SYNTH_VERSION",
+    "PROMPT_REVISION_V2",
     "ConfiguredStep",
+    "LLMSynthesizer",
     "PlannerPass2Input",
     "PlannerPass2Output",
     "PlannerPass2Result",
+    "PlannerPass2StepMessages",
     "PlannerPass2Service",
+    "RepairAttempt",
+    "RepairPolicy",
     "SchemaFlowError",
     "SchemaFlowSnapshot",
     "SchemaFlowTracker",
     "TypedConfigPayload",
+    "ValidationIssue",
+    "build_pass2_step_messages",
+    "validate_step_config",
 ]

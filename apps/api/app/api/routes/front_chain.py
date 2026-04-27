@@ -12,6 +12,7 @@ request through ``FrontChainStateService``.
 """
 from __future__ import annotations
 
+import dataclasses
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -53,6 +54,16 @@ from app.services.front_chain.front_chain_state_service import (
     FrontChainStateNotEvaluatedError,
     FrontChainStateNotFoundError,
     FrontChainStateService,
+)
+from app.core.config import settings
+from app.services.typed_nodes.planner_pass1.session_adapter import (
+    plan_for_session_typed_v0,
+)
+from app.services.typed_nodes.planner_pass2.session_adapter import (
+    TypedNodeConfigSynthesisFailure,
+    TypedNodeConfigSynthesisPlannerOutputMissingError,
+    TypedNodeConfigSynthesisSessionNotFoundError,
+    synthesize_configs_for_session,
 )
 from app.services.workflow_planner_service import (
     PLANNER_VERSION,
@@ -209,7 +220,10 @@ def plan_front_chain_session(
     idempotent.
     """
     try:
-        output, row = WorkflowPlannerService().plan_for_session(session_id, db=db)
+        if getattr(settings, "typed_node_v0_enabled", False):
+            output, row, _result = plan_for_session_typed_v0(session_id, db=db)
+        else:
+            output, row = WorkflowPlannerService().plan_for_session(session_id, db=db)
     except WorkflowPlannerSessionNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -258,7 +272,43 @@ def specify_front_chain_session(
     and persists nothing. A half-spec'd bundle is worse than no bundle.
     """
     try:
-        serialized, row = specify_for_session(session_id, db=db)
+        if getattr(settings, "typed_node_v0_enabled", False):
+            try:
+                serialized, row, _result = synthesize_configs_for_session(
+                    session_id, db=db
+                )
+            except TypedNodeConfigSynthesisSessionNotFoundError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"front_chain session not found: {exc}",
+                ) from exc
+            except TypedNodeConfigSynthesisPlannerOutputMissingError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "session has no typed-node planner_output yet — "
+                        f"finish the plan stage before specifying ({exc})"
+                    ),
+                ) from exc
+            except TypedNodeConfigSynthesisFailure as exc:
+                # Surface the partial Pass 2 result so the caller can see
+                # which step blocked synthesis and the repair attempts.
+                result = exc.result
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "typed_node_config_synthesis_failed",
+                        "fallback_reason": result.fallback_reason,
+                        "failed_step_id": result.failed_step_id,
+                        "draft_status": result.output.draft_status,
+                        "configured_step_count": len(result.output.steps),
+                        "repair_attempts": [
+                            dataclasses.asdict(a) for a in result.repair_attempts
+                        ],
+                    },
+                ) from exc
+        else:
+            serialized, row = specify_for_session(session_id, db=db)
     except NodeSpecSessionNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

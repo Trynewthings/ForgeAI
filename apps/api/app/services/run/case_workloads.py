@@ -3045,3 +3045,78 @@ def execute_verify_workload(
         "capability_family": "verify",
         "status": status_flag,
     }
+
+
+def execute_typed_node_workload(
+    *,
+    step_name: str,
+    step_definition: dict[str, Any],
+    previous_outputs_by_step: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Execute one typed-node step through the typed-node registry."""
+    import app.services.typed_nodes.executors  # noqa: F401  ensure registry populated
+    from app.services.typed_nodes.registry import get_executor_class
+
+    node_type = str(step_definition.get("node_type") or "").strip()
+    if not node_type:
+        raise ValueError(f"typed_node step {step_name!r} missing node_type")
+    if node_type == "coding_agent":
+        raise ValueError(
+            "typed_node runtime cannot execute coding_agent escape hatch directly"
+        )
+
+    typed_config = step_definition.get("typed_config")
+    if not isinstance(typed_config, dict):
+        raise ValueError(f"typed_node step {step_name!r} missing typed_config")
+    if typed_config.get("node_type") and typed_config.get("node_type") != node_type:
+        raise ValueError(
+            f"typed_node step {step_name!r} config node_type mismatch: "
+            f"{typed_config.get('node_type')!r} != {node_type!r}"
+        )
+    config_payload = typed_config.get("config")
+    if not isinstance(config_payload, dict):
+        raise ValueError(f"typed_node step {step_name!r} typed_config.config must be an object")
+
+    inputs: list[Any] = []
+    for upstream_id in step_definition.get("upstream_step_ids") or []:
+        upstream_output = previous_outputs_by_step.get(str(upstream_id))
+        if upstream_output is None:
+            raise ValueError(
+                f"typed_node step {step_name!r} missing upstream output {upstream_id!r}"
+            )
+        structured = upstream_output.get("structured_output")
+        if not isinstance(structured, dict) or "result" not in structured:
+            raise ValueError(
+                f"typed_node step {step_name!r} upstream {upstream_id!r} "
+                "did not expose structured_output.result"
+            )
+        inputs.append(structured["result"])
+
+    executor_class = get_executor_class(node_type)
+    config = executor_class.validate_config(config_payload)
+    result = executor_class().execute(config, inputs)
+
+    output_type = "tabular_records" if isinstance(result, list) else "artifact_path" if isinstance(result, str) else type(result).__name__
+    summary = f"typed_node {node_type} completed"
+    structured_output: dict[str, Any] = {
+        "node_type": node_type,
+        "typed_config": typed_config,
+        "result": result,
+        "output_type": output_type,
+        "upstream_step_ids": list(step_definition.get("upstream_step_ids") or []),
+        "consumes_artifact_ids": list(step_definition.get("consumes_artifact_ids") or []),
+        "produces_artifact_ids": list(step_definition.get("produces_artifact_ids") or []),
+    }
+    if isinstance(result, str):
+        structured_output["primary_output_path"] = result
+        summary = f"typed_node {node_type} wrote {result}"
+
+    return {
+        "step_name": step_name,
+        "summary": summary,
+        "content": summary,
+        "structured_output": structured_output,
+        "adapter": "typed_node_executor",
+        "capability_family": "typed_node",
+        "status": "completed",
+    }

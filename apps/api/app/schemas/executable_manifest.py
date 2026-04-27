@@ -68,6 +68,7 @@ ExecutionPackageExecutionKind = Literal[
     "python_function",
     "artifact_writer",
     "llm_task",
+    "typed_node",
     "web_search",
     "network_fetch",
     "filesystem",

@@ -1,9 +1,9 @@
 # Typed-Node v0 交接文档
 
 **分支**: `feat/typed-node-v0`
-**最新提交**: `caa1a82` (2026-04-26)
-**测试基线**: 1233 passed + 4 skipped (`tests/test_worker_task_failure_serialization.py` 因预先存在的 `worker_app` 导入错误暂时 ignore)
-**完成度**: Phase 0 全部 + Phase 1 全部 + Phase 2 全部 + Phase 3 (1/4)
+**最新提交**: `5c06f06` (docs(typed-nodes): add v0 handoff document)
+**测试基线**: typed_nodes 子集 **627 passed, 3 warnings**（2026-04-27 验证）
+**完成度**: Phase 0–6 全部完成；spare_parts truth 对比当前仍显示业务差异，后续是业务规则校准
 
 ---
 
@@ -37,13 +37,10 @@
 | Phase 0 — 基础 | 8.0.1 (包/registry/errors)、8.0.2 (base/registry)、8.0.3 (10 个 Pydantic config) | DONE |
 | Phase 1 — Catalog | 8.0.4–8.0.9 共 10 个 typed-node executor | DONE |
 | Phase 2 — Planner Pass 1 | 8.0.10 (schema/prompt/validator/service)、8.0.11 (retry/shadow) | DONE |
-| Phase 3 — Planner Pass 2 | 8.0.12 (scaffolding) | 1/4 |
-|  | 8.0.13 (LLM prompt builder) | TODO |
-|  | 8.0.14 (4-layer validator) | TODO |
-|  | 8.0.15 (repair + escape hatch) | TODO |
-| Phase 4 — Build/Run 集成 | 8.0.16 (dispatch)、8.0.17 (typed-node workload) | TODO |
-| Phase 5 — Spare_parts 端到端 | 8.0.18 (e2e run)、8.0.19 (truth comparison) | TODO |
-| Phase 6 — 迁移与开关 | 8.0.20 (feature flag) | TODO |
+| Phase 3 — Planner Pass 2 | 8.0.12 (scaffolding)、8.0.13 (LLM prompt builder)、8.0.14 (4-layer validator)、8.0.15 (repair + escape hatch) | DONE |
+| Phase 4 — Build/Run 集成 | 8.0.16 (dispatch)、8.0.17 (typed-node workload) | DONE |
+| Phase 5 — Spare_parts 端到端 | 8.0.18 (e2e run)、8.0.19 (truth comparison) | DONE（comparison 当前 DIFF） |
+| Phase 6 — 迁移与开关 | 8.0.20 (feature flag) | DONE |
 
 ---
 
@@ -141,11 +138,11 @@
   - 反馈消息按 code 排序，确定性输出
   - `compare_pass1_outputs(primary, shadow) → ShadowComparison`：步数、node_type Jaccard、edge 集合、artifact 绑定、unresolved 数
 
-### 3.4 Phase 3 — Planner Pass 2（已完成 1/4：8.0.12）
+### 3.4 Phase 3 — Planner Pass 2（8.0.12–8.0.15 完成）
 
 **核心契约**: Pass 1 DAG 形状 → 每个 step 带 `typed_config`
 
-**`app/services/typed_nodes/planner_pass2/`** 已完成 5 个模块：
+**`app/services/typed_nodes/planner_pass2/`** 已完成核心模块：
 
 - `schema.py` — `PlannerPass2Input/Output`、`ConfiguredStep`、
   `TypedConfigPayload`、`SchemaFlowSnapshot`
@@ -169,10 +166,78 @@
 
 - `service.py` — `PlannerPass2Service` 主循环
   - Kahn 拓扑排序（按 step_id 字典序保证确定性）
-  - 每步：synthesize → Pydantic validate → register schema flow → append
+  - 每步：synthesize → Pydantic validate → static config validate → register schema flow → append
   - coding_agent 跳过 Pydantic 验证；schema_flow 用上游 union 作为宽容基线
   - 失败时返回**部分输出**（已成功的 step 保留，blocked 状态 + failed_step_id）
-  - **synthesizer 是构造函数注入** —— 8.0.13 LLM 版本通过同一个协议替换
+  - synthesizer 是构造函数注入；`LLMSynthesizer`、repair 与 mock 都走同一协议
+
+- `llm_prompt.py` / `llm_synth.py`（8.0.13）
+  - `PROMPT_REVISION_V2 = "typed_planner_pass2_prompt_v0_1"`（测试 pin）
+  - 每步 prompt 注入 step draft、upstream columns、input/output artifacts、requirement text、Config JSON Schema
+  - `LLMSynthesizer` 支持 mock runtime 直走 `synthesize_mock_config`，real runtime 调 provider 并解析 JSON envelope
+  - provider/parse 失败时降级到 schema-valid mock config，标记 `synthesized_by="repair"`
+
+- `config_validator.py`（8.0.14）
+  - Pydantic 后补静态列引用验证、表达式引用验证、artifact path/format 合理性检查
+  - 覆盖 read/write CSV、schema_validate、merge、filter、project、formula_eval、classify、groupby、format_convert
+  - 输出 `ValidationIssue` 列表，service 根据 blocking issue 决定 repair/block
+
+- `repair.py` + `PlannerPass2Service(..., repair_policy=RepairPolicy(...))`（8.0.15）
+  - repair feedback 复用同一个 synthesizer protocol，针对单 step 重新生成 config
+  - repair 耗尽后可降级为同 `step_id` 的 `coding_agent` escape hatch
+  - `repaired_step_ids`、`RepairAttempt` 进入输出 trace，便于审计
+
+### 3.5 Phase 4 — Build/Run 集成（8.0.16–8.0.17 完成）
+
+- `build_execution_service.py`
+  - 识别 `PlannerPass2Output` payload（`plan_version` 以 `typed_planner_pass2` 开头）
+  - `build_typed_node_execution_package()` 直接物化 `steps.json`、`runtime_entry.json`、manifest/package metadata/input/output schema
+  - execution strategy 固定为 `typed_node_v0`，execution mode 固定为 `typed-node-v0`
+
+- `executable_manifest/resolver.py` / `validator.py`
+  - validator 接受 `typed_node_v0`
+  - resolver 对 typed-node manifest 直接生成 `execution_kind="typed_node"` 的 resolved steps
+  - typed node step definition 保留 `node_type`、`typed_config`、artifact binding 与 upstream id
+
+- `case_workloads.py` / `run_execution_service.py`
+  - `execute_typed_node_workload()` 根据 registry 找 executor，聚合 upstream `structured_output.result` 后零 LLM 执行
+  - `_execute_step()` 支持 `step_type="typed_node"`，provider response 为 `None`
+  - `write_csv` sink 会返回 `primary_output_path`
+
+### 3.6 Phase 5 — Spare_parts E2E（8.0.18–8.0.19 完成，truth 仍有业务差异）
+
+- `scenario_data/spare_parts/run_typed_node_e2e.py`
+  - 构造 15-step `PlannerPass2Output`
+  - 走 build materialization → manifest resolve → typed-node runtime workload
+  - 默认输出 `scenario_data/spare_parts/output/replenishment_queue.csv`
+
+- `scenario_data/spare_parts/compare_truth.py`
+  - 比较 expected vs actual CSV：列对齐、按 `sku_id` 行对齐、空白规整、数值容差、可读 diff
+  - CLI 成功时 exit 0；存在差异时 exit 1 并打印摘要
+  - 当前比较结果：15/0/0 列 shared/missing/extra；8/2/1 行 compared/missing/extra；45 个 cell diff
+  - 当前缺失 truth rows: `P-005`, `P-019`；当前多出 actual row: `P-006`
+
+- 测试：
+  - `apps/api/tests/typed_nodes/test_spare_parts_e2e.py`
+  - `apps/api/tests/typed_nodes/test_spare_parts_truth_comparison.py`
+
+### 3.7 Phase 6 — Feature Flag（8.0.20 完成）
+
+- `app/core/config.py`
+  - 新增 `typed_node_v0_enabled: bool = Field(default=True, alias="TYPED_NODE_V0_ENABLED")`
+  - 默认开启，避免 8.0.16–8.0.19 的 typed-node 路径意外回退
+
+- Build 入口
+  - `build_execution_service._should_dispatch_typed_node_build()` 同时检查 flag 和 Pass2 payload shape
+  - 关闭 flag 后，session-anchored build 不再接管 typed-node plan，回到既有 planner output build 路径
+
+- Run 入口
+  - `run_execution_service._execute_step()` 在 `step_type="typed_node"` 分支先检查 flag
+  - 关闭 flag 后直接抛出明确错误：`typed-node-v0 execution is disabled by TYPED_NODE_V0_ENABLED`
+
+- 测试：
+  - `test_build_dispatch.py::test_typed_node_build_dispatch_respects_feature_flag`
+  - `test_runtime_workload.py::test_run_execution_service_rejects_typed_node_when_feature_flag_disabled`
 
 ---
 
@@ -211,6 +276,8 @@ def synthesize(
     output_artifacts: list[PlannerOutputArtifact],
     upstream_columns: list[set[str]],
     requirement_text: str,
+    repair_feedback: str | None = None,
+    attempt_idx: int | None = None,
 ) -> tuple[
     dict[str, Any],   # config dict（必须能过 Pydantic）
     list[str],        # synthesis_notes
@@ -218,7 +285,8 @@ def synthesize(
 ]
 ```
 
-8.0.13 写 LLM 版本时直接实现这个签名，注入 `PlannerPass2Service(synthesizer=...)`。
+`LLMSynthesizer`、mock synthesizer 和 repair retry 都实现这个协议，注入
+`PlannerPass2Service(synthesizer=..., repair_policy=...)`。
 
 ### 4.3 Validator 拒绝 vs 修复二分法
 
@@ -237,124 +305,18 @@ def synthesize(
 
 ## 5. 后续工作（详细）
 
-### 5.1 8.0.13 — Pass 2 LLM Prompt Builder（下一步）
+### 5.1 Phase 5 后续校准
 
-**目标**: 实现 `LLMSynthesizer`，符合 4.2 节 synthesizer 协议。
+8.0.18/8.0.19 的工程链路已经打通，但 `compare_truth.py` 明确显示当前
+spare_parts 业务输出与 truth fixture 不一致。后续若要让 truth comparison
+成为硬门，需要单独校准业务公式/分类规则，而不是再改 build/run runtime。
 
-**建议结构**:
-```
-app/services/typed_nodes/planner_pass2/
-├── llm_prompt.py    # 新文件：per-step prompt 构建
-├── llm_synth.py     # 新文件：LLM-driven synthesizer 实现
-└── service.py       # 已存在：传入 llm_synth.synthesize 即可
-```
-
-**llm_prompt.py 应包含**:
-- 每个 node_type 一个 prompt template（或一个通用模板 + 注入 Config 的 JSON Schema）
-- 上下文注入：step.intent、upstream_columns、相关 artifacts、requirement_text 中的相关业务规则
-- `PROMPT_REVISION_V2` 常量（测试 pin）
-- system message：解释这是 Pass 2、强调 schema 严格、要求 JSON-only 响应
-
-**llm_synth.py 应包含**:
-- `LLMSynthesizer(adapter_factory)` 类
-- `__call__` 实现 synthesizer 协议
-- mock vs real 分支（mock 直接调用 `synthesize_mock_config`，real 调 LLM）
-- JSON 解析 + 错误处理（参考 Pass 1 service.py 的 `_extract_json_payload`）
-- 失败时返回什么？建议：返回 mock fallback + 标记 `synthesized_by="repair"` + 加 synthesis_notes
-
-**测试要点**:
-- 每个 node_type 至少 1 个 prompt 渲染测试
-- LLM 响应解析失败时的 fallback
-- 上下文注入正确性（upstream_columns 应该体现在 prompt 里）
-
-**预估工作量**: 1.5–2 天
-
-### 5.2 8.0.14 — Pass 2 4-Layer Validator
-
-**4 层验证**（按顺序，前一层失败则后面跳过）:
-
-1. **Pydantic 验证** —— 已在 8.0.12 service.py 里通过 `executor.validate_config()` 实现
-2. **静态列引用验证** —— config 引用的列必须在 upstream_columns 里
-   - 例: `formula_eval.assignments[i].expression` 引用的列名
-   - 例: `merge.on` 必须在两个 upstream 都存在
-   - 例: `project.columns[i].source` 必须在 upstream 里
-3. **跨字段一致性** —— 已在 Pydantic model_validator 里实现，无需重复
-4. **业务级合理性**（轻验证）—— e.g. `read_csv.path` 后缀与 artifact.format 一致
-
-**建议结构**:
-```
-app/services/typed_nodes/planner_pass2/config_validator.py
-```
-
-接口设计:
-```python
-def validate_step_config(
-    step: TypedNodeStepDraft,
-    config: dict,
-    *,
-    upstream_columns: list[set[str]],
-    artifacts: ...,
-) -> list[ValidationIssue]:
-```
-
-**预估工作量**: 1.5 天
-
-### 5.3 8.0.15 — Repair + Escape Hatch
-
-**Repair 流程**: 当某层验证器失败时:
-1. 收集失败的 issue list
-2. 构造 repair prompt（沿用 Pass 1 retry 的多轮思路）
-3. 用同一个 LLM 重新合成那一步的 config
-4. 最多重试 N 次后降级为 escape hatch（把这一步改成 coding_agent）
-
-**Escape Hatch 降级**: 
-- 把 `step.node_type` 改成 `coding_agent`
-- `escape_hatch_reason = f"Pass 2 repair exhausted after {N} attempts: {last_issues}"`
-- 调用方决定是阻断（require human review）还是继续
-
-**关键决策**:
-- repair 是在 service 主循环里做还是在 synthesizer 里做？建议**在主循环里**（保持 synthesizer 单纯）
-- escape hatch 一旦发生，schema_flow 用什么？建议保留升级前对该 node_type 的 `output_schema` 推断结果
-
-**预估工作量**: 1 天
-
-### 5.4 Phase 4 — Build/Run 集成（8.0.16 + 8.0.17）
-
-**8.0.16 Build dispatch**:
-- 现有 `app/services/build/build_execution_service.py` 需要识别 typed-node 计划
-- 当 `executable_manifest` 含 typed-node 标记时，跳过现有的 capability binding 路径
-- 直接把 `PlannerPass2Output.steps` 物化成 build 对象
-- 关键文件: `apps/api/app/services/build/build_execution_service.py`、
-  `apps/api/app/services/executable_manifest/resolver.py`
-
-**8.0.17 Typed-node workload**:
-- 现有 `apps/api/app/services/run/case_workloads.py` 是 capability-driven
-- 新增 `typed_node_workload`，输入 `(step, inputs) → output` 经过 `executor.execute()`
-- 调度器 (`scheduler.py`) 处理拓扑顺序的部分已经存在（DAG runtime v1）
-- 关键改动点：`run_execution_service.py` 的 step 派发逻辑
-
-**预估工作量**: 3 天（涉及现有系统的修改，需要小心）
-
-### 5.5 Phase 5 — Spare_parts E2E（8.0.18 + 8.0.19）
-
-**8.0.18**: 在 `apps/api/scenario_data/spare_parts/` 跑端到端
-- 输入: `input/demand.csv`、`input/inventory_rt.csv`、`input/safety_stock.csv`
-- 期待输出: `output/replenishment_queue.csv`（与 `expected/` 对比）
-
-**8.0.19**: Truth comparison
-- 现有 expected fixtures 是参考真值
-- 写一个比较脚本：列对齐 + 行对齐（按 sku_id）+ 容差 + 空格/类型规整化
-- 失败时输出 diff 表格
-
-**预估工作量**: 2 天
-
-### 5.6 Phase 6 — Feature Flag (8.0.20)
-
-- 在 `app/core/config.py` 加 `typed_node_v0_enabled: bool` 设置
-- 在 build/run 入口检查该 flag，关闭时走旧路径
-- 加端到端测试覆盖两个分支
-
-**预估工作量**: 0.5 天
+当前已知差异（2026-04-27）：
+- 列：shared/missing/extra = 15/0/0
+- 行：compared/missing/extra = 8/2/1
+- 缺失 truth rows: `P-005`, `P-019`
+- 多出 actual row: `P-006`
+- cell diffs: 45
 
 ---
 
@@ -363,18 +325,17 @@ def validate_step_config(
 ### 6.1 开发环境
 
 ```bash
-cd apps/api
-PYTHONPATH=. .venv/bin/pytest tests/typed_nodes/ -q   # 仅运行 typed_nodes 测试
-PYTHONPATH=. .venv/bin/pytest -q --ignore=tests/test_worker_task_failure_serialization.py
+PYTHONPATH=apps/api UV_CACHE_DIR=/tmp/uv-cache /Users/llk/.local/bin/uv run --with-requirements apps/api/requirements.txt pytest apps/api/tests/typed_nodes -q
+PYTHONPATH=apps/api UV_CACHE_DIR=/tmp/uv-cache /Users/llk/.local/bin/uv run --with-requirements apps/api/requirements.txt python scenario_data/spare_parts/run_typed_node_e2e.py
+PYTHONPATH=apps/api UV_CACHE_DIR=/tmp/uv-cache /Users/llk/.local/bin/uv run --with-requirements apps/api/requirements.txt python scenario_data/spare_parts/compare_truth.py
 ```
 
-注意：仓库根目录是 `/Users/llk/agentsFactory`，但所有命令应在 `apps/api/` 下运行。
+注意：命令从仓库根目录 `/Users/llk/agentsFactory` 运行；`scenario_data/*/output/`
+是生成产物，不要加入 git。
 
 ### 6.2 Git 工作流
 
 - 分支: `feat/typed-node-v0`，已 push 到 origin
-- 每个 8.0.X 任务一个 commit，commit message 末尾固定带
-  `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
 - 已知忽略事项（已经在 .gitignore 中）:
   - `scenario_data/*/output/` 整个目录（生成产物）
   - `scenario_data/*/coding_agent_step_*.out`、`script.py`、`script.sh`、`run_richer_e2e.py`
@@ -395,13 +356,14 @@ print(render_catalog_summary_for_prompt())
 
 ## 7. 测试基线（不可回退）
 
-- 总用例: **1233 passed + 4 skipped**
-- typed_nodes 子集: **579 passed**（407 executor/config/expr + 106 planner_pass1 + 66 planner_pass2）
+- typed_nodes 子集: **627 passed, 3 warnings**（2026-04-27）
+- Phase 5 窄测试: **3 passed, 3 warnings**
 - 预先存在的失败（不是本工作引入的）:
   - `tests/test_worker_task_failure_serialization.py` collection error（worker_app 模块缺失）
   - 旧 baseline 的 2 个 pre-existing failures（session message analysis + materialization runtime hang）
 
-新增功能时**不能让上述基线下降**。每个 commit 跑一次完整 suite。
+新增功能时**不能让上述基线下降**。每个 commit 至少跑 typed_nodes 子集；涉及
+spare_parts 时同时跑 E2E runner 与 `compare_truth.py`。
 
 ---
 
@@ -458,8 +420,9 @@ print(render_catalog_summary_for_prompt())
 ## 9. 联络与状态
 
 - 分支 PR URL（待创建）: https://github.com/Trynewthings/ForgeAI/pull/new/feat/typed-node-v0
-- 当前状态: 8.0.12 已 merge 到分支并 push origin
-- 下一项: 8.0.13 LLM Prompt Builder
+- 当前状态: 8.0.20 已落地；typed-node v0 路线图工程阶段完成
+- 下一项: spare_parts 业务规则/fixture truth 校准
+- 业务校准: `compare_truth.py` 当前仍 DIFF，说明 spare_parts 规则与 truth fixture 尚未对齐
 
 后续 commits 建议保持每个 8.0.X 任务一个 commit 的节奏，commit message
 首行使用 `feat(typed-nodes): 8.0.X — <短标题>`。

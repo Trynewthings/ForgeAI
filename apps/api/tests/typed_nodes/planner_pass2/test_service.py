@@ -18,6 +18,7 @@ from app.services.typed_nodes.planner_pass2 import (
 )
 from app.services.typed_nodes.planner_pass2.service import (
     PLANNER_PASS2_SERVICE_VERSION,
+    RepairPolicy,
     _topological_order,
 )
 
@@ -299,6 +300,96 @@ def test_invalid_config_dict_aborts_with_partial_output():
     assert not res.success
     assert res.failed_step_id == "r"
     assert "config_validation_failed" in res.fallback_reason
+
+
+def test_static_config_validation_aborts_with_partial_output():
+    """A Pydantic-valid config can still be invalid against schema flow."""
+
+    def _bad_static_config_synth(step, **kwargs):
+        from app.services.typed_nodes.planner_pass2.mock_synth import synthesize_mock_config
+        if step.step_id == "p":
+            return {"columns": ["sku_id", "does_not_exist"]}, [], "llm"
+        return synthesize_mock_config(step, **kwargs), [], "mock"
+
+    res = PlannerPass2Service(synthesizer=_bad_static_config_synth).synthesize(_basic_inputs())
+    assert not res.success
+    assert res.failed_step_id == "p"
+    assert "config_static_validation_failed" in res.fallback_reason
+    assert len(res.output.steps) == 1
+    assert res.output.steps[0].step_id == "r"
+
+
+def test_repair_policy_retries_failed_step_and_continues():
+    calls: list[tuple[str, int | None, str | None]] = []
+
+    def _repairing_synth(step, **kwargs):
+        calls.append((
+            step.step_id,
+            kwargs.get("attempt_idx"),
+            kwargs.get("repair_feedback"),
+        ))
+        from app.services.typed_nodes.planner_pass2.mock_synth import synthesize_mock_config
+        if step.step_id == "p" and kwargs.get("attempt_idx") is None:
+            return {"columns": ["sku_id", "does_not_exist"]}, [], "llm"
+        return synthesize_mock_config(step, **kwargs), ["fixed"], "llm"
+
+    res = PlannerPass2Service(
+        synthesizer=_repairing_synth,
+        repair_policy=RepairPolicy(max_attempts=1),
+    ).synthesize(_basic_inputs())
+
+    assert res.success
+    assert res.output.repaired_step_ids == ["p"]
+    by_id = {s.step_id: s for s in res.output.steps}
+    assert by_id["p"].typed_config.synthesized_by == "repair"
+    assert "fixed" in by_id["p"].synthesis_notes
+    assert len(res.repair_attempts) == 1
+    assert res.repair_attempts[0].success is True
+    repair_call = [c for c in calls if c[0] == "p" and c[1] == 1][0]
+    assert repair_call[2] and "does_not_exist" in repair_call[2]
+
+
+def test_repair_exhaustion_downgrades_step_to_coding_agent():
+    p1 = PlannerPass1Output(
+        draft_status="complete",
+        steps=[
+            _step("r", "read_csv", consumes=["demand"]),
+            _step("p", "project", upstream=["r"]),
+        ],
+        entry_step_ids=["r"],
+        exit_step_ids=["p"],
+    )
+    inp = PlannerPass2Input(
+        pass1_output=p1,
+        input_artifacts=[
+            PlannerInputArtifact(
+                artifact_id="demand", path="/in.csv", format="csv",
+                declared_columns=["sku_id", "qty"],
+            ),
+        ],
+        requirement_text="Read and project.",
+    )
+
+    def _always_bad_project(step, **kwargs):
+        from app.services.typed_nodes.planner_pass2.mock_synth import synthesize_mock_config
+        if step.step_id == "p":
+            return {"columns": ["sku_id", "does_not_exist"]}, [], "llm"
+        return synthesize_mock_config(step, **kwargs), [], "mock"
+
+    res = PlannerPass2Service(
+        synthesizer=_always_bad_project,
+        repair_policy=RepairPolicy(max_attempts=1),
+    ).synthesize(inp)
+
+    assert res.success
+    assert res.output.repaired_step_ids == ["p"]
+    by_id = {s.step_id: s for s in res.output.steps}
+    assert by_id["p"].node_type == "coding_agent"
+    assert by_id["p"].typed_config.synthesized_by == "repair"
+    assert by_id["p"].typed_config.config["original_node_type"] == "project"
+    assert "Pass 2 repair exhausted" in by_id["p"].escape_hatch_reason
+    p_flow = [s for s in res.output.schema_flow if s.step_id == "p"][0]
+    assert "sku_id" in p_flow.output_columns
 
 
 # ---------------------------------------------------------------------------
