@@ -142,4 +142,9 @@ class FilterExecutor(TypedNodeExecutor):
 register_typed_node(
     FilterExecutor,
     summary="Filter rows by a SafeExprEngine predicate",
+    when_to_use=(
+        "When the requirement says 'only include rows where X', 'exclude "
+        "rows where Y', or 'final queue contains only SKUs requiring "
+        "action'. Predicate is a boolean expression over upstream columns."
+    ),
 )

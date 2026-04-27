@@ -218,4 +218,10 @@ class FormulaEvalExecutor(TypedNodeExecutor):
 register_typed_node(
     FormulaEvalExecutor,
     summary="Derive new columns from upstream rows via SafeExprEngine expressions",
+    when_to_use=(
+        "When the requirement says 'compute / calculate X from Y', "
+        "'derive Z = A * B', or lists per-row metrics (available_qty, "
+        "coverage_days, reorder_point, gap_qty, recommended_qty). One "
+        "formula_eval can emit multiple new columns in a single step."
+    ),
 )

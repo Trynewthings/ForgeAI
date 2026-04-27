@@ -188,4 +188,9 @@ class ReadCsvExecutor(TypedNodeExecutor):
 register_typed_node(
     ReadCsvExecutor,
     summary="Read a CSV / TSV / pipe-delimited file into tabular_records",
+    when_to_use=(
+        "Source step for ANY input artifact whose format is csv / tsv. "
+        "One read_csv per input file — multiple inputs become multiple "
+        "read_csv steps that a downstream merge node combines."
+    ),
 )

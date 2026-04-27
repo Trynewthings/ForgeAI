@@ -235,4 +235,9 @@ class MergeExecutor(TypedNodeExecutor):
 register_typed_node(
     MergeExecutor,
     summary="SQL-style join of two tabular_records inputs (left, right) on key column(s)",
+    when_to_use=(
+        "When two upstream tables must be combined on a shared key "
+        "(e.g. inventory + sku_master on sku_id). For 3+ tables, chain "
+        "merge steps — each merge takes exactly two inputs."
+    ),
 )

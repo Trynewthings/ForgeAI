@@ -373,6 +373,12 @@ register_typed_node(
         "Use as final node when the spec declares a target file format "
         "different from the in-memory tabular_records flow."
     ),
+    when_to_use=(
+        "When the output format is json / jsonl / tsv (NOT csv — for csv "
+        "use write_csv instead). Or when the input is json / jsonl and "
+        "must be converted to csv-shaped tabular_records before the rest "
+        "of the pipeline."
+    ),
 )
 
 

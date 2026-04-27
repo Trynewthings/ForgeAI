@@ -50,7 +50,7 @@ def test_messages_are_deterministic():
 def test_revision_pinned():
     """If this fails, the prompt was edited intentionally — bump
     PROMPT_REVISION and update this test in the same commit."""
-    assert PROMPT_REVISION == "typed_planner_pass1_prompt_v0_1"
+    assert PROMPT_REVISION == "typed_planner_pass1_prompt_v0_2"
 
 
 # ---------------------------------------------------------------------------

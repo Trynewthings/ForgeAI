@@ -27,23 +27,32 @@ class CatalogEntry:
 
     node_type: str
     summary: str           # one-line job description
+    when_to_use: str       # concrete trigger phrase (when the LLM should pick this)
     config_class_name: str
     executor_class_name: str
 
 
 _REGISTRY: dict[str, type[TypedNodeExecutor]] = {}
 _SUMMARIES: dict[str, str] = {}
+_WHEN_TO_USE: dict[str, str] = {}
 
 
 def register_typed_node(
     executor_class: type[TypedNodeExecutor],
     *,
     summary: str,
+    when_to_use: str = "",
 ) -> type[TypedNodeExecutor]:
     """Register an executor class under its ``node_type``.
 
     ``summary`` is the one-line description used in the planner's
     catalog summary (kept English per the v0 design decision).
+
+    ``when_to_use`` is a concrete trigger phrase that nudges the planner
+    LLM toward picking THIS node when the requirement matches. Pass 1's
+    prompt renders summary + when_to_use side-by-side so the LLM has a
+    direct decision aid rather than having to reason from the abstract
+    summary alone. Empty string is permitted but discouraged.
 
     Idempotent — re-registering the same class is a no-op (lets us
     re-import modules in tests). Re-registering a DIFFERENT class
@@ -67,6 +76,7 @@ def register_typed_node(
         )
     _REGISTRY[executor_class.node_type] = executor_class
     _SUMMARIES[executor_class.node_type] = summary
+    _WHEN_TO_USE[executor_class.node_type] = when_to_use
     return executor_class
 
 
@@ -96,6 +106,7 @@ def get_catalog_summary() -> list[CatalogEntry]:
         CatalogEntry(
             node_type=nt,
             summary=_SUMMARIES[nt],
+            when_to_use=_WHEN_TO_USE.get(nt, ""),
             config_class_name=cls.config_class.__name__,
             executor_class_name=cls.__name__,
         )
@@ -105,12 +116,22 @@ def get_catalog_summary() -> list[CatalogEntry]:
 
 def render_catalog_summary_for_prompt() -> str:
     """The catalog summary formatted as a markdown table the LLM
-    parses easily. Includes the escape-hatch row at the bottom."""
-    rows = ["| node_type | purpose |", "|---|---|"]
+    parses easily. Three columns: node_type, purpose, when to use.
+    Includes the escape-hatch row at the bottom.
+
+    The third column is the most important behavioural lever — without
+    a concrete trigger phrase, the LLM tends to default to coding_agent
+    even when a typed node fits.
+    """
+    rows = ["| node_type | purpose | when to use |", "|---|---|---|"]
     for entry in get_catalog_summary():
-        rows.append(f"| {entry.node_type} | {entry.summary} |")
+        when = entry.when_to_use or "(see purpose)"
+        rows.append(f"| {entry.node_type} | {entry.summary} | {when} |")
     rows.append(
-        "| coding_agent | escape hatch — only when no typed node fits |"
+        "| coding_agent | escape hatch — only when NO composition of "
+        "typed nodes can express the step | LAST RESORT — first try to "
+        "decompose the step into 2+ typed nodes; only fall back when a "
+        "specific operation is genuinely outside the catalog |"
     )
     return "\n".join(rows)
 
@@ -119,6 +140,7 @@ def reset_registry_for_tests() -> None:
     """Test-only: wipe the registry. Production code never calls this."""
     _REGISTRY.clear()
     _SUMMARIES.clear()
+    _WHEN_TO_USE.clear()
 
 
 __all__ = [

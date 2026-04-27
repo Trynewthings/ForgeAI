@@ -150,4 +150,10 @@ class ProjectExecutor(TypedNodeExecutor):
 register_typed_node(
     ProjectExecutor,
     summary="Select / rename / reorder columns of tabular_records",
+    when_to_use=(
+        "When the requirement specifies an exact output column list / "
+        "order, or to drop intermediate columns before write_csv. Also "
+        "for renaming columns (e.g. 'sku' → 'sku_id') without altering "
+        "values."
+    ),
 )

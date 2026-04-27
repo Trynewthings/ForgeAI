@@ -38,7 +38,13 @@ from app.services.typed_nodes.registry import (
 # Bump when the prompt's intent or hard rules change. Tests pin this
 # string so accidental edits trip a clear failure rather than silent
 # drift in planner behavior.
-PROMPT_REVISION = "typed_planner_pass1_prompt_v0_1"
+#
+# v0_2 (8.0.22): added explicit OUTPUT SKELETON block with a worked
+# example, made ``intent`` a hard rule, added a "PREFER COMPOSITION"
+# rule pushing back on the LLM's tendency to default to coding_agent.
+# Also forbids ``{"graph": {...}}`` wrappers explicitly — DeepSeek-chat
+# was emitting that variant on real-mode runs.
+PROMPT_REVISION = "typed_planner_pass1_prompt_v0_2"
 
 
 class PlannerPass1Messages(NamedTuple):
@@ -70,38 +76,129 @@ HARD RULES (the validator rejects any output that breaks these):
 1. Every step's ``node_type`` MUST be one of the catalog rows below \
 or ``coding_agent``. No other values are accepted.
 
-2. Use ``coding_agent`` ONLY when no typed node fits. When you do, \
-populate ``escape_hatch_reason`` with a one-sentence justification — \
-this is later harvested into new typed nodes, so be specific.
+2. PREFER COMPOSITION. The catalog covers most data-pipeline operations \
+through composition — read_csv + merge + formula_eval + classify_state_space + \
+filter + write_csv handles inventory monitoring, replenishment, and \
+classification end-to-end. Before falling back to coding_agent for a step, \
+try to decompose it: a step that "computes per-row metrics AND classifies \
+risk AND writes output" is THREE typed-node steps (formula_eval → \
+classify_state_space → write_csv), not one coding_agent. Use \
+coding_agent ONLY when a SPECIFIC operation is genuinely outside the \
+catalog (e.g. PDF parsing, ML inference, external API calls).
 
-3. ``step_id`` MUST be snake_case, start with a letter, contain only \
-[a-z0-9_].
+3. Each step REQUIRES an ``intent`` field — a one-sentence English \
+description of what THAT step does in business terms. Example:
+``"intent": "Join inventory live qty into demand table on sku_id"``. \
+Missing intent fails validation.
 
-4. ``upstream_step_ids`` is the SOLE topology declaration. There is \
+4. When you do use ``coding_agent``, populate ``escape_hatch_reason`` \
+with a one-sentence justification — this is later harvested into new \
+typed nodes, so be specific.
+
+5. ``step_id`` MUST be snake_case, start with a letter, contain only \
+[a-z0-9_]. Example: ``"join_inventory_with_master"``.
+
+6. ``upstream_step_ids`` is the SOLE topology declaration. There is \
 NO separate edges array. For multi-input nodes (merge), the FIRST \
 id is the LEFT input, the SECOND is the RIGHT input.
 
-5. The graph MUST be acyclic. No step may reference itself or a \
+7. The graph MUST be acyclic. No step may reference itself or a \
 descendant as upstream.
 
-6. Source steps (read_csv, format_convert as a source) MUST list \
+8. Source steps (read_csv, format_convert as a source) MUST list \
 their input ``artifact_id``(s) under ``consumes_artifact_ids``. \
 Sink steps (write_csv, format_convert as a sink) MUST list their \
-output ``artifact_id`` under ``produces_artifact_ids``. Cross-checked \
-against the artifacts in the user message.
+output ``artifact_id`` under ``produces_artifact_ids``. The values \
+MUST come VERBATIM from the ``artifact_id`` column of the artifact \
+tables below — e.g. if the input artifacts table lists \
+``artifact_id=src_1``, the read_csv that reads it has \
+``"consumes_artifact_ids": ["src_1"]``. Empty ``consumes_artifact_ids`` \
+on a source step is REJECTED.
 
-7. ``entry_step_ids`` MUST equal the set of step_ids with no upstream. \
+9. ``entry_step_ids`` MUST equal the set of step_ids with no upstream. \
 ``exit_step_ids`` MUST equal the set of step_ids that no other step \
 depends on. The validator will repair these if you omit them, but \
 explicit is preferred.
 
-8. Surface unresolved concerns as ``unresolved_items`` rather than \
-silently fudging. Examples: input artifact with unknown columns, \
-ambiguous business rule, capability gap.
+10. Surface unresolved concerns as ``unresolved_items`` rather than \
+silently fudging. Each unresolved_item is an OBJECT (NOT a string) \
+with these fields: ``item_id`` (snake_case identifier you choose), \
+``item_kind`` (one of: missing_node_type, ambiguous_intent, \
+constraint_violation, review_needed, schema_uncertainty), \
+``severity`` (one of: blocking, warning, info), ``related_step_ids`` \
+(list of step_ids the concern attaches to), ``description`` \
+(free-form English), and optionally ``suggested_resolution``. \
+NEVER emit ``unresolved_items`` as a list of plain strings.
 
-OUTPUT FORMAT: A single JSON object matching PlannerPass1Output. Do \
-NOT wrap in prose, do NOT use markdown fences. The first character \
-of your response must be ``{``.
+OUTPUT FORMAT: A single JSON object matching PlannerPass1Output. \
+Top-level keys are ``steps``, ``entry_step_ids``, ``exit_step_ids``, \
+``unresolved_items``, ``planner_version``, ``draft_status``. \
+DO NOT wrap the document in any other key — specifically NOT \
+``{"graph": {...}}``, NOT ``{"output": {...}}``, NOT ``{"plan": {...}}``. \
+DO NOT wrap in prose. DO NOT use markdown fences. The first \
+character of your response must be ``{``.
+
+OUTPUT SKELETON (a worked example for a simple "read CSV → derive \
+columns → classify → write CSV" pipeline):
+
+```
+{
+  "planner_version": "typed_planner_pass1_v0",
+  "draft_status": "complete",
+  "steps": [
+    {
+      "step_id": "read_orders",
+      "node_type": "read_csv",
+      "intent": "Read the orders table",
+      "upstream_step_ids": [],
+      "consumes_artifact_ids": ["orders_csv"],
+      "produces_artifact_ids": []
+    },
+    {
+      "step_id": "compute_metrics",
+      "node_type": "formula_eval",
+      "intent": "Derive total_value = qty * unit_price per order",
+      "upstream_step_ids": ["read_orders"],
+      "consumes_artifact_ids": [],
+      "produces_artifact_ids": []
+    },
+    {
+      "step_id": "classify_priority",
+      "node_type": "classify_state_space",
+      "intent": "Tag each order Low/Med/High based on total_value",
+      "upstream_step_ids": ["compute_metrics"],
+      "consumes_artifact_ids": [],
+      "produces_artifact_ids": []
+    },
+    {
+      "step_id": "write_summary",
+      "node_type": "write_csv",
+      "intent": "Persist the classified orders to the deliverable CSV",
+      "upstream_step_ids": ["classify_priority"],
+      "consumes_artifact_ids": [],
+      "produces_artifact_ids": ["summary_csv"]
+    }
+  ],
+  "entry_step_ids": ["read_orders"],
+  "exit_step_ids": ["write_summary"],
+  "unresolved_items": [
+    {
+      "item_id": "unknown_priority_thresholds",
+      "item_kind": "ambiguous_intent",
+      "severity": "warning",
+      "related_step_ids": ["classify_priority"],
+      "description": "Thresholds for Low/Med/High priority not specified in the requirement; Pass 2 will need to choose defaults.",
+      "suggested_resolution": "Confirm the cutoff values with the requester before Pass 2."
+    }
+  ]
+}
+```
+
+Match this top-level shape exactly. NO extra wrapping object. \
+Note how ``read_orders`` binds ``consumes_artifact_ids: ["orders_csv"]`` \
+and ``write_summary`` binds ``produces_artifact_ids: ["summary_csv"]`` \
+— EVERY source step you emit MUST do the same with the artifact_ids \
+from the input artifacts table.
 """
 
 

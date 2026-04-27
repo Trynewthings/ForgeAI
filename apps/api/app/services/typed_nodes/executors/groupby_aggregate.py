@@ -201,6 +201,12 @@ register_typed_node(
         "Group rows by one or more keys and reduce each group via "
         "sum / mean / median / min / max / count / nunique / first / last"
     ),
+    when_to_use=(
+        "When the requirement says 'average daily demand', '28-day rolling "
+        "mean', 'sum by SKU', or any reduction over a time window or "
+        "category. Output is one row per group with one column per "
+        "aggregation."
+    ),
 )
 
 

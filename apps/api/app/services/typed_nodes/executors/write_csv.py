@@ -158,4 +158,9 @@ class WriteCsvExecutor(TypedNodeExecutor):
 register_typed_node(
     WriteCsvExecutor,
     summary="Write tabular_records to a CSV file with strict column ordering",
+    when_to_use=(
+        "Sink step for ANY output artifact whose format is csv. Required "
+        "as the terminal node of a graph that produces a CSV deliverable; "
+        "lists produces_artifact_ids = [<output_artifact_id>]."
+    ),
 )

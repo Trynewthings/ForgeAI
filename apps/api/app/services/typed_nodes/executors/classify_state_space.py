@@ -177,4 +177,11 @@ register_typed_node(
         "Decision-list classifier producing a single enum-valued column "
         "(state-space, approval-policy, or any rule-driven categorical)"
     ),
+    when_to_use=(
+        "When the requirement enumerates a closed set of states or modes "
+        "(risk_status ∈ {Stockout Risk, Imminent Shortage, Normal, ...}, "
+        "approval_mode ∈ {Auto PO, Manual Approval, Freeze, ...}). Each "
+        "rule maps a row predicate to one of the allowed_values; first "
+        "matching rule wins."
+    ),
 )

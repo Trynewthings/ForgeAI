@@ -210,4 +210,9 @@ class SchemaValidateExecutor(TypedNodeExecutor):
 register_typed_node(
     SchemaValidateExecutor,
     summary="Validate tabular_records against expected schema (passthrough on success)",
+    when_to_use=(
+        "Use as a guard step right after read_csv when the input columns "
+        "are known but uncertain — schema_validate fails fast on missing "
+        "columns / type drift before downstream steps see bad data."
+    ),
 )
