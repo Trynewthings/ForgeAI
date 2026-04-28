@@ -938,6 +938,7 @@ class RunExecutionService:
                 step_name=step.step_name,
                 step_definition=step_definition,
                 previous_outputs_by_step=previous_outputs_by_step,
+                run_id=run.id,
             )
             output_payload.update(
                 {

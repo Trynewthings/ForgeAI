@@ -3052,18 +3052,26 @@ def execute_typed_node_workload(
     step_name: str,
     step_definition: dict[str, Any],
     previous_outputs_by_step: dict[str, dict[str, Any]],
+    run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Execute one typed-node step through the typed-node registry."""
+    """Execute one typed-node step through the typed-node registry.
+
+    For ``node_type == "coding_agent"`` (a Pass 2 escape hatch or a
+    deliberate planner pick — both are first-class), the workload
+    routes to ``_execute_typed_node_coding_agent`` which materializes
+    upstream tabular records to CSVs in a sandbox workspace, runs
+    CodingAgentService against a synthesized TaskContract, and reads
+    the produced CSV back into list[dict] for downstream typed-node
+    consumption. Without ``run_id`` the coding_agent path falls back
+    to a temp-directory workspace; persistent workspaces require
+    run_id.
+    """
     import app.services.typed_nodes.executors  # noqa: F401  ensure registry populated
     from app.services.typed_nodes.registry import get_executor_class
 
     node_type = str(step_definition.get("node_type") or "").strip()
     if not node_type:
         raise ValueError(f"typed_node step {step_name!r} missing node_type")
-    if node_type == "coding_agent":
-        raise ValueError(
-            "typed_node runtime cannot execute coding_agent escape hatch directly"
-        )
 
     typed_config = step_definition.get("typed_config")
     if not isinstance(typed_config, dict):
@@ -3078,8 +3086,11 @@ def execute_typed_node_workload(
         raise ValueError(f"typed_node step {step_name!r} typed_config.config must be an object")
 
     inputs: list[Any] = []
+    upstream_ids: list[str] = []
     for upstream_id in step_definition.get("upstream_step_ids") or []:
-        upstream_output = previous_outputs_by_step.get(str(upstream_id))
+        uid = str(upstream_id)
+        upstream_ids.append(uid)
+        upstream_output = previous_outputs_by_step.get(uid)
         if upstream_output is None:
             raise ValueError(
                 f"typed_node step {step_name!r} missing upstream output {upstream_id!r}"
@@ -3091,6 +3102,17 @@ def execute_typed_node_workload(
                 "did not expose structured_output.result"
             )
         inputs.append(structured["result"])
+
+    if node_type == "coding_agent":
+        return _execute_typed_node_coding_agent(
+            step_name=step_name,
+            step_definition=step_definition,
+            config_payload=config_payload,
+            typed_config=typed_config,
+            upstream_ids=upstream_ids,
+            upstream_inputs=inputs,
+            run_id=run_id,
+        )
 
     executor_class = get_executor_class(node_type)
     config = executor_class.validate_config(config_payload)
@@ -3111,6 +3133,172 @@ def execute_typed_node_workload(
         structured_output["primary_output_path"] = result
         summary = f"typed_node {node_type} wrote {result}"
 
+    return {
+        "step_name": step_name,
+        "summary": summary,
+        "content": summary,
+        "structured_output": structured_output,
+        "adapter": "typed_node_executor",
+        "capability_family": "typed_node",
+        "status": "completed",
+    }
+
+
+def _execute_typed_node_coding_agent(
+    *,
+    step_name: str,
+    step_definition: dict[str, Any],
+    config_payload: dict[str, Any],
+    typed_config: dict[str, Any],
+    upstream_ids: list[str],
+    upstream_inputs: list[Any],
+    run_id: str | None,
+) -> dict[str, Any]:
+    """Run a coding_agent step inside a typed-node graph.
+
+    Bridge between typed-node's in-memory tabular_records flow and
+    CodingAgentService's file-based contract:
+
+      1. Materialize each upstream's records to ``upstream_<id>.csv`` in
+         a per-step sandbox workspace.
+      2. Synthesize a TaskContract: objective from intent +
+         escape_hatch_reason, input_evidence pointing at the staged CSVs,
+         expected_output at ``result.csv`` with declared_output_columns
+         as the schema hint.
+      3. Execute CodingAgentService.
+      4. Read result.csv back and return as list[dict] under
+         structured_output.result so downstream typed-node steps see
+         the same shape as upstream typed-node executors emit.
+    """
+    import csv
+    import tempfile
+    from pathlib import Path
+
+    from app.schemas.coding_agent import (
+        ExpectedOutput,
+        InputEvidence,
+        TaskContract,
+    )
+    from app.services.coding_agent.service import CodingAgentService
+
+    intent = step_definition.get("intent") or step_name
+    escape_reason = (
+        config_payload.get("escape_hatch_reason")
+        or typed_config.get("escape_hatch_reason")
+        or "no typed-node config could be synthesized for this step"
+    )
+    declared_output_columns = list(config_payload.get("declared_output_columns") or [])
+
+    # Workspace setup: persistent under run_id when known, temp dir
+    # otherwise so unit tests and ad-hoc invocations don't pollute
+    # .generated/ with stray directories.
+    if run_id:
+        workspace = _coding_agent_workspace(run_id=run_id, step_name=step_name)
+    else:
+        workspace = Path(tempfile.mkdtemp(prefix=f"typed_node_coding_agent_{step_name}_"))
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    # 1. Stage upstream tabular records.
+    input_evidence: list[InputEvidence] = []
+    staged_paths: list[str] = []
+    for uid, rows in zip(upstream_ids, upstream_inputs, strict=True):
+        path = workspace / f"upstream_{uid}.csv"
+        if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+            columns = sorted({k for row in rows for k in row.keys()})
+            with open(path, "w", encoding="utf-8", newline="") as fh:
+                writer = csv.DictWriter(fh, fieldnames=columns, extrasaction="ignore")
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow({c: row.get(c, "") for c in columns})
+        else:
+            # Non-tabular upstream — write a one-row JSON-as-CSV stub so
+            # the script at least has a file to inspect.
+            with open(path, "w", encoding="utf-8", newline="") as fh:
+                fh.write("payload\n")
+                import json as _json
+                fh.write(_json.dumps(rows, ensure_ascii=False) + "\n")
+        input_evidence.append(InputEvidence(
+            locator=str(path),
+            kind="tabular_records",
+        ))
+        staged_paths.append(str(path))
+
+    # 2. Synthesize TaskContract.
+    output_path = workspace / "result.csv"
+    objective_lines = [
+        f"Step intent: {intent}",
+        f"Escape hatch reason: {escape_reason}",
+    ]
+    if declared_output_columns:
+        objective_lines.append(
+            f"Output columns (in this order): {', '.join(declared_output_columns)}"
+        )
+    if upstream_ids:
+        objective_lines.append(
+            "Read upstream rows from input_evidence files (one CSV per "
+            "upstream step; filenames carry the step_id)."
+        )
+    objective_lines.append(
+        f"Write the resulting tabular records to {output_path.name} as CSV."
+    )
+    objective = "\n".join(objective_lines)[:1000]
+
+    schema_hint_text = (
+        f"CSV with columns: {', '.join(declared_output_columns)}"
+        if declared_output_columns
+        else None
+    )
+    expected_output = ExpectedOutput(
+        locator=str(output_path),
+        kind="tabular_records",
+        schema_hint=schema_hint_text,
+        required_fields=declared_output_columns or None,
+    )
+
+    contract = TaskContract(
+        objective=objective,
+        workspace_dir=str(workspace),
+        input_evidence=input_evidence,
+        expected_outputs=[expected_output],
+        source_node_id=step_name,
+    )
+
+    # 3. Execute.
+    result = CodingAgentService().execute(contract)
+    if not result.ok:
+        raise RuntimeError(
+            f"typed_node coding_agent step {step_name!r} failed: "
+            f"{result.failure_kind}"
+        )
+
+    # 4. Read back the produced CSV.
+    rows: list[dict[str, Any]] = []
+    if output_path.exists():
+        with open(output_path, encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                rows.append(dict(row))
+
+    summary = (
+        f"typed_node coding_agent completed in "
+        f"{len(result.iterations)} iteration(s); produced {len(rows)} row(s)"
+    )
+    structured_output: dict[str, Any] = {
+        "node_type": "coding_agent",
+        "typed_config": typed_config,
+        "result": rows,
+        "output_type": "tabular_records",
+        "upstream_step_ids": upstream_ids,
+        "consumes_artifact_ids": list(step_definition.get("consumes_artifact_ids") or []),
+        "produces_artifact_ids": list(step_definition.get("produces_artifact_ids") or []),
+        "coding_agent": {
+            "workspace_dir": str(workspace),
+            "result_path": str(output_path),
+            "iterations": len(result.iterations),
+            "input_evidence_paths": staged_paths,
+            "escape_hatch_reason": escape_reason,
+        },
+    }
     return {
         "step_name": step_name,
         "summary": summary,

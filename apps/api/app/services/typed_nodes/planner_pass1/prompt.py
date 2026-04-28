@@ -44,7 +44,17 @@ from app.services.typed_nodes.registry import (
 # rule pushing back on the LLM's tendency to default to coding_agent.
 # Also forbids ``{"graph": {...}}`` wrappers explicitly — DeepSeek-chat
 # was emitting that variant on real-mode runs.
-PROMPT_REVISION = "typed_planner_pass1_prompt_v0_2"
+#
+# v0_3 (8.0.23): softened the coding_agent framing. Earlier prompt
+# treated coding_agent as a "LAST RESORT" / failure mode; in practice
+# coding_agent is a first-class tool with the broadest capability
+# envelope and there are legitimate reasons to pick it (per-row
+# free-form reasoning, parsing irregular text, business logic too
+# bespoke for typed nodes). Rule 2 now reads "PREFER TYPED NODES WHEN
+# THEY FIT" rather than "ONLY when no typed node fits", and the
+# escape-hatch rationale is reframed as "audit data" rather than
+# justification of failure.
+PROMPT_REVISION = "typed_planner_pass1_prompt_v0_3"
 
 
 class PlannerPass1Messages(NamedTuple):
@@ -76,24 +86,34 @@ HARD RULES (the validator rejects any output that breaks these):
 1. Every step's ``node_type`` MUST be one of the catalog rows below \
 or ``coding_agent``. No other values are accepted.
 
-2. PREFER COMPOSITION. The catalog covers most data-pipeline operations \
-through composition — read_csv + merge + formula_eval + classify_state_space + \
-filter + write_csv handles inventory monitoring, replenishment, and \
-classification end-to-end. Before falling back to coding_agent for a step, \
-try to decompose it: a step that "computes per-row metrics AND classifies \
-risk AND writes output" is THREE typed-node steps (formula_eval → \
-classify_state_space → write_csv), not one coding_agent. Use \
-coding_agent ONLY when a SPECIFIC operation is genuinely outside the \
-catalog (e.g. PDF parsing, ML inference, external API calls).
+2. PREFER TYPED NODES WHEN THEY FIT. The catalog covers most data-pipeline \
+operations through composition — read_csv + merge + formula_eval + \
+classify_state_space + filter + write_csv handles inventory monitoring, \
+replenishment, and classification end-to-end. A step that "computes \
+per-row metrics AND classifies risk AND writes output" is three \
+typed-node steps, not one coding_agent. Pick typed nodes whenever \
+they fit cleanly — they're cheaper, deterministic, and easier to \
+validate.
+
+That said, ``coding_agent`` is a FIRST-CLASS tool, not a failure \
+mode. Pick it when the work is a genuinely good fit for a small \
+script: per-row free-form reasoning text, parsing irregular text, \
+joins where the key isn't shared cleanly across upstream tables, \
+business logic too bespoke for the typed catalog, output assembly \
+with computed-per-row text fields. Coding_agent steps run inside the \
+same DAG as typed-node steps; they consume upstream tabular_records \
+and emit tabular_records back.
 
 3. Each step REQUIRES an ``intent`` field — a one-sentence English \
 description of what THAT step does in business terms. Example:
 ``"intent": "Join inventory live qty into demand table on sku_id"``. \
 Missing intent fails validation.
 
-4. When you do use ``coding_agent``, populate ``escape_hatch_reason`` \
-with a one-sentence justification — this is later harvested into new \
-typed nodes, so be specific.
+4. When you pick ``coding_agent``, populate ``escape_hatch_reason`` \
+with a short note explaining why coding_agent fits this step better \
+than typed-node composition. Stored as audit data — used later to \
+identify candidate new typed nodes, not as a justification of \
+failure.
 
 5. ``step_id`` MUST be snake_case, start with a letter, contain only \
 [a-z0-9_]. Example: ``"join_inventory_with_master"``.

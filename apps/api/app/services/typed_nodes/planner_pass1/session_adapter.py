@@ -123,6 +123,34 @@ def _infer_format_from_path(path: str) -> Optional[str]:
     return _FORMAT_BY_EXT.get(suffix)
 
 
+def _profile_csv_headers(path: str) -> list[str]:
+    """Read the first row of a CSV/TSV file to extract column headers.
+
+    Returns ``[]`` on any failure (file missing, permission error,
+    binary garbage, etc.). The point is to populate
+    ``PlannerInputArtifact.declared_columns`` so Pass 2's per-step
+    config_synthesis (read_csv → dtype_overrides, downstream merge →
+    join keys) can ground configs in real column names rather than
+    inventing them.
+    """
+    import csv
+    import os
+
+    if not path or not os.path.exists(path):
+        return []
+    try:
+        delim = "\t" if path.lower().endswith(".tsv") else ","
+        with open(path, encoding="utf-8", newline="") as fh:
+            reader = csv.reader(fh, delimiter=delim)
+            try:
+                header = next(reader)
+            except StopIteration:
+                return []
+        return [c.strip() for c in header if c.strip()]
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return []
+
+
 def _build_input_artifacts(
     compile_context: CompileContextResponse,
 ) -> tuple[list[PlannerInputArtifact], list[str]]:
@@ -133,6 +161,14 @@ def _build_input_artifacts(
     (URLs, queries, free-form descriptions) are dropped here and
     surfaced as planning notes. The typed-node planner can still emit
     a coding_agent escape hatch for those.
+
+    For csv / tsv sources whose path resolves to a readable file we
+    profile the header row and stamp ``declared_columns``. Pass 2's
+    per-node prompts feed this list to the LLM so read_csv configs
+    list real columns under ``dtype_overrides`` (and downstream merge
+    knows which keys to join on). Without this profiling step the LLM
+    must invent column names, which produces graphs that fail
+    schema-flow validation deep into the synthesis loop.
     """
     artifacts: list[PlannerInputArtifact] = []
     notes: list[str] = []
@@ -155,12 +191,20 @@ def _build_input_artifacts(
         if artifact_id in seen_ids:
             artifact_id = f"{artifact_id}__{len(seen_ids)}"
         seen_ids.add(artifact_id)
+        declared_columns: list[str] = []
+        if fmt in ("csv", "tsv"):
+            declared_columns = _profile_csv_headers(src.locator_value)
+            if not declared_columns:
+                notes.append(
+                    f"input source {src.candidate_id!r}: header profile "
+                    f"returned empty for {src.locator_value!r}"
+                )
         artifacts.append(
             PlannerInputArtifact(
                 artifact_id=artifact_id,
                 path=src.locator_value,
                 format=fmt,  # type: ignore[arg-type]
-                declared_columns=[],
+                declared_columns=declared_columns,
                 notes=(
                     f"content_kind={src.content_kind}; confidence={src.confidence:.2f}"
                     if src.confidence

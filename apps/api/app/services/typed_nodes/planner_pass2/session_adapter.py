@@ -32,6 +32,8 @@ from app.services.typed_nodes.planner_pass1.session_adapter import (
     _build_input_artifacts,
     _build_output_artifacts,
 )
+from app.services.typed_nodes.planner_pass2.llm_synth import LLMSynthesizer
+from app.services.typed_nodes.planner_pass2.repair import RepairPolicy
 from app.services.typed_nodes.planner_pass2.schema import (
     PlannerPass2Input,
     PlannerPass2Output,
@@ -256,8 +258,18 @@ def synthesize_configs_for_session(
         request_id=row.id,
     )
 
-    svc = service or PlannerPass2Service()
-    result = svc.synthesize(pass2_input)
+    # Default to LLM synthesizer + repair policy. The synthesizer
+    # auto-detects llm_mode internally — mock-mode runtime configs go
+    # through the deterministic factory; real-mode runs against the
+    # configured provider once per step. Repair retries handle transient
+    # parse / validation failures up to 3 attempts before falling back
+    # to a coding_agent escape hatch.
+    if service is None:
+        service = PlannerPass2Service(
+            synthesizer=LLMSynthesizer(),
+            repair_policy=RepairPolicy(max_attempts=3, enable_escape_hatch=True),
+        )
+    result = service.synthesize(pass2_input)
 
     if not result.success:
         # Surface the failure with the partial result attached. Nothing
