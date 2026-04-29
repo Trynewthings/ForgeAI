@@ -83,7 +83,7 @@ def test_prompt_renders_for_each_node_type(node_type):
 
 
 def test_revision_pinned():
-    assert PROMPT_REVISION_V2 == "typed_planner_pass2_prompt_v0_1"
+    assert PROMPT_REVISION_V2 == "typed_planner_pass2_prompt_v0_3"
 
 
 def test_prompt_injects_upstream_columns_and_artifacts():

@@ -19,7 +19,21 @@ from app.services.typed_nodes.planner_pass1.schema import (
 from app.services.typed_nodes.registry import get_executor_class, has_node_type
 
 
-PROMPT_REVISION_V2 = "typed_planner_pass2_prompt_v0_1"
+# v0_2 (8.0.25): added per-node-type guidance to the system prompt.
+# Real-mode runs against the spare_parts session showed DeepSeek
+# over-asserting validate_non_negative on derived columns (gap_qty,
+# delta_qty) where negative values are semantically valid (overstock,
+# shrinkage). Also strengthens guidance for read_csv.dtype_overrides,
+# merge join keys, classify_state_space allowed_values, filter
+# predicates.
+#
+# v0_3 (8.0.25 follow-up): widened merge guidance — default how="left"
+# for enrichment merges, restrict require_no_nulls_after to truly
+# required columns (NOT sparse data like event qty_deltas / optional
+# market signals), discourage require_one_to_one. spare_parts step 11
+# was failing because real_time_events is sparse but the LLM had set
+# require_no_nulls_after=["qty_delta"].
+PROMPT_REVISION_V2 = "typed_planner_pass2_prompt_v0_3"
 
 
 class PlannerPass2StepMessages(NamedTuple):
@@ -51,6 +65,52 @@ HARD RULES:
    and explain the assumption in synthesis_notes.
 7. Do not wrap the JSON in prose or markdown fences. The first character
    of your response must be "{".
+
+NODE-TYPE-SPECIFIC GUIDANCE:
+
+* formula_eval.validate_non_negative — populate ONLY for columns that
+  represent strict physical quantities (counts, costs, capacities) where
+  a negative value indicates a calculation bug. Leave it empty for
+  derived metrics that can legitimately be negative: gap / delta / drift
+  / variance / surplus / shortfall / *_diff / *_change. Inventory
+  domain example: ``available_qty`` belongs in validate_non_negative;
+  ``gap_qty`` (target - on_hand) does NOT, since negative gap = overstock.
+
+* read_csv.dtype_overrides — list MUST be a subset of the input
+  artifact's declared_columns. Do NOT enumerate every column unless
+  the requirement demands type coercion for it; declaring a column
+  here also commits its name to downstream output_schema. Prefer
+  declaring only columns the workflow actually consumes.
+
+* merge.on / left_on / right_on — the join keys MUST appear in BOTH
+  upstream tables' columns. If the upstream column lists do not share
+  any obvious key, surface that as a synthesis_notes warning and pick
+  the safest schema-valid config; do NOT invent a join key.
+
+* merge.how — default to "left" when one upstream is the primary
+  spine (e.g. inventory rows enriched with optional supplier /
+  market / event data). "inner" drops rows with no match — only use
+  it when the requirement explicitly says rows without a match must
+  be excluded.
+
+* merge.require_no_nulls_after — populate ONLY for columns that the
+  workflow can NOT proceed without (e.g. join keys, primary identity
+  columns). Do NOT add columns that are NATURALLY sparse — event
+  qty_deltas, market signals that only exist for some categories,
+  optional reference fields. A null in such columns means "no event
+  yet / no signal yet", which is valid downstream after coalesce.
+
+* merge.require_one_to_one — leave False unless the requirement
+  explicitly states a 1:1 relationship between the two upstreams.
+  Most enrichment merges are many-to-one (events → SKU) and 1:1 is
+  almost never the right pick.
+
+* classify_state_space.allowed_values — must be the EXACT enum from
+  the requirement (state-space rule). Each rule's ``then`` value must
+  match one of allowed_values verbatim, including capitalization.
+
+* filter.predicate — reference only upstream columns. A predicate
+  that references a column not in upstream_columns is a hard error.
 """
 
 
