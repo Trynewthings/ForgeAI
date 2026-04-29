@@ -1,9 +1,9 @@
 # Typed-Node v0 交接文档
 
 **分支**: `feat/typed-node-v0`
-**最新提交**: `5c06f06` (docs(typed-nodes): add v0 handoff document)
-**测试基线**: typed_nodes 子集 **627 passed, 3 warnings**（2026-04-27 验证）
-**完成度**: Phase 0–6 全部完成；spare_parts truth 对比当前仍显示业务差异，后续是业务规则校准
+**最新提交**: `b2af8f4` (feat(typed-nodes): 8.0.25 — harden planner Pass 2 prompt for real-LLM use)
+**测试基线**: 全套 **1285 passed, 4 skipped**（typed_nodes 子集 631 passed）（2026-04-29）
+**完成度**: Phase 0–8 全部完成；spare_parts E2E real-mode 已通过 9/19 步执行，剩余卡点为 Pass 1 计划层语义缺陷（无共有键的表 chain merge），列入 8.0.24 待办
 
 ---
 
@@ -30,7 +30,7 @@
 
 ---
 
-## 2. 整体路线图（6 阶段）
+## 2. 整体路线图（8 阶段）
 
 | 阶段 | 任务 | 状态 |
 |---|---|---|
@@ -39,8 +39,11 @@
 | Phase 2 — Planner Pass 1 | 8.0.10 (schema/prompt/validator/service)、8.0.11 (retry/shadow) | DONE |
 | Phase 3 — Planner Pass 2 | 8.0.12 (scaffolding)、8.0.13 (LLM prompt builder)、8.0.14 (4-layer validator)、8.0.15 (repair + escape hatch) | DONE |
 | Phase 4 — Build/Run 集成 | 8.0.16 (dispatch)、8.0.17 (typed-node workload) | DONE |
-| Phase 5 — Spare_parts 端到端 | 8.0.18 (e2e run)、8.0.19 (truth comparison) | DONE（comparison 当前 DIFF） |
+| Phase 5 — Spare_parts 端到端 (脚本) | 8.0.18 (e2e run)、8.0.19 (truth comparison) | DONE（comparison 当前 DIFF） |
 | Phase 6 — 迁移与开关 | 8.0.20 (feature flag) | DONE |
+| Phase 7 — 前链集成 + UI | 8.0.21 (planner Pass 1/2 session adapters + /plan + /specify flag-gate + UI typed-node renderers) | DONE |
+| Phase 8 — Real-LLM 上手打磨 | 8.0.22 (Pass 1 prompt v0_2)、8.0.23 (coding_agent 路由 + LLMSynthesizer 接入 + CSV 列预扫 + Pass 1 v0_3)、8.0.25 (Pass 2 prompt v0_3) | DONE |
+| Phase 9 — Pass 1 计划质量（待） | 8.0.24 — Pass 1 加 "merge 必须基于 declared_columns 共有键" 约束 + validator 检查 | TODO |
 
 ---
 
@@ -239,6 +242,82 @@
   - `test_build_dispatch.py::test_typed_node_build_dispatch_respects_feature_flag`
   - `test_runtime_workload.py::test_run_execution_service_rejects_typed_node_when_feature_flag_disabled`
 
+### 3.8 Phase 7 — 前链集成 + UI（8.0.21 完成）
+
+把 typed-node v0 接入 front-chain（`/sessions/{id}/plan` + `/sessions/{id}/specify`），让 UI（`~/forgeDemo`）能在不改 front-chain 协议的前提下走完整链路。
+
+- **planner_pass1.session_adapter** (新建)
+  - `compile_context_to_pass1_input()`：从 `compile_context.input_closure.candidate_sources`（path 类）+ `output_closure.delivery_target/required_columns/business_rules` 翻译为 `PlannerPass1Input`
+  - `pass1_to_workflow_planner_output()`：把 `PlannerPass1Output` 包成 `WorkflowPlannerOutput` 形状（每个 `node_drafts[i]` 加 `node_type` 字段；原 `pass1_output` 完整存到 `planner_trace["typed_node_v0"]` sidecar）
+  - `plan_for_session_typed_v0()`：session-anchored 入口
+
+- **planner_pass2.session_adapter** (新建)
+  - `_extract_pass1_sidecar()`：从 `planner_output_json.planner_trace.typed_node_v0.pass1_output` 还原出 Pass 1 输出
+  - `synthesize_configs_for_session()`：跑 Pass 2，把结果写入 `node_specs_json`，并在 `node_specs_json["typed_node_v0"]["pass2_output"]` 存完整 `PlannerPass2Output`
+  - 兼容层：`specs[]` 数组保留 `node_id / semantic_goal / typed_config` 等键，让老 `NodeSpecsPanel` UI 不需改就能渲染基本信息
+
+- **`/plan` + `/specify` flag-gate** (`apps/api/app/api/routes/front_chain.py`)
+  - `typed_node_v0_enabled` 开启时走新 adapter；关闭时回到 `WorkflowPlannerService` / `specify_for_session`
+  - 关键定向：`/plan` 输出 `planner_version="typed_planner_pass1_v0"`；`/specify` 输出 `node_specs_version="typed_planner_pass2_service_v0_1"` + `schema_kind="typed_node_v0_config_synthesis"`
+
+- **Build dispatch**
+  - `build_execution_service._extract_typed_node_pass2_from_node_specs()`：从 `/specify` sidecar 还原 `PlannerPass2Output`，路由到 `build_typed_node_execution_package`
+  - 兼容旧路径：当 planner_output_json 直接是 PlannerPass2Output（独立 E2E 脚本走的路径）也能 fallback
+
+- **Schema 改动**
+  - `WorkflowPlannerNodeDraft.node_type: Optional[str] = None`：UI 见到非空就走 typed-node 渲染分支
+
+- **测试**：4 个新集成测试 (`test_session_chain_e2e.py`)：plan envelope shape、specify config_synthesis envelope、idempotency、build dispatcher recovery
+- **Legacy fixture**：conftest 加 `legacy_specify_path` 让 5 个 legacy NodeExecutionSpecBundle 测试 monkeypatch 关闭 flag，保留它们作为 legacy 路径回归
+
+- **Frontend (~/forgeDemo)**
+  - `FCPlannerNodeDraft.node_type?: string`
+  - `PlannerStepRow`：`node_type` 非空时把它当作主要标识渲染（catalog 名比 capability id 更有信息量）
+  - `NodeSpecsPanel`：检测到 `typed_config` 时展开 JSON viewer + node_type chip + synthesized_by 标签 + escape_hatch_reason 警告 + synthesis_notes 列表
+
+### 3.9 Phase 8 — Real-LLM 上手打磨（8.0.22, 8.0.23, 8.0.25 完成）
+
+8.0.21 wiring 通畅但 v0_1 prompt 在 DeepSeek-chat 上系统性失败。本阶段是 prompt × 协议互动的真实迭代。
+
+- **8.0.22 — Pass 1 prompt v0_2**
+  - DeepSeek 在 v0_1 上的偏差：`{"graph": {...}}` wrapper、缺 `intent` 字段、6 步全选 coding_agent
+  - Catalog 加 `when_to_use` 列（每个 typed node 一个具体触发短语，让 LLM 不要一律走 escape）
+  - 加 OUTPUT SKELETON 4 步示例 + structured unresolved_item 示例
+  - 显式禁 `{"graph": ...}` / `{"output": ...}` / `{"plan": ...}` wrapper
+  - 实测：从 0 typed-node 步 → 19 步、0 coding_agent escape
+
+- **8.0.23 — coding_agent 进 typed-node runtime + LLMSynthesizer 接入 + CSV header 预扫**
+  - `_execute_typed_node_coding_agent`：把上游 tabular_records 物化到 `<workspace>/upstream_<id>.csv`，合成 TaskContract（objective from intent + escape_hatch_reason，input_evidence 指向 staged CSVs，ExpectedOutput 含 declared_output_columns 作 required_fields），调 `CodingAgentService.execute`，读回 `result.csv` 作 list[dict] 返回
+  - `run_id` 通过 `_execute_step` 传给 typed-node workload，让 workspace 持久化 + 可追溯
+  - `synthesize_configs_for_session` 默认注入 `LLMSynthesizer + RepairPolicy(max_attempts=3, enable_escape_hatch=True)`（之前默认 mock_synthesizer，real-mode 也没真调 LLM）
+  - `_build_input_artifacts` 增加 `_profile_csv_headers`：读首行 stamp `declared_columns`（之前空，LLM 只能瞎猜列名）
+  - **prompt v0_3 软化 coding_agent 定位**：从 "LAST RESORT" 改为 "first-class tool"，写明合适场景（per-row reasoning text、key 不共享的 join、过于 bespoke 的业务逻辑）；`escape_hatch_reason` 重新定位为 audit 数据
+  - 实测：8/19 → 11/19 步执行成功
+
+- **8.0.25 — Pass 2 prompt v0_3 (NODE-TYPE-SPECIFIC GUIDANCE)**
+  - 8.0.23 上跑到 step 12 卡 `formula_eval.validate_non_negative` 拒 `gap_qty=-5.0`（库存领域 gap < 0 表示积压，合法）
+  - 在 Pass 2 system prompt 加 NODE-TYPE-SPECIFIC GUIDANCE 块，覆盖：
+    - `formula_eval.validate_non_negative`：仅用于物理量（数量、成本），derived/delta 列不要
+    - `read_csv.dtype_overrides`：必须是 declared_columns 子集，不要全列
+    - `merge.on / left_on / right_on`：必须出现在双方 declared_columns
+    - `merge.how`：默认 `"left"`（enrichment 场景）
+    - `merge.require_no_nulls_after`：仅 join key + 不可缺失列；naturally-sparse 列（事件 qty_delta、可选 reference field）不要
+    - `merge.require_one_to_one`：默认 False
+    - `classify_state_space.allowed_values`：必须 verbatim 来自需求枚举
+    - `filter.predicate`：只引用上游列
+  - 实测：merge 默认 `how="left"` + `require_no_nulls_after=[join_keys only]`；validate_non_negative 只在物理量；步数从 11/19 → 9/19（v0_3 的剩余卡点不是 over-strict，而是 Pass 1 计划缺陷暴露：market_signals 跟 sku-keyed pipeline 没共有键，导致 Pass 2 即使 repair 也找不到合法 join key 配置）
+
+### 3.10 Real-LLM 实测进度记录
+
+| 时间 | 提交 | spare_parts run 进度 | 卡点 |
+|---|---|---|---|
+| 8.0.21 | d4a7ce1 | 0/19 | Pass 1 prompt v0_1 让 LLM 全选 coding_agent；Pass 2 没真调 LLM（mock 默认） |
+| 8.0.22 | a008ed5 | 0/19（specify 之前) | Pass 1 修好（19 步 typed-node）但 Pass 2 默认 mock，artifact 列名空 |
+| 8.0.23 | c9b1280 | 11/19 | formula_eval.validate_non_negative 拒 gap_qty=-5（合法负值） |
+| 8.0.25 | b2af8f4 | 9/19 | market_signals 跟 sku-keyed 主链没共有 join key；Pass 1 计划层语义缺陷 |
+
+> 9/19 看似比 11/19 退步，但 v0_3 让 Pass 2 配置质量大幅提升（不再 over-strict）；剩余卡点上移到了 Pass 1 计划层——这是更深层、价值更大的修复方向（8.0.24）。
+
 ---
 
 ## 4. 关键契约（后续开发必须遵守）
@@ -318,20 +397,59 @@ spare_parts 业务输出与 truth fixture 不一致。后续若要让 truth comp
 - 多出 actual row: `P-006`
 - cell diffs: 45
 
+### 5.3 8.0.24 — Pass 1 计划质量（最高优先级）
+
+实测发现 Pass 1 让 LLM 把 6 张表全部 chain merge，但其中 3 张（market_signals 用 category+region 索引、supplier_performance 用 supplier_id、real_time_events 部分行）**跟 sku-keyed 主链没共有列**。Pass 2 没办法配出合法 join key，repair 用尽后回 coding_agent，coding_agent 被迫做 cross-join（spare_parts 上爆出 40k–163k 行）或失败。
+
+**修复方向**：
+- Pass 1 prompt 加 RULE：merge 必须基于上游 declared_columns 的实际共有列；如果无共有列，**不要 plan 直接 merge**，改用 (a) coding_agent 做查表/聚合 + 简单 left join，或 (b) groupby_aggregate 先 reshape 一边再 merge
+- Pass 1 validator 加 `merge_join_key_check`：每个 merge 边的双方 step output_schema 必须有非空交集（read_csv 的 output_schema = dtype_overrides.keys()，但 Pass 1 时还没 config，所以这个检查需要 declared_columns 替代）
+- Pass 2 config_validator 已经做了 column 引用检查（unknown_column_reference），但 Pass 2 时已经晚了——必须在 Pass 1 阶段就拒掉无意义的 merge
+
+预估：1 天工作量，需要在 Pass 1 prompt + validator + 测试三处协调。
+
+### 5.4 8.0.26+ — Pass 1/2 prompt 持续打磨
+
+每跑一次真实 spare_parts 都会暴露新的 LLM 偏差。已知模式：
+- Pass 1：枚举类节点选择仍偶发 coding_agent 即使 typed 节点合适（mid-graph aggregation）
+- Pass 2：read_csv.dtype_overrides 仍倾向于全列声明（v0_3 prompt 软性约束，未必每次都遵守）
+- Pass 2：classify_state_space 的 evidence_field 经常忘记声明
+
+工作模式：每跑一次 real-mode 命中新偏差 → 写入 prompt 的 NODE-TYPE-SPECIFIC GUIDANCE 块 → bump revision → 单元测试更新 pin。
+
 ---
 
 ## 6. 工作流程与命令
 
 ### 6.1 开发环境
 
+**测试 + 独立 E2E 脚本**:
 ```bash
 PYTHONPATH=apps/api UV_CACHE_DIR=/tmp/uv-cache /Users/llk/.local/bin/uv run --with-requirements apps/api/requirements.txt pytest apps/api/tests/typed_nodes -q
 PYTHONPATH=apps/api UV_CACHE_DIR=/tmp/uv-cache /Users/llk/.local/bin/uv run --with-requirements apps/api/requirements.txt python scenario_data/spare_parts/run_typed_node_e2e.py
 PYTHONPATH=apps/api UV_CACHE_DIR=/tmp/uv-cache /Users/llk/.local/bin/uv run --with-requirements apps/api/requirements.txt python scenario_data/spare_parts/compare_truth.py
 ```
 
+**前链 + UI 实测（real LLM）**:
+```bash
+# 1. 起 docker (Postgres + Redis)
+docker compose up -d postgres redis
+
+# 2. 起 FastAPI（thread mode 让 build/run 不需 Celery worker）
+BUILD_EXECUTION_MODE=thread PYTHONPATH=apps/api UV_CACHE_DIR=/tmp/uv-cache \
+  /Users/llk/.local/bin/uv run --with-requirements apps/api/requirements.txt \
+  --env-file .env uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
+
+# 3. 起 forgeDemo UI（端口 8765）
+cd ~/forgeDemo && npx vite --port 8765
+
+# 4. 浏览器走完整链路：创建 project → FC session → 粘 spare_parts prompt → /plan → /specify → /build → /run
+# spare_parts prompt 在 ~/.claude/projects/-Users-llk-agentsFactory/memory/project_spare_parts_prompt.md
+```
+
 注意：命令从仓库根目录 `/Users/llk/agentsFactory` 运行；`scenario_data/*/output/`
-是生成产物，不要加入 git。
+是生成产物，不要加入 git。Build 必须用 thread 模式（默认 auto 会走 celery，没 worker 时
+build 会卡 pending）。
 
 ### 6.2 Git 工作流
 
@@ -375,10 +493,15 @@ spare_parts 时同时跑 E2E runner 与 `compare_truth.py`。
 1. 本文档（顶层概览）
 2. `apps/api/app/services/typed_nodes/__init__.py`（包总览）
 3. `apps/api/app/services/typed_nodes/base.py`（执行器协议）
-4. `apps/api/app/services/typed_nodes/registry.py`（注册机制）
+4. `apps/api/app/services/typed_nodes/registry.py`（注册机制 + when_to_use 字段）
 5. **任意一个 executor 完整看一遍**（推荐 `executors/merge.py`，覆盖最多 corner case）
 6. `apps/api/app/services/typed_nodes/planner_pass1/schema.py`（Pass 1 契约）
-7. `apps/api/app/services/typed_nodes/planner_pass2/service.py`（Pass 2 主循环）
+7. `apps/api/app/services/typed_nodes/planner_pass1/prompt.py`（Pass 1 system prompt v0_3）
+8. `apps/api/app/services/typed_nodes/planner_pass1/session_adapter.py`（前链翻译层 + CSV header profile）
+9. `apps/api/app/services/typed_nodes/planner_pass2/service.py`（Pass 2 主循环）
+10. `apps/api/app/services/typed_nodes/planner_pass2/llm_prompt.py`（Pass 2 system prompt v0_3，含 NODE-TYPE-SPECIFIC GUIDANCE）
+11. `apps/api/app/services/typed_nodes/planner_pass2/session_adapter.py`（Pass 2 前链翻译 + LLMSynthesizer 注入）
+12. `apps/api/app/services/run/case_workloads.py:execute_typed_node_workload + _execute_typed_node_coding_agent`（runtime 路由）
 
 ### 8.2 不应该做什么
 
@@ -414,6 +537,27 @@ spare_parts 时同时跑 E2E runner 与 `compare_truth.py`。
 
 5. **scenario_data 的 input/expected 已 track，output 已 ignore**。不要把
    生成的 output 加入 git。
+
+6. **forgeDemo 不是 git repo**：`~/forgeDemo` 没有 `.git` 目录。Phase 7 加的
+   typed-node UI 改动（types.ts、PlannerStepRow、NodeSpecsPanel）只在工作
+   目录里，没有版本控制。
+
+7. **Build 必须 thread mode**：默认 `BUILD_EXECUTION_MODE=auto` 会优先走
+   Celery（broker 是 Redis），但项目没起 Celery worker，build 会卡 pending。
+   开发环境必须 export `BUILD_EXECUTION_MODE=thread` 让 build 在 FastAPI 进
+   程内 thread 跑。
+
+8. **planner_output sidecar 用 `planner_trace`**：`WorkflowPlannerOutput`
+   schema 没有 `planner_metadata` 字段（默认 Pydantic v2 `extra="ignore"` 会
+   静默丢掉自定义键）。typed-node v0 的 Pass 1 sidecar 存在 `planner_trace[
+   "typed_node_v0"]["pass1_output"]`。修改 schema 时注意这层。
+
+9. **registry import side-effect**：`get_catalog_node_types()` 依赖 registry
+   被填充，registry 在 `app.services.typed_nodes.executors` 包 `__init__.py`
+   import 时填充。脚本里直接调 `PlannerPass1Service().plan(...)` 而忘了
+   `import app.services.typed_nodes.executors` 会导致 validator 拒绝所有
+   node_type 为 "unknown"。FastAPI 启动时会 import builds.py → typed_node
+   transitive，所以 API path 没问题；但裸脚本必须显式 import。
 
 ---
 
