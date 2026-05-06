@@ -54,7 +54,16 @@ from app.services.typed_nodes.registry import (
 # THEY FIT" rather than "ONLY when no typed node fits", and the
 # escape-hatch rationale is reframed as "audit data" rather than
 # justification of failure.
-PROMPT_REVISION = "typed_planner_pass1_prompt_v0_3"
+#
+# v0_4 (8.0.24): added Rule 11 (MERGE FEASIBILITY) — the LLM was
+# routinely chaining merge steps between tables that don't share any
+# column (inventory_rt × market_signals × supplier_performance ...).
+# Validator now rejects via ``merge_no_shared_columns``; the prompt
+# rule steers the LLM toward viable alternatives (reshape via
+# groupby_aggregate / project, use coding_agent for lookup-style
+# enrichment, or surface as unresolved_item) BEFORE emitting the bad
+# plan, saving repair-budget LLM calls in Pass 2.
+PROMPT_REVISION = "typed_planner_pass1_prompt_v0_4"
 
 
 class PlannerPass1Messages(NamedTuple):
@@ -149,6 +158,30 @@ constraint_violation, review_needed, schema_uncertainty), \
 (list of step_ids the concern attaches to), ``description`` \
 (free-form English), and optionally ``suggested_resolution``. \
 NEVER emit ``unresolved_items`` as a list of plain strings.
+
+11. MERGE FEASIBILITY. Every ``merge`` step needs a join key that \
+exists in BOTH upstream branches' columns. Before adding a merge, \
+trace each upstream back to its source ``read_csv`` step and check \
+the ``declared_columns`` column of the input artifacts table — the \
+two upstream branches MUST share at least one column name verbatim. \
+If they do not (e.g. one source has ``sku_id`` but the other only has \
+``category, region``), do NOT plan a direct merge. Instead pick one \
+of these options and surface the choice in unresolved_items:
+
+  (a) Insert a ``groupby_aggregate`` or ``project`` step on one side \
+that reshapes columns into a key both sides share \
+(e.g. aggregate market_signals to a per-sku summary first).
+
+  (b) Use a ``coding_agent`` step for the enrichment, with \
+escape_hatch_reason explaining the lookup pattern \
+("market_signals indexed by category — needs categorical lookup, \
+not equality merge").
+
+  (c) Skip enriching from this source if the requirement allows it \
+and surface as ``unresolved_items`` so a human can decide.
+
+A direct merge between tables with no shared column will be rejected \
+by the validator with code ``merge_no_shared_columns``.
 
 OUTPUT FORMAT: A single JSON object matching PlannerPass1Output. \
 Top-level keys are ``steps``, ``entry_step_ids``, ``exit_step_ids``, \

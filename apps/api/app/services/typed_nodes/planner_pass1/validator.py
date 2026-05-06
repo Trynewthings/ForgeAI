@@ -29,6 +29,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from app.services.typed_nodes.planner_pass1.column_flow import (
+    propagate_columns_through_dag,
+)
 from app.services.typed_nodes.planner_pass1.prompt import get_catalog_node_types
 from app.services.typed_nodes.planner_pass1.schema import (
     PlannerPass1Input,
@@ -330,6 +333,68 @@ class PlannerPass1Validator:
                     f"max_node_count={input_data.max_node_count}"
                 ),
             ))
+
+        # ── 6b. merge join-key feasibility (8.0.24) ────────────────
+        # Every ``merge`` step needs a column that exists on BOTH
+        # upstream branches. Pass 1 doesn't have configs yet, so we
+        # can't validate the specific join key — but we CAN reject
+        # plans where the two upstream branches' projected output
+        # column sets share zero columns. Such a merge cannot succeed
+        # regardless of how Pass 2 picks a join key, and forcing
+        # Pass 2 to discover it via repair-exhaustion is wasteful (it
+        # eats LLM calls and ends up in coding_agent escape anyway).
+        #
+        # Only run when topology is sane AND every consumed input
+        # artifact has profiled declared_columns — without those the
+        # propagation result is uniformly empty and the check trips
+        # on every merge (false positives).
+        topology_sane_for_columns = not any(
+            i.code in {"duplicate_step_id", "dangling_upstream", "cycle_detected"}
+            for i in issues
+        )
+        artifacts_have_columns = all(
+            a.declared_columns for a in input_data.input_artifacts
+        )
+        if topology_sane_for_columns and artifacts_have_columns:
+            column_flow = propagate_columns_through_dag(
+                out.steps, input_data.input_artifacts
+            )
+            for s in out.steps:
+                if s.node_type != "merge":
+                    continue
+                if len(s.upstream_step_ids) != 2:
+                    # validator's other shape checks flag this
+                    # already; skip to avoid noise.
+                    continue
+                left_id, right_id = s.upstream_step_ids
+                left_cols = column_flow.get(left_id, frozenset())
+                right_cols = column_flow.get(right_id, frozenset())
+                if not left_cols or not right_cols:
+                    # At least one side has unknown schema — can't
+                    # responsibly assert no overlap.
+                    continue
+                shared = left_cols & right_cols
+                if not shared:
+                    issues.append(ValidationIssue(
+                        code="merge_no_shared_columns",
+                        severity="error",
+                        message=(
+                            f"merge step {s.step_id!r}: upstream "
+                            f"{left_id!r} (cols={sorted(left_cols)[:6]}"
+                            f"{'...' if len(left_cols) > 6 else ''}) "
+                            f"and upstream {right_id!r} (cols="
+                            f"{sorted(right_cols)[:6]}"
+                            f"{'...' if len(right_cols) > 6 else ''}) "
+                            f"share no columns; a typed-node merge "
+                            f"requires a join key present in BOTH "
+                            f"inputs. Replan: insert a "
+                            f"groupby_aggregate / project step that "
+                            f"reshapes one side, or use coding_agent "
+                            f"for a lookup-style enrichment."
+                        ),
+                        location=f"steps.{s.step_id}.upstream_step_ids",
+                        related_step_ids=(s.step_id, left_id, right_id),
+                    ))
 
         # ── 7. entry/exit derivation (REPAIR, not reject) ──────────
         # Only meaningful if the topology is otherwise sane — skip if

@@ -335,3 +335,153 @@ def test_validator_does_not_mutate_original():
     # But input object is untouched
     assert out.repaired == original_repaired
     assert out.entry_step_ids == original_entry
+
+
+# ---------------------------------------------------------------------------
+# 8.0.24 — merge_no_shared_columns check
+# ---------------------------------------------------------------------------
+
+
+def _input_with_columns(left_cols: list[str], right_cols: list[str]):
+    return PlannerPass1Input(
+        requirement_text="x",
+        input_artifacts=[
+            {
+                "artifact_id": "left",
+                "path": "l.csv",
+                "format": "csv",
+                "declared_columns": left_cols,
+            },
+            {
+                "artifact_id": "right",
+                "path": "r.csv",
+                "format": "csv",
+                "declared_columns": right_cols,
+            },
+        ],
+        output_artifacts=[
+            {"artifact_id": "out", "path": "o.csv", "format": "csv"},
+        ],
+    )
+
+
+def test_merge_no_shared_columns_rejected_when_both_sides_profiled():
+    inp = _input_with_columns(
+        left_cols=["sku_id", "qty"],
+        right_cols=["category", "region", "demand_index"],
+    )
+    out = PlannerPass1Output(steps=[
+        _step("read_l", "read_csv", consumes=["left"]),
+        _step("read_r", "read_csv", consumes=["right"]),
+        _step("bad_merge", "merge", upstream=["read_l", "read_r"]),
+        _step("write", "write_csv", upstream=["bad_merge"], produces=["out"]),
+    ])
+    res = PlannerPass1Validator().validate(out, inp)
+    codes = [i.code for i in res.issues]
+    assert "merge_no_shared_columns" in codes
+    assert res.has_blocking_errors
+    issue = next(i for i in res.issues if i.code == "merge_no_shared_columns")
+    assert "bad_merge" in issue.message
+    assert "read_l" in issue.message
+    assert "read_r" in issue.message
+
+
+def test_merge_with_shared_columns_passes():
+    inp = _input_with_columns(
+        left_cols=["sku_id", "qty"],
+        right_cols=["sku_id", "supplier_name"],
+    )
+    out = PlannerPass1Output(steps=[
+        _step("read_l", "read_csv", consumes=["left"]),
+        _step("read_r", "read_csv", consumes=["right"]),
+        _step("good_merge", "merge", upstream=["read_l", "read_r"]),
+        _step("write", "write_csv", upstream=["good_merge"], produces=["out"]),
+    ])
+    res = PlannerPass1Validator().validate(out, inp)
+    codes = [i.code for i in res.issues]
+    assert "merge_no_shared_columns" not in codes
+    assert not res.has_blocking_errors
+
+
+def test_merge_check_skipped_when_artifacts_have_no_declared_columns():
+    # Existing tests don't profile columns; we must not regress them
+    # by tripping the new check on every merge.
+    inp = PlannerPass1Input(
+        requirement_text="x",
+        input_artifacts=[
+            {"artifact_id": "a", "path": "a.csv", "format": "csv"},
+            {"artifact_id": "b", "path": "b.csv", "format": "csv"},
+        ],
+        output_artifacts=[
+            {"artifact_id": "out", "path": "o.csv", "format": "csv"},
+        ],
+    )
+    out = PlannerPass1Output(steps=[
+        _step("read_l", "read_csv", consumes=["a"]),
+        _step("read_r", "read_csv", consumes=["b"]),
+        _step("merge_step", "merge", upstream=["read_l", "read_r"]),
+        _step("write", "write_csv", upstream=["merge_step"], produces=["out"]),
+    ])
+    res = PlannerPass1Validator().validate(out, inp)
+    codes = [i.code for i in res.issues]
+    assert "merge_no_shared_columns" not in codes
+
+
+def test_merge_check_propagates_through_chained_merges():
+    # First merge: read_l × read_r on sku_id (OK).
+    # Second merge: merge1 × read_x on a column that exists nowhere.
+    # The second merge should be flagged.
+    inp = PlannerPass1Input(
+        requirement_text="x",
+        input_artifacts=[
+            {"artifact_id": "left", "path": "l.csv", "format": "csv",
+             "declared_columns": ["sku_id", "qty"]},
+            {"artifact_id": "right", "path": "r.csv", "format": "csv",
+             "declared_columns": ["sku_id", "supplier_name"]},
+            {"artifact_id": "extra", "path": "x.csv", "format": "csv",
+             "declared_columns": ["category", "region"]},
+        ],
+        output_artifacts=[
+            {"artifact_id": "out", "path": "o.csv", "format": "csv"},
+        ],
+    )
+    out = PlannerPass1Output(steps=[
+        _step("read_l", "read_csv", consumes=["left"]),
+        _step("read_r", "read_csv", consumes=["right"]),
+        _step("read_x", "read_csv", consumes=["extra"]),
+        _step("m1", "merge", upstream=["read_l", "read_r"]),
+        _step("m2", "merge", upstream=["m1", "read_x"]),
+        _step("write", "write_csv", upstream=["m2"], produces=["out"]),
+    ])
+    res = PlannerPass1Validator().validate(out, inp)
+    no_shared = [i for i in res.issues if i.code == "merge_no_shared_columns"]
+    # Only m2 should be flagged: m1 is fine (sku_id shared), m2 is bad.
+    assert len(no_shared) == 1
+    assert "m2" in no_shared[0].message
+
+
+def test_merge_check_skipped_when_one_artifact_unprofiled():
+    # Mixed-state inputs: one profiled, one not. We want to err on
+    # the side of NOT flagging — partial info shouldn't reject the
+    # plan; Pass 2 will catch real failures with concrete configs.
+    inp = PlannerPass1Input(
+        requirement_text="x",
+        input_artifacts=[
+            {"artifact_id": "a", "path": "a.csv", "format": "csv",
+             "declared_columns": ["sku_id", "qty"]},
+            {"artifact_id": "b", "path": "b.csv", "format": "csv",
+             "declared_columns": []},  # unprofiled
+        ],
+        output_artifacts=[
+            {"artifact_id": "out", "path": "o.csv", "format": "csv"},
+        ],
+    )
+    out = PlannerPass1Output(steps=[
+        _step("read_a", "read_csv", consumes=["a"]),
+        _step("read_b", "read_csv", consumes=["b"]),
+        _step("merge_step", "merge", upstream=["read_a", "read_b"]),
+        _step("write", "write_csv", upstream=["merge_step"], produces=["out"]),
+    ])
+    res = PlannerPass1Validator().validate(out, inp)
+    codes = [i.code for i in res.issues]
+    assert "merge_no_shared_columns" not in codes
